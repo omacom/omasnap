@@ -1,5 +1,9 @@
 /** @fileoverview Auto-scroll injection worker (see scroll-inject.hpp). */
 #include "scroll-inject.hpp"
+#include "capture-pointer.hpp"
+
+#include <condition_variable>
+#include <mutex>
 
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
 
@@ -423,4 +427,61 @@ bool spawnScrollInjector(std::shared_ptr<std::atomic<bool>> stop,
     qInfo().noquote() << QStringLiteral("scroll-inject: worker exited");
   }).detach();
   return true;
+}
+
+struct CapturePointer::State {
+  std::mutex mutex;
+  std::condition_variable changed;
+  QPointF position;
+  bool pending = false;
+  bool stopped = false;
+};
+
+CapturePointer::CapturePointer(const QString &outputName)
+    : state_(std::make_shared<State>()) {
+  std::thread([state = state_, outputName] {
+    QString error;
+    auto pointer = connectWlrPointer(outputName, error);
+    if (!pointer ||
+        zwlr_virtual_pointer_manager_v1_get_version(pointer->manager) < 2) {
+      qWarning().noquote() << "capture pointer:" << error
+                          << "(output-bound virtual pointer required)";
+      return;
+    }
+    std::unique_lock lock(state->mutex);
+    while (true) {
+      state->changed.wait(lock, [&] { return state->stopped || state->pending; });
+      if (state->stopped)
+        return;
+      const QPointF position = state->position;
+      state->pending = false;
+      lock.unlock();
+      // Fractions map to the bound output, including its scale and rotation.
+      constexpr uint32_t extent = 1000000;
+      zwlr_virtual_pointer_v1_motion_absolute(
+          pointer->pointer, pointer->timeMs(),
+          static_cast<uint32_t>(std::clamp(position.x(), 0.0, 1.0) * extent),
+          static_cast<uint32_t>(std::clamp(position.y(), 0.0, 1.0) * extent),
+          extent, extent);
+      zwlr_virtual_pointer_v1_frame(pointer->pointer);
+      if (wl_display_flush(pointer->display) < 0) {
+        qWarning() << "capture pointer: Wayland motion failed";
+        return;
+      }
+      lock.lock();
+    }
+  }).detach();
+}
+
+CapturePointer::~CapturePointer() {
+  std::lock_guard lock(state_->mutex);
+  state_->stopped = true;
+  state_->changed.notify_one();
+}
+
+void CapturePointer::moveTo(const QPointF &fraction) {
+  std::lock_guard lock(state_->mutex);
+  state_->position = fraction;
+  state_->pending = true;
+  state_->changed.notify_one();
 }

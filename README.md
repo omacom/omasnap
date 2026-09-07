@@ -325,6 +325,17 @@ Install the corresponding Tesseract language data before adding a language to
 
 ### Capture selection
 
+The pointer starts at the center of the focused monitor. Hold H/J/K/L to
+move left/down/up/right; movement accelerates while held. Hold Shift for
+fine positioning. Direction keys can be combined for diagonal motion.
+Press Enter to capture the window under the pointer. HJKL highlights that
+window as the pointer moves; Enter over empty desktop leaves selection open.
+Hold Ctrl with H/J/K/L to anchor a corner and draw a region. Release direction
+keys to pause, keeping Ctrl held while you change direction. Esc cancels the
+rectangle. Release Ctrl to capture the rectangle. With `--copy --save`, this
+copies and saves immediately; otherwise it opens the annotation editor.
+Tapping Ctrl alone or drawing a zero-width/height rectangle does not capture.
+
 Tabs across the top of the overlay switch the capture kind: **Region**,
 **Window**, **Scrolling Region**, **Fullscreen**. All four are modes of the
 same overlay. Scrolling Region selects exactly like Region; once the region is

@@ -7470,6 +7470,175 @@ bool runAreaLastRegionSmoke(QApplication &application, QString &error) {
   return true;
 }
 
+bool runKeyboardCaptureSmoke(QApplication &application, QString &error) {
+  const auto key = [](QWidget &target, QEvent::Type type, int code,
+                       Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+    QKeyEvent event(type, code, modifiers);
+    QApplication::sendEvent(&target, &event);
+  };
+  CaptureData capture;
+  capture.monitor.geometry = QRect(100, 200, 800, 600);
+  capture.monitor.pixelSize = QSize(800, 600);
+  capture.monitor.scale = 1.0;
+  capture.source = QImage(800, 600, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(QColor("#6480a0"));
+  capture.previewSize = capture.source.size();
+  WindowTarget window;
+  window.rect = QRect(200, 150, 400, 300);
+  capture.windows.push_back(window);
+  CaptureEditor editor(capture);
+  editor.resize(800, 600);
+  editor.show();
+  application.processEvents();
+  if (editor.capturePointerPosition() != QPointF(400, 300)) {
+    error = QStringLiteral("capture pointer did not start at monitor center");
+    return false;
+  }
+  QTest::keyPress(&editor, Qt::Key_L);
+  QTest::qWait(180);
+  QTest::keyRelease(&editor, Qt::Key_L);
+  const QPointF moved = editor.capturePointerPosition();
+  if (moved.x() <= 430 || moved.y() != 300) {
+    error = QStringLiteral("held L did not glide horizontally");
+    return false;
+  }
+  QTest::qWait(60);
+  if (editor.capturePointerPosition() != moved) {
+    error = QStringLiteral("pointer kept moving after key release");
+    return false;
+  }
+  QTest::keyPress(&editor, Qt::Key_H);
+  QTest::keyPress(&editor, Qt::Key_K);
+  QTest::qWait(800);
+  QTest::keyRelease(&editor, Qt::Key_H);
+  QTest::keyRelease(&editor, Qt::Key_K);
+  if (editor.capturePointerPosition().x() < 0 ||
+      editor.capturePointerPosition().y() != 0) {
+    error = QStringLiteral("diagonal keyboard motion escaped monitor bounds");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_Return);
+  if (!editor.currentSelection().isEmpty()) {
+    error = QStringLiteral("Enter captured a window away from the pointer");
+    return false;
+  }
+  QTest::mouseMove(&editor, QPoint(400, 300));
+  QTest::keyClick(&editor, Qt::Key_Return);
+  if (editor.currentSelection() != QRectF(window.rect) ||
+      editor.renderCurrentOutput().size() != window.rect.size()) {
+    error = QStringLiteral("Enter did not capture the window under the pointer");
+    return false;
+  }
+  CaptureEditor region(capture);
+  region.resize(800, 600);
+  region.show();
+  application.processEvents();
+  key(region, QEvent::KeyPress, Qt::Key_L, Qt::ControlModifier);
+  QTest::qWait(150);
+  key(region, QEvent::KeyRelease, Qt::Key_L, Qt::ControlModifier);
+  key(region, QEvent::KeyPress, Qt::Key_J, Qt::ControlModifier);
+  QTest::qWait(150);
+  key(region, QEvent::KeyRelease, Qt::Key_J, Qt::ControlModifier);
+  const QRectF drawn = region.currentSelection();
+  if (drawn.topLeft() != QPointF(400, 300) || drawn.width() < 30 ||
+      drawn.height() < 30) {
+    error = QStringLiteral("Ctrl+HJKL did not draw from its fixed anchor");
+    return false;
+  }
+  QKeyEvent repeatRelease(QEvent::KeyRelease, Qt::Key_Control,
+                          Qt::NoModifier, {}, true);
+  QApplication::sendEvent(&region, &repeatRelease);
+  if (region.currentSelection() != drawn ||
+      !region.operationLog().isEmpty()) {
+    error = QStringLiteral("auto-repeat committed the keyboard rectangle");
+    return false;
+  }
+  key(region, QEvent::KeyRelease, Qt::Key_Control);
+  if (region.currentSelection() != drawn ||
+      region.renderCurrentOutput().size() != drawn.toAlignedRect().size()) {
+    error = QStringLiteral("Ctrl release did not commit the keyboard rectangle");
+    return false;
+  }
+  region.close();
+
+  for (const auto modifiers : {Qt::NoModifier, Qt::ControlModifier}) {
+    CaptureEditor fine(capture);
+    fine.resize(800, 600);
+    fine.show();
+    application.processEvents();
+    key(fine, QEvent::KeyPress, Qt::Key_H, modifiers);
+    QTest::qWait(60);
+    key(fine, QEvent::KeyPress, Qt::Key_Shift,
+        modifiers | Qt::ShiftModifier);
+    const qreal beforeFine = fine.capturePointerPosition().x();
+    QTest::qWait(120);
+    const qreal afterFine = fine.capturePointerPosition().x();
+    if (beforeFine - afterFine <= 0 || beforeFine - afterFine > 30) {
+      error = QStringLiteral("Shift press did not slow held keyboard motion");
+      return false;
+    }
+    key(fine, QEvent::KeyRelease, Qt::Key_Shift, modifiers);
+    QTest::qWait(120);
+    if (afterFine - fine.capturePointerPosition().x() < 50) {
+      error = QStringLiteral("Shift release did not restore keyboard speed");
+      return false;
+    }
+    key(fine, QEvent::KeyRelease, Qt::Key_H, modifiers);
+    fine.close();
+  }
+
+  // Cancellation must leave no latent rectangle that a later Ctrl release saves.
+  CaptureEditor cancelled(capture);
+  cancelled.resize(800, 600);
+  cancelled.show();
+  application.processEvents();
+  key(cancelled, QEvent::KeyPress, Qt::Key_L, Qt::ControlModifier);
+  QTest::qWait(60);
+  QTest::keyClick(&cancelled, Qt::Key_Escape);
+  key(cancelled, QEvent::KeyRelease, Qt::Key_L, Qt::ControlModifier);
+  key(cancelled, QEvent::KeyRelease, Qt::Key_Control);
+  if (!cancelled.currentSelection().isEmpty()) {
+    error = QStringLiteral("cancelled rectangle survived Ctrl release");
+    return false;
+  }
+  cancelled.close();
+
+  CaptureEditor empty(capture);
+  empty.resize(800, 600);
+  empty.show();
+  application.processEvents();
+  key(empty, QEvent::KeyRelease, Qt::Key_Control);
+  key(empty, QEvent::KeyPress, Qt::Key_L, Qt::ControlModifier);
+  QTest::qWait(80);
+  key(empty, QEvent::KeyRelease, Qt::Key_Control);
+  key(empty, QEvent::KeyRelease, Qt::Key_L);
+  if (!empty.currentSelection().isEmpty() || !empty.isVisible()) {
+    error = QStringLiteral("empty or one-dimensional rectangle was captured");
+    return false;
+  }
+  empty.close();
+
+  CaptureEditor interrupted(capture);
+  interrupted.resize(800, 600);
+  interrupted.show();
+  application.processEvents();
+  key(interrupted, QEvent::KeyPress, Qt::Key_J, Qt::ControlModifier);
+  QTest::qWait(80);
+  QFocusEvent focusLost(QEvent::FocusOut);
+  QApplication::sendEvent(&interrupted, &focusLost);
+  const QPointF stopped = interrupted.capturePointerPosition();
+  key(interrupted, QEvent::KeyRelease, Qt::Key_Control);
+  QTest::qWait(50);
+  if (!interrupted.currentSelection().isEmpty() ||
+      interrupted.capturePointerPosition() != stopped) {
+    error = QStringLiteral("focus loss left keyboard capture running");
+    return false;
+  }
+  interrupted.close();
+  editor.close();
+  return true;
+}
+
 int main(int argc, char **argv) {
   // Re-executed by the instance-lock checks as the process holding the lock.
   const QString heldLockPath =
@@ -7530,6 +7699,10 @@ int main(int argc, char **argv) {
     return 0;
   }
   QString snapshotError;
+  if (!runKeyboardCaptureSmoke(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 130;
+  }
   if (!runAreaLastRegionSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 119;
