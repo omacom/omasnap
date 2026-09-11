@@ -98,6 +98,13 @@ const char *eventName(stitch::ManualCapture::Event event) {
   }
   return "?";
 }
+
+/// The tab strip for this surface, split around a notch where the panel
+/// has one.
+QVector<CaptureTab> tabLayout(const QRect &bounds, const MonitorInfo &monitor) {
+  return captureTabLayout(
+      bounds, captureTabNotchWidth(monitor.pixelSize, monitor.scale));
+}
 } // namespace
 
 struct ScrollCapturePanel::Worker {
@@ -257,7 +264,7 @@ void ScrollCapturePanel::postStatus(const QString &status, bool warning) {
 
 QVector<QRect> ScrollCapturePanel::chromeRects() const {
   QVector<QRect> rects;
-  for (const CaptureTab &tab : captureTabLayout(rect()))
+  for (const CaptureTab &tab : tabLayout(rect(), monitor_))
     rects.push_back(tab.rect.toAlignedRect());
   if (phase_ == Phase::Selected) {
     for (int index = 0; index < kModeButtonCount; ++index)
@@ -1100,7 +1107,7 @@ void ScrollCapturePanel::paintEvent(QPaintEvent *) {
   }
   // The same tab strip every overlay wears, with this kind lit. The other
   // tabs leave for the area overlay in that mode.
-  drawCaptureTabs(painter, captureTabLayout(rect()), CaptureKind::Scroll,
+  drawCaptureTabs(painter, tabLayout(rect(), monitor_), CaptureKind::Scroll,
                   cursor_);
   drawStatusPill(painter, rect(), status_);
 }
@@ -1144,9 +1151,10 @@ void ScrollCapturePanel::mousePressEvent(QMouseEvent *event) {
   }
   if (event->button() != Qt::LeftButton)
     return;
-  if (const int tab = captureTabAt(captureTabLayout(rect()), event->position());
+  if (const int tab =
+          captureTabAt(tabLayout(rect(), monitor_), event->position());
       tab >= 0) {
-    const CaptureKind kind = captureTabLayout(rect()).at(tab).kind;
+    const CaptureKind kind = tabLayout(rect(), monitor_).at(tab).kind;
     if (kind != CaptureKind::Scroll) {
       stopWorker();
       phase_ = Phase::Finished;

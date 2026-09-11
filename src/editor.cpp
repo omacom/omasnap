@@ -5463,7 +5463,9 @@ QVector<CaptureTab> CaptureEditor::selectTabItems() const {
   // to the select phase in that mode. A file has no screen to go back to.
   if (capture_.source.isNull() || (phase_ == Phase::Edit && !hasLiveScreen()))
     return {};
-  return captureTabLayout(rect());
+  return captureTabLayout(rect(),
+                          captureTabNotchWidth(capture_.monitor.pixelSize,
+                                               capture_.monitor.scale));
 }
 
 int CaptureEditor::selectTabAt(const QPointF &position) const {

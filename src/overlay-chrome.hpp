@@ -9,6 +9,7 @@
 #include <QRect>
 #include <QPointF>
 #include <QRectF>
+#include <QSize>
 #include <QString>
 #include <QVector>
 
@@ -46,8 +47,14 @@ struct CaptureTab {
 /// Chrome stacked below the strip anchors to this, not a guessed constant.
 constexpr qreal kCaptureTabBarBottom = 31.0;
 [[nodiscard]] QString captureTabLabel(CaptureKind kind);
-/// Tab positions for a surface of `bounds`, hanging off the top edge.
-[[nodiscard]] QVector<CaptureTab> captureTabLayout(const QRect &bounds);
+/// Logical width of the camera housing on the notched MacBook Pro panels
+/// (native modes 3456×2234 and 3024×1964); 0 for every other monitor.
+[[nodiscard]] qreal captureTabNotchWidth(const QSize &physicalMode,
+                                         qreal scale);
+/// Tab positions for a surface of `bounds`, hanging off the top edge. A
+/// non-zero `notchWidth` splits the strip either side of the housing.
+[[nodiscard]] QVector<CaptureTab> captureTabLayout(const QRect &bounds,
+                                                   qreal notchWidth = 0.0);
 /// Index of the tab under `position`, or -1.
 [[nodiscard]] int captureTabAt(const QVector<CaptureTab> &tabs,
                                const QPointF &position);
