@@ -1916,6 +1916,8 @@ bool saveOperationLog(const QString &path, const OperationLog &log,
   root.insert(QStringLiteral("index"), log.index);
   root.insert(QStringLiteral("nextId"), QString::number(log.nextId));
   root.insert(QStringLiteral("nextMarker"), log.nextMarker);
+  if (std::isfinite(log.outputScale) && log.outputScale > 0.0)
+    root.insert(QStringLiteral("outputScale"), log.outputScale);
   if (log.previewSize.isValid()) {
     root.insert(QStringLiteral("previewWidth"), log.previewSize.width());
     root.insert(QStringLiteral("previewHeight"), log.previewSize.height());
@@ -1962,6 +1964,9 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error) {
   loaded.index = root.value(QStringLiteral("index")).toInt();
   loaded.nextId = root.value(QStringLiteral("nextId")).toString().toULongLong();
   loaded.nextMarker = root.value(QStringLiteral("nextMarker")).toInt(1);
+  const qreal outputScale = root.value(QStringLiteral("outputScale")).toDouble();
+  if (std::isfinite(outputScale) && outputScale > 0.0)
+    loaded.outputScale = outputScale;
   loaded.previewSize =
       QSize(root.value(QStringLiteral("previewWidth")).toInt(),
             root.value(QStringLiteral("previewHeight")).toInt());
@@ -2058,6 +2063,7 @@ void describeFileCapture(CaptureData &capture, QImage image,
   capture = CaptureData();
   capture.previewSize = image.size();
   capture.monitor.scale = 1.0;
+  capture.outputScale = log.outputScale;
   if (log.previewSize.isValid() && !log.previewSize.isEmpty() &&
       log.previewSize.width() <= image.width() &&
       log.previewSize.height() <= image.height()) {

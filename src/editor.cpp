@@ -2439,6 +2439,7 @@ bool CaptureEditor::restoreOperationLog(const QString &path, QString &error) {
   nextAnnotationId_ = std::max<quint64>(log.nextId, 1);
   nextMarker_ = std::max(log.nextMarker, 1);
   replayLog();
+  capture_.outputScale = log.outputScale;
   phase_ = Phase::Edit;
   scheduleSnapshot();
   return true;
@@ -2843,7 +2844,7 @@ void CaptureEditor::startSnapshotRender() {
   const QString path = snapshotPath_;
   const QString logPath = operationLogPath(path);
   const OperationLog log{ops_, opIndex_, nextAnnotationId_, nextMarker_,
-                         pristineLogicalSize_};
+                         pristineLogicalSize_, capture_.outputScale};
   const bool writeSource = !sourceWritten_ || !QFile::exists(path);
   snapshotWatcher_.setFuture(QtConcurrent::run(
       [source, path, logPath, log, writeSource] {
@@ -3428,7 +3429,8 @@ void CaptureEditor::finish(OutputMode mode) {
     const QImage image = prepareOutputImage(
         renderCapture(captureCopy, selection, annotations, background,
                       imageShadow, canvasBoundary, backdrop),
-        captureCopy.monitor.scale);
+        captureCopy.outputScale > 0.0 ? captureCopy.outputScale
+                                     : captureCopy.monitor.scale);
     if (!image.isNull())
       result.thumbnail = image.scaled(kRecentThumbEdge, kRecentThumbEdge,
                                       Qt::KeepAspectRatio,
@@ -5600,7 +5602,11 @@ void CaptureEditor::adoptStitched(const QImage &image) {
   }
   const bool veryLong = image.width() > stitch::kWidelyOpenableEdge ||
                         image.height() > stitch::kWidelyOpenableEdge;
-  adoptImage(image, OperationLog(), SelectTab::Scroll,
+  // Stitches are edited at 1:1 native pixels. Keep their origin scale only
+  // for optional logical-size exports, and persist it with the working log.
+  OperationLog log;
+  log.outputScale = liveMonitor_.scale;
+  adoptImage(image, log, SelectTab::Scroll,
              veryLong
                  ? QStringLiteral("Very long capture (%1 × %2) · edits and "
                                   "saves here as usual, but many apps cannot "

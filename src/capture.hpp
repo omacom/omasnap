@@ -41,6 +41,9 @@ struct CaptureData {
   /** Logical size the native source image is presented at. */
   QSize previewSize;
   QVector<WindowTarget> windows;
+  /** Original monitor scale for images edited in native-pixel coordinates
+   *  (scroll stitches). Zero uses monitor.scale for ordinary captures. */
+  qreal outputScale = 0.0;
 };
 
 enum class BackgroundStyle {
@@ -129,6 +132,9 @@ struct OperationLog {
   /// coordinates live in that space, so a source captured on a scaled
   /// monitor reopens at the same scale. Invalid when unknown.
   QSize previewSize;
+
+  /// Export scale override, independent of the operation coordinate space.
+  qreal outputScale = 0.0;
 
   bool operator==(const OperationLog &) const = default;
 };

@@ -74,6 +74,37 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
   if (!writeFile(defaultConfigPath(), "[output]\nlogical_size=true\n") ||
       !loadOutputConfig(defaultConfigPath()).logicalSize)
     return false;
+  // Downsampling must never reintroduce source positions hidden by redaction.
+  // Mosaic intentionally keeps aggregate colors, so rearrange equal counts.
+  for (const RedactionStyle style : {RedactionStyle::Solid,
+                                     RedactionStyle::Pixelate}) {
+    CaptureData capture;
+    capture.monitor.scale = 1.5;
+    capture.previewSize = QSize(80, 60);
+    capture.source = QImage(120, 90, QImage::Format_RGB32);
+    capture.source.fill(Qt::white);
+    Annotation redact;
+    redact.kind = Annotation::Kind::Redaction;
+    redact.start = QPointF(10, 10);
+    redact.end = QPointF(30, 30);
+    redact.redactionStyle = style;
+    redact.redactionSeed = 42;
+    const QRectF selection(QPointF(), capture.previewSize);
+    for (int y = 20; y < 40; ++y)
+      for (int x = 20; x < 30; ++x)
+        capture.source.setPixelColor(x, y, Qt::red);
+    const QImage before = prepareOutputImage(
+        renderCapture(capture, selection, {redact}, BackgroundStyle::None), 1.5);
+    for (int y = 20; y < 40; ++y)
+      for (int x = 20; x < 40; ++x)
+        capture.source.setPixelColor(x, y, x < 30 ? Qt::white : Qt::red);
+    const QImage after = prepareOutputImage(
+        renderCapture(capture, selection, {redact}, BackgroundStyle::None), 1.5);
+    if (before.isNull() || before != after) {
+      error = QStringLiteral("Logical export leaked redacted source pixels");
+      return false;
+    }
+  }
   for (const auto &[scale, size] :
        std::array{std::pair{1.0, QSize(601, 303)},
                   std::pair{1.5, QSize(401, 202)},
@@ -140,8 +171,8 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
         Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     QTest::keyClick(&editor, Qt::Key_Return);
     editor.waitForExport();
-    const QStringList files = QDir(savedDir).entryList({QStringLiteral("*.png")},
-                                                      QDir::Files);
+    const auto files = QDir(savedDir).entryList({QStringLiteral("*.png")},
+                                               QDir::Files);
     if (editor.isVisible() || files.size() != 1 ||
         editor.captureData().source != capture.source) {
       error = QStringLiteral("Logical export failed or changed the working source");
@@ -153,6 +184,64 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
         saved != QImage(clipboard)) {
       error = QStringLiteral("Logical Copy/Save pixels differ from rendered output");
       return false;
+    }
+  }
+  // Scrolling captures keep native editing coordinates, but must remember the
+  // monitor scale for export, including when their working document reopens.
+  for (const qreal scale : {1.5, 2.0}) {
+    CaptureData monitor;
+    monitor.monitor.name = QStringLiteral("TEST");
+    monitor.monitor.scale = scale;
+    monitor.previewSize = QSize(400, 300);
+    monitor.monitor.geometry = QRect(QPoint(), monitor.previewSize);
+    monitor.source = QImage(600, 450, QImage::Format_RGB32);
+    monitor.source.fill(Qt::white);
+    QImage stitched(603, 1203, QImage::Format_RGB32);
+    stitched.fill(QColor(QStringLiteral("#345678")));
+    CaptureEditor editor(monitor, CaptureEditor::CaptureMode::File);
+    editor.resize(800, 600);
+    editor.show();
+    if (!editor.waitForSnapshot())
+      return false;
+    editor.adoptStitchedForTest(stitched);
+    if (editor.captureData().previewSize != stitched.size() ||
+        !editor.waitForSnapshot()) {
+      error = QStringLiteral("Stitched editing coordinates changed");
+      return false;
+    }
+    OperationLog log;
+    if (!loadOperationLog(editor.workingLogPath(), log, error))
+      return false;
+    const QImage source(editor.workingSourcePath());
+    if (source != stitched || log.outputScale != scale) {
+      error = QStringLiteral("Stitched working document lost source pixels or export scale");
+      return false;
+    }
+    CaptureData restored;
+    describeFileCapture(restored, source, log);
+    const QImage expected = stitched.scaled(
+        qRound(stitched.width() / scale), qRound(stitched.height() / scale),
+        Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    for (const bool reopen : {false, true}) {
+      const QString savedDir = directory.filePath(
+          QStringLiteral("scroll-%1-%2").arg(scale).arg(reopen));
+      qputenv("OMASNAP_SCREENSHOT_DIR", savedDir.toUtf8());
+      CaptureEditor reopened(restored, CaptureEditor::CaptureMode::File,
+                              QuickOutputMode::None, log);
+      CaptureEditor &target = reopen ? reopened : editor;
+      target.resize(800, 600);
+      target.show();
+      application.processEvents();
+      QTest::keyClick(&target, Qt::Key_Return);
+      target.waitForExport();
+      const auto files = QDir(savedDir).entryList({QStringLiteral("*.png")}, QDir::Files);
+      if (files.size() != 1 || target.isVisible() ||
+          QImage(QDir(savedDir).filePath(files.constFirst())).convertToFormat(QImage::Format_RGB32) !=
+              expected.convertToFormat(QImage::Format_RGB32)) {
+        error = QStringLiteral("Stitched export lost monitor scale (scale %1, reopen %2)")
+                    .arg(scale).arg(reopen);
+        return false;
+      }
     }
   }
   return true;

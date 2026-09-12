@@ -42,6 +42,9 @@ Copy/Save can optionally downscale this completed raster to logical size
 (`output/logical_size`). Resizing runs after rendering, including redaction,
 on the output worker. It never changes the working source, operation log,
 OCR input, or pinned image; native-resolution exports remain the default.
+Stitched captures keep their original monitor scale separately in the working
+log's `outputScale` field because their editing coordinates are native pixels.
+This makes logical-size export consistent after reopening them from recents.
 
 ## The two exceptions, and why they're still safe
 
