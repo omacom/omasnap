@@ -6,6 +6,7 @@
 #include "icons.hpp"
 #include "eyedropper.hpp"
 #include "output-config.hpp"
+#include "output-image.hpp"
 #include "overlay-chrome.hpp"
 #include "palette-config.hpp"
 #include "recent-snaps.hpp"
@@ -3424,9 +3425,10 @@ void CaptureEditor::finish(OutputMode mode) {
                                               backdrop, appSlug, mode]() {
     FinishResult result;
     result.mode = mode;
-    const QImage image = renderCapture(captureCopy, selection, annotations,
-                                       background, imageShadow,
-                                       canvasBoundary, backdrop);
+    const QImage image = prepareOutputImage(
+        renderCapture(captureCopy, selection, annotations, background,
+                      imageShadow, canvasBoundary, backdrop),
+        captureCopy.monitor.scale);
     if (!image.isNull())
       result.thumbnail = image.scaled(kRecentThumbEdge, kRecentThumbEdge,
                                       Qt::KeepAspectRatio,

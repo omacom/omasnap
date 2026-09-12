@@ -3,6 +3,7 @@
 #include "editor.hpp"
 #include "instance-lock.hpp"
 #include "overlay-chrome.hpp"
+#include "output-image.hpp"
 #include "pin.hpp"
 #include "recent-snaps.hpp"
 #include "startup-timing.hpp"
@@ -377,7 +378,8 @@ int main(int argc, char **argv) {
                               : renderCapture(capture,
                                               QRectF(QPointF(), capture.previewSize), {},
                                               BackgroundStyle::None);
-    if (!quickOutput(output, quickOutputMode, outputError)) {
+    if (!quickOutput(prepareOutputImage(output, capture.monitor.scale),
+                     quickOutputMode, outputError)) {
       qCritical().noquote() << outputError;
       return 1;
     }

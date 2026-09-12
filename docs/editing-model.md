@@ -38,6 +38,11 @@ snapshot. Each of those calls `renderCapture` once, off the UI thread (see
 [threading.md](threading.md)), and writes the result. Until one of those
 happens, everything remains a log entry you can undo.
 
+Copy/Save can optionally downscale this completed raster to logical size
+(`output/logical_size`). Resizing runs after rendering, including redaction,
+on the output worker. It never changes the working source, operation log,
+OCR input, or pinned image; native-resolution exports remain the default.
+
 ## The two exceptions, and why they're still safe
 
 Two operations *do* need to touch real pixels before export, and both are

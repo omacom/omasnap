@@ -2,6 +2,7 @@
  */
 #include "capture.hpp"
 #include "output-config.hpp"
+#include "output-image-smoke.hpp"
 #include "cli-path.hpp"
 #include "clipboard-smoke.hpp"
 #include "cut-mapping-smoke.hpp"
@@ -8992,6 +8993,10 @@ int main(int argc, char **argv) {
   }
 
   QString instanceError;
+  if (!runOutputImageSmoke(application, instanceError)) {
+    qWarning().noquote() << instanceError;
+    return EXIT_FAILURE;
+  }
   if (!runInstanceLockSmoke(instanceError)) {
     qWarning().noquote() << instanceError;
     return 85;
