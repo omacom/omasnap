@@ -75,15 +75,26 @@ QColor captureTabAccent(CaptureKind kind) {
   }
   return QColor(QStringLiteral("#30d158"));
 }
+/// Gap between neighbouring tabs; a wider one means the strip is split.
+constexpr qreal kTabGap = 2.0;
+/// Physical width of the camera housing on the notched MacBook Pro panels.
+constexpr int kMacBookNotchPhysicalWidth = 370;
 } // namespace
 
-QVector<CaptureTab> captureTabLayout(const QRect &bounds) {
+qreal captureTabNotchWidth(const QSize &physicalMode, qreal scale) {
+  const bool notched =
+      physicalMode == QSize(3456, 2234) || physicalMode == QSize(3024, 1964);
+  if (!notched)
+    return 0.0;
+  return kMacBookNotchPhysicalWidth / (scale > 0.0 ? scale : 1.0);
+}
+
+QVector<CaptureTab> captureTabLayout(const QRect &bounds, qreal notchWidth) {
   static const CaptureKind order[] = {CaptureKind::Region, CaptureKind::Window,
                                       CaptureKind::Scroll,
                                       CaptureKind::Fullscreen};
   const QFontMetricsF metrics(captureTabFont());
   constexpr qreal kPad = 14.0;
-  constexpr qreal kGap = 2.0;
   constexpr qreal kHeight = 26.0;
   // Flush to the top edge (see drawCaptureTabs' -30 background extension):
   // derived from kCaptureTabBarBottom rather than a separate magic number,
@@ -94,12 +105,25 @@ QVector<CaptureTab> captureTabLayout(const QRect &bounds) {
   for (const CaptureKind kind : order) {
     const qreal w = metrics.horizontalAdvance(captureTabLabel(kind)) + 2 * kPad;
     tabs.push_back({kind, QRectF(total, kTop, w, kHeight)});
-    total += w + kGap;
+    total += w + kTabGap;
   }
-  total -= kGap;
+  total -= kTabGap;
   const qreal left = bounds.left() + (bounds.width() - total) / 2.0;
   for (CaptureTab &tab : tabs)
     tab.rect.translate(left, 0);
+  if (notchWidth <= 0.0)
+    return tabs;
+  // Notched panel: Region and Window sit left of the housing, Scrolling
+  // Region and Fullscreen right of it. If either ear would run off the
+  // surface, the centered strip stays.
+  const qreal center = bounds.left() + bounds.width() / 2.0;
+  const qreal leftShift = (center - notchWidth / 2.0) - tabs.at(1).rect.right();
+  const qreal rightShift = (center + notchWidth / 2.0) - tabs.at(2).rect.left();
+  if (tabs.at(0).rect.left() + leftShift < bounds.left() ||
+      tabs.at(3).rect.right() + rightShift > bounds.right())
+    return tabs;
+  for (int index = 0; index < tabs.size(); ++index)
+    tabs[index].rect.translate(index < 2 ? leftShift : rightShift, 0);
   return tabs;
 }
 
@@ -116,12 +140,21 @@ void drawCaptureTabs(QPainter &painter, const QVector<CaptureTab> &tabs,
   if (tabs.isEmpty())
     return;
   // Hangs off the top edge like a tab strip: square at the top (drawn past
-  // the edge so only the bottom corners round), not a floating pill.
-  const QRectF bar = tabs.constFirst().rect.united(tabs.constLast().rect)
-                         .adjusted(-5, -30, 5, 5);
-  painter.setPen(QPen(QColor(255, 255, 255, 32), 1));
-  painter.setBrush(QColor(18, 18, 22, 235));
-  painter.drawRoundedRect(bar, 12, 12);
+  // the edge so only the bottom corners round), not a floating pill. Around
+  // a notch the strip is two such bars, one either side of the housing.
+  const auto paintBar = [&](const CaptureTab &first, const CaptureTab &last) {
+    const QRectF bar = first.rect.united(last.rect).adjusted(-5, -30, 5, 5);
+    painter.setPen(QPen(QColor(255, 255, 255, 32), 1));
+    painter.setBrush(QColor(18, 18, 22, 235));
+    painter.drawRoundedRect(bar, 12, 12);
+  };
+  if (tabs.size() == 4 &&
+      tabs.at(2).rect.left() - tabs.at(1).rect.right() > 2 * kTabGap) {
+    paintBar(tabs.at(0), tabs.at(1));
+    paintBar(tabs.at(2), tabs.at(3));
+  } else {
+    paintBar(tabs.constFirst(), tabs.constLast());
+  }
   painter.setFont(captureTabFont());
   const int hovered = captureTabAt(tabs, cursor);
   for (int index = 0; index < tabs.size(); ++index) {
