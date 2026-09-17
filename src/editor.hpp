@@ -562,6 +562,8 @@ private:
   void dismissOcrOverlay();
   void paintOcrOverlay(QPainter &painter, const QRectF &image, qreal scale);
   void runQrScan();
+  void dismissQrOverlay();
+  void paintQrOverlay(QPainter &painter, const QRectF &image, qreal scale);
   void setStatus(QString status);
   [[nodiscard]] QRegion pointerMotionRegion(const QPointF &point) const;
   void queuePointerRepaint(const QRegion &damage);
@@ -823,6 +825,12 @@ private:
   QElapsedTimer ocrClock_;
   QTimer ocrAnimTimer_;
   QTimer ocrResultTimer_;
+  /// QR scan overlay: same sweep + side card as OCR, but for decoded QR payloads.
+  QRectF qrRegion_;
+  QString qrResultText_;
+  QElapsedTimer qrClock_;
+  QTimer qrAnimTimer_;
+  QTimer qrResultTimer_;
 };
 
 [[nodiscard]] QPointF constrainedCreationEndpoint(CaptureEditor::Tool tool,
