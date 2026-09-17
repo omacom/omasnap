@@ -94,6 +94,32 @@ void drawToolbarIcon(QPainter &painter, const QRectF &bounds,
     painter.drawLine(QPointF(5, 5), QPointF(19, 5));
     painter.drawLine(QPointF(12, 5), QPointF(12, 19));
     painter.drawLine(QPointF(9, 19), QPointF(15, 19));
+  } else if (action == QStringLiteral("tool-qr")) {
+    // QR code: outer border + three finder patterns + data modules
+    painter.drawRoundedRect(QRectF(3.5, 3.5, 17, 17), 1.5, 1.5);
+    // finder outer squares
+    painter.drawRect(QRectF(5, 5, 5, 5));
+    painter.drawRect(QRectF(14, 5, 5, 5));
+    painter.drawRect(QRectF(5, 14, 5, 5));
+    // finder inner dots
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    painter.drawRect(QRectF(6.6, 6.6, 1.8, 1.8));
+    painter.drawRect(QRectF(15.6, 6.6, 1.8, 1.8));
+    painter.drawRect(QRectF(6.6, 15.6, 1.8, 1.8));
+    // data modules
+    painter.drawRect(QRectF(12, 5, 1.4, 1.4));
+    painter.drawRect(QRectF(12, 7.2, 1.4, 1.4));
+    painter.drawRect(QRectF(12, 12, 1.4, 1.4));
+    painter.drawRect(QRectF(14.2, 12, 1.4, 1.4));
+    painter.drawRect(QRectF(16.4, 12, 1.4, 1.4));
+    painter.drawRect(QRectF(12, 14.2, 1.4, 1.4));
+    painter.drawRect(QRectF(14.2, 14.2, 1.4, 1.4));
+    painter.drawRect(QRectF(16.4, 14.2, 1.4, 1.4));
+    painter.drawRect(QRectF(12, 16.4, 1.4, 1.4));
+    painter.drawRect(QRectF(14.2, 16.4, 1.4, 1.4));
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(color, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
   } else if (action == QStringLiteral("tool-ocr")) {
     QPainterPath path;
     path.moveTo(9, 4);

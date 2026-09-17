@@ -5,6 +5,7 @@
 #include "cut.hpp"
 #include "overlay-chrome.hpp"
 #include "palette-config.hpp"
+#include "qr-code.hpp"
 #include "recent-snaps.hpp"
 
 #include <QElapsedTimer>
@@ -560,6 +561,7 @@ private:
   void runOcr(const QRectF &localSelection = {});
   void dismissOcrOverlay();
   void paintOcrOverlay(QPainter &painter, const QRectF &image, qreal scale);
+  void runQrScan();
   void setStatus(QString status);
   [[nodiscard]] QRegion pointerMotionRegion(const QPointF &point) const;
   void queuePointerRepaint(const QRegion &damage);
@@ -808,6 +810,7 @@ private:
   QPointF panAnchor_;
   QColor textColor_;
   QFutureWatcher<OcrResult> ocrWatcher_;
+  QFutureWatcher<QrDecodeResult> qrWatcher_;
   QFutureWatcher<FinishResult> finishWatcher_;
   QFutureWatcher<ReopenResult> reopenWatcher_;
   QFutureWatcher<QImage> backdropWatcher_;

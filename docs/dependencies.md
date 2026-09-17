@@ -13,6 +13,7 @@ From `CMakeLists.txt`, this is the entire list:
 | **Qt6** (Concurrent, Core, Gui, Test, Widgets) 6.8+ | Everything: windowing, painting, the editor UI, the worker-pool threading model ([threading.md](threading.md)), the test harness |
 | **LayerShellQt** | Layer-shell surfaces (the capture overlay, the editor, pinned captures) |
 | **wayland-client** (pkg-config) | Raw protocol client code (`ext-image-copy-capture`, `zwlr_virtual_pointer_v1`) that LayerShellQt/QtWayland don't expose |
+| **ZXing-C++** (`zxing-cpp`) | QR code detection/decoding from image pixels (`src/qr-code.cpp`) |
 | **wayland-scanner** + protocol XML | Generates the C bindings for the above at build time; not a runtime dependency |
 
 That's it. No JSON library (Qt's `QJsonDocument` handles `hyprctl -j`

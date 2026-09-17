@@ -70,16 +70,16 @@ public:
 namespace {
 constexpr std::array<qreal, 3> kTextSizes{2.0, 5.0, 9.0};
 constexpr std::array<const char *, 3> kTextSizeNames{"S", "M", "L"};
-constexpr qreal kToolbarWidth = 840;
+constexpr qreal kToolbarWidth = 876;
 // Toolbar row to the top of the image below it.
 constexpr qreal kToolbarImageGap = 18.0;
 // Tab strip's bottom edge to the toolbar row above it.
 constexpr qreal kTabToolbarGap = 8.0;
 /// Extra spacing between toolbar groups (history / style / tools / actions),
 /// so the row reads as clusters rather than one flat strip. Ordinary gaps are
-/// tightened from 4px to 2.5px; across the 20 gaps that exactly pays for these
-/// three 10px additions, keeping the existing 840px toolbar envelope and,
-/// crucially, the canvas fit geometry derived from its scale.
+/// tightened from 4px to 2.5px; across the gaps that exactly pays for these
+/// 10px additions, keeping the toolbar envelope and, crucially, the canvas
+/// fit geometry derived from its scale.
 constexpr qreal kToolbarGroupGap = 10;
 constexpr qreal kMinimumRedactionExtent = 5.0;
 constexpr int kBackdropDim = 143;
@@ -714,6 +714,39 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
   ocrResultTimer_.setInterval(6000);
   connect(&ocrResultTimer_, &QTimer::timeout, this,
           [this] { dismissOcrOverlay(); });
+  connect(&qrWatcher_, &QFutureWatcher<QrDecodeResult>::finished, this, [this] {
+    const QrDecodeResult result = qrWatcher_.result();
+    if (!result.error.isEmpty()) {
+      setStatus(QStringLiteral("QR scan failed: %1").arg(result.error));
+      return;
+    }
+    if (result.codes.isEmpty()) {
+      setStatus(QStringLiteral("No QR code found"));
+      return;
+    }
+    QString combined;
+    combined.reserve(result.codes.size() * 32);
+    for (qsizetype i = 0; i < result.codes.size(); ++i) {
+      if (i > 0)
+        combined += QLatin1Char('\n');
+      combined += result.codes.at(i).text;
+    }
+    QString clipboardError;
+    if (!copyTextToClipboard(combined, clipboardError)) {
+      setStatus(clipboardError);
+      return;
+    }
+    if (result.codes.size() == 1) {
+      setStatus(QStringLiteral("QR code copied to clipboard"));
+      sendCaptureNotification(QStringLiteral("QR code copied to clipboard"));
+    } else {
+      setStatus(QStringLiteral("%1 QR codes copied to clipboard")
+                    .arg(result.codes.size()));
+      sendCaptureNotification(
+          QStringLiteral("%1 QR codes copied to clipboard").arg(result.codes.size()));
+    }
+  });
+
   connect(&ocrWatcher_, &QFutureWatcher<OcrResult>::finished, this, [this] {
     const OcrResult result = ocrWatcher_.result();
     busy_ = false;
@@ -2274,6 +2307,8 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
           .arg(textBackgroundName(textBackground_)));
   add(36, QStringLiteral("tool-ocr"), {},
       QStringLiteral("Copy all text in the image · O"));
+  add(36, QStringLiteral("tool-qr"), {},
+      QStringLiteral("Scan QR code · Q"));
   endGroup();
 
   // Actions: pin and finish/exit the capture.
@@ -3289,6 +3324,27 @@ void CaptureEditor::runOcr(const QRectF &localSelection) {
   }));
 }
 
+void CaptureEditor::runQrScan() {
+  if (selection_.isEmpty() || qrWatcher_.isRunning())
+    return;
+  if (phase_ != Phase::Edit)
+    return;
+  setStatus(QStringLiteral("Scanning QR code…"));
+
+  const CaptureData captureCopy = capture_;
+  const QRectF target = selection_;
+  qrWatcher_.setFuture(QtConcurrent::run([captureCopy, target]() {
+    const QImage image =
+        renderCapture(captureCopy, target, {}, BackgroundStyle::None);
+    if (image.isNull()) {
+      QrDecodeResult result;
+      result.error = QStringLiteral("Could not prepare image for QR scan");
+      return result;
+    }
+    return decodeQrCodes(image);
+  }));
+}
+
 void CaptureEditor::dismissOcrOverlay() {
   ocrAnimTimer_.stop();
   ocrResultTimer_.stop();
@@ -3574,6 +3630,9 @@ void CaptureEditor::handleToolbar(const QString &action) {
   else if (action == QStringLiteral("tool-ocr")) {
     runOcr();
     return;
+  } else if (action == QStringLiteral("tool-qr")) {
+    runQrScan();
+    return;
   }
   else if (action == QStringLiteral("palette"))
     colorPaletteOpen_ = true;
@@ -3593,6 +3652,8 @@ void CaptureEditor::handleToolbar(const QString &action) {
     customColorPickerOpen_ = !customColorPickerOpen_;
   } else if (action == QStringLiteral("ocr"))
     runOcr();
+  else if (action == QStringLiteral("qr"))
+    runQrScan();
   else if (action == QStringLiteral("background"))
     cycleBackground();
   else if (action == QStringLiteral("undo")) {
@@ -3936,6 +3997,9 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     tool_ = Tool::Eyedropper;
   } else if (event->key() == Qt::Key_O) {
     runOcr();
+    return;
+  } else if (event->key() == Qt::Key_Q) {
+    runQrScan();
     return;
   } else if (event->key() == Qt::Key_P) {
     pinSnapshot();
@@ -6126,8 +6190,9 @@ void CaptureEditor::paintEdit(QPainter &painter) {
        {QStringLiteral("Double click"), QStringLiteral("Edit text layer")},
        {QStringLiteral("1–8"), QStringLiteral("Color")},
        {QStringLiteral("Wheel"), QStringLiteral("Zoom selected / tool size")},
-       {QStringLiteral("D / O"), QStringLiteral("Redact / OCR text")},
-       {QStringLiteral("B / P"), QStringLiteral("Backdrop / Pin on screen")},
+        {QStringLiteral("D / O"), QStringLiteral("Redact / OCR text")},
+        {QStringLiteral("Q"), QStringLiteral("Scan QR code")},
+        {QStringLiteral("B / P"), QStringLiteral("Backdrop / Pin on screen")},
        {QStringLiteral("Ctrl+Z"), QStringLiteral("Undo")},
        {QStringLiteral("Ctrl+Shift+Z"), QStringLiteral("Redo")},
        {QStringLiteral("Enter"), QStringLiteral("Copy + save")},
