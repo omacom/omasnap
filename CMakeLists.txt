@@ -8,6 +8,7 @@ find_package(PkgConfig REQUIRED)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Core Gui Test Widgets)
 find_package(LayerShellQt REQUIRED)
 pkg_check_modules(WaylandClient REQUIRED IMPORTED_TARGET wayland-client)
+find_package(ZXing REQUIRED)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 
 set(PROTOCOL_XMLS
@@ -72,6 +73,8 @@ add_library(omasnap-core STATIC
   src/scroll-inject.hpp
   src/startup-timing.cpp
   src/startup-timing.hpp
+  src/qr-code.cpp
+  src/qr-code.hpp
   ${PROTOCOL_SOURCES}
   src/editor.cpp
   src/editor.hpp
@@ -126,6 +129,7 @@ target_link_libraries(omasnap-core PUBLIC
   Qt6::Widgets
   LayerShellQt::Interface
   PkgConfig::WaylandClient
+  ZXing::ZXing
 )
 
 qt_add_executable(omasnap src/main.cpp src/pin.cpp src/pin.hpp)
@@ -149,6 +153,8 @@ qt_add_executable(omasnap-smoke
   tests/cut-mapping-smoke.hpp
   tests/palette-config-smoke.cpp
   tests/palette-config-smoke.hpp
+  tests/qr-code-smoke.cpp
+  tests/qr-code-smoke.hpp
   src/cli-path.cpp
   src/recent-snaps.cpp
   src/recent-snaps.hpp

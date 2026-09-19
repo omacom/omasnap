@@ -8,6 +8,7 @@
 #include "cut-smoke.hpp"
 #include "editor.hpp"
 #include "overlay-chrome.hpp"
+#include "qr-code-smoke.hpp"
 #include "recent-snaps.hpp"
 #include "instance-lock-smoke.hpp"
 #include "palette-config-smoke.hpp"
@@ -9124,6 +9125,12 @@ int main(int argc, char **argv) {
   QString cutError;
   if (!runCutSmoke(cutError)) {
     qWarning().noquote() << "cut smoke failed:" << cutError;
+    return EXIT_FAILURE;
+  }
+
+  QString qrError;
+  if (!runQrCodeChecks(qrError)) {
+    qWarning().noquote() << "qr code smoke failed:" << qrError;
     return EXIT_FAILURE;
   }
 

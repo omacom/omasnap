@@ -5,6 +5,7 @@
 #include "cut.hpp"
 #include "overlay-chrome.hpp"
 #include "palette-config.hpp"
+#include "qr-code.hpp"
 #include "recent-snaps.hpp"
 
 #include <QElapsedTimer>
@@ -553,6 +554,9 @@ private:
   void runOcr(const QRectF &localSelection = {});
   void dismissOcrOverlay();
   void paintOcrOverlay(QPainter &painter, const QRectF &image, qreal scale);
+  void runQrScan();
+  void dismissQrOverlay();
+  void paintQrOverlay(QPainter &painter, const QRectF &image, qreal scale);
   void setStatus(QString status);
   [[nodiscard]] QRegion pointerMotionRegion(const QPointF &point) const;
   [[nodiscard]] QRegion windowHoverDamage(int oldIndex, int newIndex) const;
@@ -803,6 +807,7 @@ private:
   QPointF panAnchor_;
   QColor textColor_;
   QFutureWatcher<OcrResult> ocrWatcher_;
+  QFutureWatcher<QrDecodeResult> qrWatcher_;
   QFutureWatcher<FinishResult> finishWatcher_;
   QFutureWatcher<ReopenResult> reopenWatcher_;
   QFutureWatcher<QImage> backdropWatcher_;
@@ -815,6 +820,12 @@ private:
   QElapsedTimer ocrClock_;
   QTimer ocrAnimTimer_;
   QTimer ocrResultTimer_;
+  /// QR scan overlay: same sweep + side card as OCR, but for decoded QR payloads.
+  QRectF qrRegion_;
+  QString qrResultText_;
+  QElapsedTimer qrClock_;
+  QTimer qrAnimTimer_;
+  QTimer qrResultTimer_;
 };
 
 [[nodiscard]] QPointF constrainedCreationEndpoint(CaptureEditor::Tool tool,

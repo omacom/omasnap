@@ -70,16 +70,16 @@ public:
 namespace {
 constexpr std::array<qreal, 3> kTextSizes{2.0, 5.0, 9.0};
 constexpr std::array<const char *, 3> kTextSizeNames{"S", "M", "L"};
-constexpr qreal kToolbarWidth = 840;
+constexpr qreal kToolbarWidth = 876;
 // Toolbar row to the top of the image below it.
 constexpr qreal kToolbarImageGap = 18.0;
 // Preserve the editor's established top inset without capture-mode chrome.
 constexpr qreal kToolbarTop = 39.0;
 /// Extra spacing between toolbar groups (history / style / tools / actions),
 /// so the row reads as clusters rather than one flat strip. Ordinary gaps are
-/// tightened from 4px to 2.5px; across the 20 gaps that exactly pays for these
-/// three 10px additions, keeping the existing 840px toolbar envelope and,
-/// crucially, the canvas fit geometry derived from its scale.
+/// tightened from 4px to 2.5px; across the gaps that exactly pays for these
+/// 10px additions, keeping the toolbar envelope and, crucially, the canvas
+/// fit geometry derived from its scale.
 constexpr qreal kToolbarGroupGap = 10;
 constexpr qreal kMinimumRedactionExtent = 5.0;
 constexpr int kBackdropDim = 143;
@@ -714,6 +714,64 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
   ocrResultTimer_.setInterval(6000);
   connect(&ocrResultTimer_, &QTimer::timeout, this,
           [this] { dismissOcrOverlay(); });
+
+  qrAnimTimer_.setInterval(16);
+  connect(&qrAnimTimer_, &QTimer::timeout, this, [this] { update(); });
+  qrResultTimer_.setSingleShot(true);
+  qrResultTimer_.setInterval(6000);
+  connect(&qrResultTimer_, &QTimer::timeout, this,
+          [this] { dismissQrOverlay(); });
+  connect(&qrWatcher_, &QFutureWatcher<QrDecodeResult>::finished, this, [this] {
+    const QrDecodeResult result = qrWatcher_.result();
+    if (!result.error.isEmpty()) {
+      dismissQrOverlay();
+      setStatus(QStringLiteral("QR scan failed: %1").arg(result.error));
+      return;
+    }
+    if (result.codes.isEmpty()) {
+      dismissQrOverlay();
+      setStatus(QStringLiteral("No QR code found"));
+      return;
+    }
+    QString combined;
+    combined.reserve(result.codes.size() * 32);
+    for (qsizetype i = 0; i < result.codes.size(); ++i) {
+      if (i > 0)
+        combined += QLatin1Char('\n');
+      combined += result.codes.at(i).text;
+    }
+    QString clipboardError;
+    if (!copyTextToClipboard(combined, clipboardError)) {
+      dismissQrOverlay();
+      setStatus(clipboardError);
+      return;
+    }
+    const QString shown = combined.trimmed();
+    if (result.codes.size() == 1) {
+      setStatus(QStringLiteral("QR code copied to clipboard"));
+      sendCaptureNotification(QStringLiteral("QR code copied to clipboard"));
+    } else {
+      setStatus(QStringLiteral("%1 QR codes copied to clipboard")
+                    .arg(result.codes.size()));
+      sendCaptureNotification(
+          QStringLiteral("%1 QR codes copied to clipboard").arg(result.codes.size()));
+    }
+    // Let the scan band finish its sweep (and at least one full pass) before
+    // the card appears, same as OCR: a result popping mid-sweep looks glitchy.
+    const qint64 elapsed = qrClock_.elapsed();
+    const qint64 sweeps =
+        std::max<qint64>(1, (elapsed + kOcrSweepMs - 1) / kOcrSweepMs);
+    const int wait = static_cast<int>(sweeps * kOcrSweepMs - elapsed);
+    QTimer::singleShot(wait, this, [this, shown] {
+      if (qrRegion_.isEmpty() || qrWatcher_.isRunning())
+        return;
+      qrResultText_ = shown;
+      qrClock_.restart();
+      qrResultTimer_.start();
+      update();
+    });
+  });
+
   connect(&ocrWatcher_, &QFutureWatcher<OcrResult>::finished, this, [this] {
     const OcrResult result = ocrWatcher_.result();
     busy_ = false;
@@ -2279,6 +2337,8 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
           .arg(textBackgroundName(textBackground_)));
   add(36, QStringLiteral("tool-ocr"), {},
       QStringLiteral("Copy all text in the image · O"));
+  add(36, QStringLiteral("tool-qr"), {},
+      QStringLiteral("Scan QR code · Q"));
   endGroup();
 
   // Actions: pin and finish/exit the capture.
@@ -3263,6 +3323,8 @@ void CaptureEditor::runOcr(const QRectF &localSelection) {
   if (target.width() < 2 || target.height() < 2)
     return;
   busy_ = true;
+  if (!qrRegion_.isEmpty() || !qrResultText_.isEmpty())
+    dismissQrOverlay();
   ocrRegion_ = target.translated(-selection_.topLeft());
   ocrResultText_.clear();
   ocrResultTimer_.stop();
@@ -3296,6 +3358,34 @@ void CaptureEditor::runOcr(const QRectF &localSelection) {
     else
       result.text = recognizeText(image, result.error);
     return result;
+  }));
+}
+
+void CaptureEditor::runQrScan() {
+  if (selection_.isEmpty() || qrWatcher_.isRunning())
+    return;
+  if (phase_ != Phase::Edit)
+    return;
+  if (!ocrRegion_.isEmpty() || !ocrResultText_.isEmpty())
+    dismissOcrOverlay();
+  qrRegion_ = selection_.translated(-selection_.topLeft());
+  qrResultText_.clear();
+  qrResultTimer_.stop();
+  qrClock_.start();
+  qrAnimTimer_.start();
+  setStatus(QStringLiteral("Scanning QR code…"));
+
+  const CaptureData captureCopy = capture_;
+  const QRectF target = selection_;
+  qrWatcher_.setFuture(QtConcurrent::run([captureCopy, target]() {
+    const QImage image =
+        renderCapture(captureCopy, target, {}, BackgroundStyle::None);
+    if (image.isNull()) {
+      QrDecodeResult result;
+      result.error = QStringLiteral("Could not prepare image for QR scan");
+      return result;
+    }
+    return decodeQrCodes(image);
   }));
 }
 
@@ -3406,6 +3496,109 @@ void CaptureEditor::paintOcrOverlay(QPainter &painter, const QRectF &image,
                         textWidth, textBounds.height());
   painter.setClipRect(textRect);
   painter.drawText(textRect, flags, ocrResultText_);
+  painter.restore();
+}
+
+void CaptureEditor::dismissQrOverlay() {
+  qrAnimTimer_.stop();
+  qrResultTimer_.stop();
+  qrRegion_ = QRectF();
+  qrResultText_.clear();
+  update();
+}
+
+void CaptureEditor::paintQrOverlay(QPainter &painter, const QRectF &image,
+                                    qreal scale) {
+  if (qrRegion_.isEmpty())
+    return;
+  const QRectF region(image.topLeft() + qrRegion_.topLeft() * scale,
+                      qrRegion_.size() * scale);
+  const QColor accent(QStringLiteral("#30d158"));
+  painter.save();
+  if (qrResultText_.isEmpty()) {
+    const qreal t = std::fmod(static_cast<qreal>(qrClock_.elapsed()),
+                              qreal(kOcrSweepMs)) /
+                    qreal(kOcrSweepMs);
+    const qreal bandHeight = std::clamp(region.height() * 0.35, 18.0, 64.0);
+    const qreal y = region.top() - bandHeight + t * (region.height() + bandHeight);
+    painter.setClipRect(region);
+    painter.fillRect(region, QColor(accent.red(), accent.green(), accent.blue(), 36));
+    QLinearGradient gradient(0, y, 0, y + bandHeight);
+    gradient.setColorAt(0.0, QColor(accent.red(), accent.green(), accent.blue(), 0));
+    gradient.setColorAt(0.8, QColor(accent.red(), accent.green(), accent.blue(), 130));
+    gradient.setColorAt(1.0, QColor(255, 255, 255, 230));
+    painter.fillRect(QRectF(region.left(), y, region.width(), bandHeight),
+                     gradient);
+    painter.setClipping(false);
+    painter.setPen(QPen(accent, 1.5));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRect(region);
+    painter.restore();
+    return;
+  }
+
+  constexpr int kFadeMs = 450;
+  const int remaining = qrResultTimer_.remainingTime();
+  const qreal opacity =
+      remaining < 0 ? 1.0 : std::clamp(remaining / qreal(kFadeMs), 0.0, 1.0);
+  painter.setOpacity(opacity);
+
+  QFont font(QStringLiteral("Noto Sans"));
+  font.setPixelSize(13);
+  painter.setFont(font);
+  const QFontMetricsF metrics(font);
+  constexpr qreal kPad = 12.0;
+  constexpr qreal kHeaderGap = 6.0;
+  constexpr qreal kMargin = 12.0;
+  constexpr qreal kGap = 16.0;
+  const qreal rightGap = width() - image.right() - kMargin - kGap;
+  const bool besideImage = rightGap >= 220.0;
+  const qreal cardWidth =
+      besideImage ? std::min(rightGap, 460.0)
+                  : std::clamp(width() * 0.3, 260.0,
+                               std::max(260.0, width() - 2 * kMargin));
+  const qreal textWidth = cardWidth - 2 * kPad;
+  const qreal maxTextHeight =
+      std::max(metrics.lineSpacing() * 2, height() - 128 - 2 * kPad);
+  const int flags = Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap;
+  QRectF textBounds = metrics.boundingRect(
+      QRectF(0, 0, textWidth, maxTextHeight), flags, qrResultText_);
+  const bool truncated = textBounds.height() > maxTextHeight;
+  textBounds.setHeight(std::min(textBounds.height(), maxTextHeight));
+
+  QFont headerFont = font;
+  headerFont.setPixelSize(11);
+  const qreal headerHeight = QFontMetricsF(headerFont).height();
+  const qreal cardHeight =
+      kPad + headerHeight + kHeaderGap + textBounds.height() + kPad;
+  const qreal x = besideImage ? image.right() + kGap
+                              : width() - cardWidth - kMargin;
+  qreal y = std::max(region.top(), 68.0);
+  if (y + cardHeight > height() - 60)
+    y = std::max(68.0, height() - 60 - cardHeight);
+  const QRectF card(x, y, cardWidth, cardHeight);
+
+  painter.setPen(QPen(QColor(255, 255, 255, 40), 1));
+  painter.setBrush(QColor(18, 18, 22, 240));
+  painter.drawRoundedRect(card, 10, 10);
+  painter.setPen(QPen(accent, 1.5));
+  painter.setBrush(Qt::NoBrush);
+  painter.drawRect(region);
+
+  painter.setFont(headerFont);
+  painter.setPen(QColor(accent.red(), accent.green(), accent.blue(), 255));
+  painter.drawText(QRectF(card.left() + kPad, card.top() + kPad, textWidth,
+                          headerHeight),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   truncated ? QStringLiteral("Copied to clipboard · shown in part")
+                             : QStringLiteral("Copied to clipboard"));
+  painter.setFont(font);
+  painter.setPen(QColor(QStringLiteral("#f5f5f7")));
+  const QRectF textRect(card.left() + kPad,
+                        card.top() + kPad + headerHeight + kHeaderGap,
+                        textWidth, textBounds.height());
+  painter.setClipRect(textRect);
+  painter.drawText(textRect, flags, qrResultText_);
   painter.restore();
 }
 
@@ -3584,6 +3777,9 @@ void CaptureEditor::handleToolbar(const QString &action) {
   else if (action == QStringLiteral("tool-ocr")) {
     runOcr();
     return;
+  } else if (action == QStringLiteral("tool-qr")) {
+    runQrScan();
+    return;
   }
   else if (action == QStringLiteral("palette"))
     colorPaletteOpen_ = true;
@@ -3603,6 +3799,8 @@ void CaptureEditor::handleToolbar(const QString &action) {
     customColorPickerOpen_ = !customColorPickerOpen_;
   } else if (action == QStringLiteral("ocr"))
     runOcr();
+  else if (action == QStringLiteral("qr"))
+    runQrScan();
   else if (action == QStringLiteral("background"))
     cycleBackground();
   else if (action == QStringLiteral("undo")) {
@@ -3634,6 +3832,15 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     if (!modifierOnly)
       dismissOcrOverlay();
     // Esc only puts the card away; it should not also back out of the tool.
+    if (key == Qt::Key_Escape)
+      return;
+  }
+  if (!qrResultText_.isEmpty()) {
+    const int key = event->key();
+    const bool modifierOnly = key == Qt::Key_Shift || key == Qt::Key_Control ||
+                              key == Qt::Key_Alt || key == Qt::Key_Meta;
+    if (!modifierOnly)
+      dismissQrOverlay();
     if (key == Qt::Key_Escape)
       return;
   }
@@ -3929,6 +4136,9 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     tool_ = Tool::Eyedropper;
   } else if (event->key() == Qt::Key_O) {
     runOcr();
+    return;
+  } else if (event->key() == Qt::Key_Q) {
+    runQrScan();
     return;
   } else if (event->key() == Qt::Key_P) {
     pinSnapshot();
@@ -4531,6 +4741,8 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
     return;
   if (!ocrResultText_.isEmpty())
     dismissOcrOverlay();
+  if (!qrResultText_.isEmpty())
+    dismissQrOverlay();
   if (event->button() == Qt::RightButton) {
     if (phase_ == Phase::Select) {
       if (dragging_) {
@@ -6090,8 +6302,9 @@ void CaptureEditor::paintEdit(QPainter &painter) {
        {QStringLiteral("Double click"), QStringLiteral("Edit text layer")},
        {QStringLiteral("1–8"), QStringLiteral("Color")},
        {QStringLiteral("Wheel"), QStringLiteral("Zoom selected / tool size")},
-       {QStringLiteral("D / O"), QStringLiteral("Redact / OCR text")},
-       {QStringLiteral("B / P"), QStringLiteral("Backdrop / Pin on screen")},
+        {QStringLiteral("D / O"), QStringLiteral("Redact / OCR text")},
+        {QStringLiteral("Q"), QStringLiteral("Scan QR code")},
+        {QStringLiteral("B / P"), QStringLiteral("Backdrop / Pin on screen")},
        {QStringLiteral("Ctrl+Z"), QStringLiteral("Undo")},
        {QStringLiteral("Ctrl+Shift+Z"), QStringLiteral("Redo")},
        {QStringLiteral("Enter"), QStringLiteral("Copy + save")},
@@ -6456,6 +6669,7 @@ void CaptureEditor::paintEdit(QPainter &painter) {
   }
   painter.restore();
   paintOcrOverlay(painter, sourceImage, editScale());
+  paintQrOverlay(painter, sourceImage, editScale());
 
   // Screenshot chrome means "crop this source", not "this is another
   // selected object". Keep it out of the layer-selection state entirely;

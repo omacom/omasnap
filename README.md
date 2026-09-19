@@ -35,7 +35,7 @@ resizable vector layers and preserves the monitor's native pixels on scaled disp
   opaque or randomized non-spatial mosaic output.
 - Per-layer preset or custom colors (including highlighter ink), undo/redo history,
   one-click whole-image or drag-region OCR (the recognized text is shown beside
-  the image and copied to the clipboard),
+  the image and copied to the clipboard) and QR-code scanning (`Q` copies decoded payload(s) to clipboard),
   mesh-gradient backdrops, and rendered drop shadows on standard backdrop cards.
 - Cut tool: drag across a band of the image to remove it and collapse the gap, with a
   live preview and dashed seam marker while dragging; annotations shift to follow.
@@ -132,7 +132,7 @@ Install the complete build/runtime dependency set:
 sudo pacman -S --needed \
   base-devel cmake ninja pkgconf qt6-base layer-shell-qt \
   wayland wayland-protocols hyprland wl-clipboard \
-  tesseract tesseract-data-eng
+  tesseract tesseract-data-eng zxing-cpp
 ```
 
 Build and install:
@@ -375,6 +375,7 @@ into a scrolling capture. Explicit `region`, `windows`, `fullscreen`, and
 | `T` | Text on a cream readability pill, with Neucha as the default. Click for a one-line label, or drag a box to give it room for several lines: Enter moves to the next line while there is room and commits on the last one; `Shift+Enter` always adds a line; `Esc` commits too but keeps the label selected, so `Backspace` removes it; clicking away keeps the text; press T again to toggle the pill |
 | `Shift+T` | Cycle the next or selected text through Neucha, JetBrains Mono, and Inter Display |
 | `O` | Recognize and copy all text in the current image |
+| `Q` | Scan QR code(s) in the current image and copy payload(s) to clipboard |
 | `B` | Cycle shadowed colors, window gray (shadowed and flat), and Off |
 | `Shift+B` | Toggle the screenshot card's drop shadow; on by default |
 | `G` / `Shift+G` | Cycle canvas boundaries forward/backward: Framed, Overflow, Image. Framed auto-grows with the normal frame; Overflow grows only the sides needed by annotations with no frame; Image clips at the original screenshot edge |
