@@ -177,9 +177,9 @@ the new preview and prepare its drag payload. The GUI updates the image inside
 the existing window; its compositor position and stack membership are unchanged.
 
 Normal previews use a one-shot ten-second timer and a short paint-opacity fade.
-Explicit pins and direct interaction disable that timer. Hover and shared stack
-activity pause the remaining time; a click, drag, wheel event or action keeps only
-the affected preview. Unpinning restarts its countdown, paused until ongoing
+Only explicit pin actions disable that timer. Hover, shared stack activity,
+drags, and pending actions pause the remaining time without changing pin state.
+Unpinning restarts its countdown, paused until ongoing
 interaction finishes. Expiry compacts the stack on the placement worker and never issues
 a focus transfer. No extra compositor polling or process is needed for the fade.
 
