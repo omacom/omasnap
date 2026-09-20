@@ -10,6 +10,7 @@
 #include "pin-expiry.hpp"
 #include "pin-layout.hpp"
 #include "icons.hpp"
+#include "overlay-chrome.hpp"
 
 #include <QApplication>
 #include <QBuffer>
@@ -62,10 +63,6 @@
 
 namespace {
 
-constexpr qreal kControlSize = 23;
-constexpr qreal kControlInset = 7;
-constexpr qreal kControlGap = 6;
-constexpr qreal kDragButtonWidth = 18;
 constexpr qreal kCornerMargin = 14;
 constexpr int kPinGap = 10;
 constexpr int kToastMs = 1200;
@@ -507,6 +504,17 @@ public:
     // its own instead of first stretching it into a tile.
     setFixedSize(frame);
     setAttribute(Qt::WA_AlwaysShowToolTips, true);
+    // Native tooltips need the same explicit font and dark chrome as the
+    // painted controls; the generic Qt theme otherwise supplies yellow tips.
+    QToolTip::setFont(chromeFont(11));
+    setStyleSheet(QStringLiteral(
+        "QToolTip {"
+        " color: #f5f5f7;"
+        " background-color: #121216;"
+        " border: 1px solid #3a3a40;"
+        " border-radius: 4px;"
+        " padding: 0;"
+        "}"));
     setMouseTracking(true);
     connect(&expiry_, &PinExpiry::opacityChanged, this, [this](qreal opacity) {
       opacity_ = opacity;
@@ -784,20 +792,33 @@ protected:
       return;
 
     drawControlButton(painter, dragButtonRect(), QStringLiteral("drag-handle"));
-    drawControlButton(painter, editButtonRect(), QStringLiteral("edit"));
+    drawControlButton(painter, editButtonRect(), QStringLiteral("edit"), false,
+                       QStringLiteral("Edit"));
     drawControlButton(painter, pinButtonRect(), QStringLiteral("pin"), expiry_.kept());
     drawControlButton(painter, pathButtonRect(), QStringLiteral("path"));
-    drawControlButton(painter, copyButtonRect(), QStringLiteral("copy"));
+    drawControlButton(painter, copyButtonRect(), QStringLiteral("copy"), false,
+                       QStringLiteral("Copy"));
     drawControlButton(painter, closeButtonRect(), QStringLiteral("close"));
   }
 
   void drawControlButton(QPainter &painter, const QRectF &rect,
-                         const QString &action, bool active = false) const {
+                         const QString &action, bool active = false,
+                         const QString &label = {}) const {
     painter.setPen(Qt::NoPen);
-    painter.setBrush(active ? QColor(37, 58, 75, 235) : QColor(12, 12, 16, 190));
+    const bool hovered = hovered_ && rect == controlRect(hoveredControl_);
+    painter.setBrush(active ? QColor(37, 58, 75, 235)
+                            : hovered ? QColor(37, 42, 52, 240)
+                                      : QColor(12, 12, 16, 210));
     painter.drawRoundedRect(rect, 6, 6);
-    drawToolbarIcon(painter, rect, action, {}, active ? QColor(140, 179, 209)
-                                                     : QColor(245, 245, 247));
+    const QColor foreground = active ? QColor(140, 179, 209)
+                                     : QColor(245, 245, 247);
+    if (label.isEmpty()) {
+      drawToolbarIcon(painter, rect, action, {}, foreground);
+    } else {
+      painter.setFont(chromeFont(11, true));
+      painter.setPen(foreground);
+      painter.drawText(rect, Qt::AlignCenter, label);
+    }
   }
 
   void paintToast(QPainter &painter) const {
@@ -1233,6 +1254,7 @@ protected:
     setCursor(control >= 0 ? Qt::PointingHandCursor : Qt::ArrowCursor);
     if (control != hoveredControl_) {
       hoveredControl_ = control;
+      QToolTip::hideText();
       update();
     }
   }
@@ -1244,8 +1266,9 @@ protected:
     if (event->type() == QEvent::ToolTip) {
       auto *help = static_cast<QHelpEvent *>(event);
       const int control = controlRectAt(help->pos());
-      if (control >= 0) {
-        QToolTip::showText(help->globalPos(), pinControlTip(control, expiry_.kept()), this,
+      const QString tip = pinControlTip(control, expiry_.kept());
+      if (!tip.isEmpty()) {
+        QToolTip::showText(help->globalPos(), tip, this,
                            controlRect(control).toAlignedRect());
       } else {
         QToolTip::hideText();
@@ -1472,8 +1495,7 @@ private:
     });
   }
 
-  // The drag handle stands alone in the top-left; pin, edit, path, copy, and
-  // close remain grouped in the top-right.
+  // Painting, hover feedback, and clicks all use the same control geometry.
   [[nodiscard]] QRectF closeButtonRect() const { return controlRect(0); }
 
   [[nodiscard]] QRectF copyButtonRect() const { return controlRect(1); }
@@ -1487,13 +1509,7 @@ private:
   [[nodiscard]] QRectF pinButtonRect() const { return controlRect(5); }
 
   [[nodiscard]] QRectF controlRect(int index) const {
-    const qreal right = width() - kControlSize - kControlInset;
-    if (index != 4) {
-      const int offset = index == 5 ? 4 : index;
-      return QRectF(right - offset * (kControlSize + kControlGap),
-                    kControlInset, kControlSize, kControlSize);
-    }
-    return QRectF(kControlInset, kControlInset, kDragButtonWidth, kControlSize);
+    return pinControlRect(size(), index);
   }
 
   [[nodiscard]] int controlRectAt(const QPointF &position) const {

@@ -305,16 +305,47 @@ QRect pinMonitorWorkArea(const QJsonObject &monitor) {
                            -std::max(0, reserved.at(3).toInt()));
 }
 
+QRectF pinControlRect(const QSize &frame, int index) {
+  if (frame.isEmpty())
+    return {};
+  // Very wide displays produce previews only 50 pixels tall. Keep two
+  // separate rows there so the centered actions never cover a corner control.
+  const bool compact = frame.height() < 76;
+  const qreal size = compact ? 19 : 23;
+  const qreal inset = compact ? 4 : 7;
+  const qreal gap = compact ? 3 : 6;
+  constexpr qreal dragWidth = 18;
+  constexpr qreal actionWidth = 52;
+  constexpr qreal actionGap = 6;
+  const qreal actionHeight = compact ? 20 : 26;
+  const qreal actionY = std::max((frame.height() - actionHeight) / 2,
+                                 inset + size + gap);
+  const qreal right = frame.width() - inset - size;
+  switch (index) {
+  case 0: // Close
+    return {right, inset, size, size};
+  case 1: // Copy
+    return {(frame.width() + actionGap) / 2, actionY, actionWidth, actionHeight};
+  case 2: // Copy path
+    return {inset + dragWidth + gap, inset, size, size};
+  case 3: // Edit
+    return {(frame.width() - actionGap) / 2 - actionWidth, actionY,
+            actionWidth, actionHeight};
+  case 4: // Drag out
+    return {inset, inset, dragWidth, size};
+  case 5: // Pin
+    return {right - size - gap, inset, size, size};
+  default:
+    return {};
+  }
+}
+
 QString pinControlTip(int index, bool kept) {
   switch (index) {
   case 0:
     return QStringLiteral("Close · X / Super+W / Esc / middle-click");
-  case 1:
-    return QStringLiteral("Copy image · C / Ctrl+C");
   case 2:
     return QStringLiteral("Copy saved file path · L / F");
-  case 3:
-    return QStringLiteral("Annotate · A / E");
   case 4:
     return QStringLiteral("Drag this image out");
   case 5:

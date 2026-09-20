@@ -174,6 +174,7 @@ The install step places:
 - `~/.local/share/licenses/omasnap/Neucha-OFL.txt`
 - `~/.local/share/licenses/omasnap/JetBrainsMono-OFL.txt`
 - `~/.local/share/licenses/omasnap/Inter-OFL.txt`
+- `~/.local/share/licenses/omasnap/Lucide-ISC.txt`
 
 Launch Omasnap from the application launcher by searching for its name, or use
 the screenshot keybindings above.
@@ -485,8 +486,12 @@ the single-instance lock immediately. Pins from separate captures accumulate as 
 processes.
 
 Hover the pin to reveal its controls and use its keyboard shortcuts; the cursor
-becomes a pointing hand over each button. Pins follow normal mouse focus while
-hovered and keep focus with the current app when first created.
+becomes a pointing hand over each button. **Edit** and **Copy** sit in the center
+of the image, with text labels and no tooltips. The pin button sits beside **×**
+at the top-right; the drag handle and file-path button sit at the top-left.
+Icon buttons use compact, dark tooltips for their actions and shortcuts.
+Pins follow normal mouse focus while hovered and keep focus with the current
+app when first created.
 Closing an active or hovered pin focuses the next pin on that monitor, starting
 with the front of the remaining stack, so repeated `X` presses dismiss them
 without needing another mouse movement. Opening a pin for annotation keeps
@@ -513,7 +518,8 @@ closing or expiring the preview leaves the saved copy available. A pin opened fr
 an existing file copies that file's original path.
 
 Hyprland placement uses runtime dispatches and
-requires no user window rules. The controls use the annotation toolbar’s vector icons.
+requires no user window rules. The controls use the annotation toolbar’s vector
+icons, including Lucide’s pin drawn directly by the renderer.
 
 Canvas boundary changes affect only preview and export clipping. The complete vector
 geometry stays in the operation log, so switching back to Grow restores every off-canvas

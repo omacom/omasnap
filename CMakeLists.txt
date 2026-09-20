@@ -205,7 +205,7 @@ install(FILES assets/OFL.txt
   DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/omasnap"
   RENAME Neucha-OFL.txt
 )
-install(FILES assets/JetBrainsMono-OFL.txt assets/Inter-OFL.txt
+install(FILES assets/JetBrainsMono-OFL.txt assets/Inter-OFL.txt assets/Lucide-ISC.txt
   DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/omasnap"
 )
 install(FILES omasnap.desktop

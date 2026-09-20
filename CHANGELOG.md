@@ -57,6 +57,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   using the stack's 14-pixel gap and allowing for bars on any edge.
 - Match padding across pin controls while keeping the drag-out handle narrow.
 - Show a pointing-hand cursor when hovering over pin buttons.
+- Center labeled Edit and Copy buttons over previews, without tooltips, and
+  place the Lucide pin icon beside Close. Other controls use compact, dark
+  tooltips with the chrome font.
 - Show Omasnap in the application launcher.
 - Pass notification click actions as separate arguments.
 - Keep the editor viewport and text draft aligned when its window resizes.
