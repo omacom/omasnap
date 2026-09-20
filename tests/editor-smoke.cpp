@@ -16,6 +16,7 @@
 #include "selection-repaint-smoke.hpp"
 #include "overlay-chrome.hpp"
 #include "recent-snaps.hpp"
+#include "recent-persistence-smoke.hpp"
 #include "instance-lock-smoke.hpp"
 #include "palette-config-smoke.hpp"
 #include "pin-layout-smoke.hpp"
@@ -12544,6 +12545,10 @@ int main(int argc, char **argv) {
   if (!runOpLogSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 98;
+  }
+  if (!runRecentPersistenceSmoke(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 1;
   }
   if (!runRecentsShelfSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;

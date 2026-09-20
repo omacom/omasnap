@@ -321,6 +321,9 @@ of a new screenshot. No annotation, Copy, Save, or pin action is required: the
 shot remains available after its floating preview expires or closes. Dismissing
 the editor with `Esc` also remembers its current edits. Editing the same shot
 updates its existing entry; cancelling before selecting a capture adds nothing.
+If retaining a recent fails after Copy or Save, the worker keeps the existing
+recovery document and attempts to update it with the final source and history.
+The output still completes immediately. Persistence errors are logged.
 
 ### Theme
 

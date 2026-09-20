@@ -82,7 +82,7 @@ public:
   /**
    * Blocks until the in-flight snapshot persistence has drained, letting the
    * event loop run meanwhile. Returns whether the last write succeeded.
-   * Used by finish() and the headless smoke suite.
+   * Headless smoke suite only.
    */
   bool waitForSnapshot();
   /**
@@ -323,6 +323,17 @@ public:
   void setSnapshotFutureForTest(const QFuture<bool> &future) {
     snapshotBusy_ = true;
     snapshotWatcher_.setFuture(future);
+  }
+  /// Starts a new selection without invoking live scrolling capture.
+  void returnToSelectForTest() { returnToSelect(); }
+  /// Simulates a configured custom backdrop still decoding on a worker.
+  void setBackdropFutureForTest(const QFuture<QImage> &future) {
+    configuredCustomDefaultPending_ = true;
+    backdropWatcher_.setFuture(future);
+  }
+  /// Holds output open to verify destruction preserves worker-owned files.
+  void setFinishFutureForTest(QFuture<bool> future) {
+    finishWatcher_.setFuture(future.then([](bool) { return FinishResult{}; }));
   }
   /// Exercises output/handoff without starting another smoke-test process.
   void setProcessLauncherForTest(
@@ -876,6 +887,8 @@ private:
   bool snapshotOutputRequested_ = false;
   bool suppressSnapshots_ = false;
   bool sourceWritten_ = false;
+  // Pristine image owned by the in-flight or last snapshot write.
+  qint64 snapshotSourceKey_ = 0;
   // Background monitor capture fed to CaptureEditor::CaptureMode dispatch.
   struct CaptureJob {
     bool ok = false;

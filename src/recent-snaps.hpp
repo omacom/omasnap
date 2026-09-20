@@ -46,8 +46,10 @@ class RecentSnapWriter final {
 public:
   explicit RecentSnapWriter(QString recentId);
   ~RecentSnapWriter();
+  /// Publish before removing replaced, then prune while holding the shelf lock.
   [[nodiscard]] bool record(const QImage &source, const OperationLog &log,
-                            const QImage &rendered, QString &error);
+                            const QImage &rendered, QString &error,
+                            const RecentSnap *replaced = nullptr);
 
 private:
   QString recentId_;

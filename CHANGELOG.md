@@ -48,6 +48,11 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   captures when switching modes or choosing a new region.
 - Keep auto-scroll Start and Continue responsive while injection backends are
   probed, and cancel pending setup when leaving the capture.
+- Preserve pristine working pixels and the final operation log when recent
+  publication fails after output. Pending autosaves cannot substitute pixels
+  from an earlier document, and output waits for gestures and default backdrops.
+  Drain persistence workers without re-entering GUI callbacks during teardown.
+  Replace reopened shelf entries before pruning unrelated captures.
 - Show the corner preview and dismiss the overlay before saving the full-resolution
   recent document, removing the extra history-compression pause after capture.
 - Preserve image proportions when reopening a pin or preview whose backdrop

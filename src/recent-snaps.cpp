@@ -154,7 +154,8 @@ RecentSnapWriter::RecentSnapWriter(QString recentId)
 RecentSnapWriter::~RecentSnapWriter() = default;
 
 bool RecentSnapWriter::record(const QImage &source, const OperationLog &log,
-                              const QImage &rendered, QString &error) {
+                              const QImage &rendered, QString &error,
+                              const RecentSnap *replaced) {
   StartupTimingScope timing("record recent capture");
   if (!error_.isEmpty()) {
     error = error_;
@@ -169,7 +170,9 @@ bool RecentSnapWriter::record(const QImage &source, const OperationLog &log,
   const QDir dir(root_);
   QString stem = stem_;
   const QString suffix = QLatin1Char('-') + savedLog.recentId;
-  while (QFile::exists(dir.filePath(stem + suffix + kThumbSuffix)))
+  while (QFile::exists(dir.filePath(stem + suffix + kThumbSuffix)) ||
+         QFile::exists(dir.filePath(stem + suffix + QStringLiteral(".png"))) ||
+         QFile::exists(dir.filePath(stem + suffix + QStringLiteral(".json"))))
     stem = QStringLiteral("%1").arg(stem.toLongLong() + 1, 16, 10, QChar('0'));
   const RecentSnap snap = snapForStem(dir, stem + suffix);
 
@@ -217,6 +220,10 @@ bool RecentSnapWriter::record(const QImage &source, const OperationLog &log,
       removeRecentSnap(snapForStem(dir, stemOf(name)));
   }
 
+  // A reopened entry can have a different capture identity. Remove it before
+  // pruning, so a full shelf does not evict an unrelated capture as well.
+  if (replaced && replaced->sourcePath != snap.sourcePath)
+    removeRecentSnap(*replaced);
   const QStringList names = thumbNamesNewestFirst(dir);
   for (qsizetype index = kRecentSnapLimit; index < names.size(); ++index)
     removeRecentSnap(snapForStem(dir, stemOf(names.at(index))));

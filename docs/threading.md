@@ -40,7 +40,11 @@ to an originating pin and retain the recent document. Output workers publish
 their result through `QPromise` as soon as output is ready: `resultReadyAt` closes
 the overlay before full-monitor history compression. The worker continues saving
 the pristine source/log/thumbnail, and editor destruction drains it after the
-window has closed. `main()` releases the instance lock first, so a rapid second
+window has closed. Teardown waits on futures without dispatching GUI events.
+On a failed recent write after successful output, the worker drains autosave
+and attempts to persist the final pristine source and log at the existing
+working paths, retaining them instead of deleting the recovery document.
+`main()` releases the instance lock first, so a rapid second
 capture cannot terminate the pending save or be mistaken for cancelling an overlay.
 
 A per-capture reservation is acquired before launching/updating the preview.
