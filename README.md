@@ -319,6 +319,13 @@ directory = ~/Pictures/Captures
 # Default: screenshot-{date}_{time}-{app}
 filename = screenshot-{date}_{time}-{app}
 
+[pin]
+# Idle seconds after which a floating pin closes itself. 0 (default)
+# keeps pins until closed. An armed pin shows a shrinking bottom-edge bar
+# plus a countdown pill in the last 10 seconds. The first hover, click,
+# or key disarms the timer: a pin you touched stays until you close it.
+dismiss_after_seconds = 0
+
 [colors]
 # Up to eight preset colors for the palette, and the initial custom color.
 palette = #ff375f, #ff9f0a, #ffd60a, #30d158, #0a84ff, #bf5af2, #000000, #ffffff

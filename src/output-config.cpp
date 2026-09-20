@@ -63,6 +63,14 @@ bool loadEditorWindowMode(const QString &filePath) {
              .toLower() == QStringLiteral("window");
 }
 
+qint64 loadPinDismissAfterSeconds(const QString &filePath) {
+  QSettings settings(filePath, QSettings::IniFormat);
+  const qint64 seconds = settings
+                             .value(QStringLiteral("pin/dismiss_after_seconds"))
+                             .toLongLong();
+  return seconds > 0 ? seconds : 0;
+}
+
 QString editorFloatRuleScript(bool floating) {
   // Registered before the editor window maps: floated after the fact, the
   // window tiles for a frame and visibly pops out. The named rule

@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include "pin.hpp"
 #include "capture.hpp"
+#include "output-config.hpp"
 #include "pin-file.hpp"
 #include "pin-layout.hpp"
 #include "icons.hpp"
@@ -14,6 +15,7 @@
 #include <QBuffer>
 #include <QDir>
 #include <QDrag>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QEnterEvent>
 #include <QFontMetrics>
@@ -305,6 +307,29 @@ public:
     cachedPins_ = pins;
   }
 
+  // Arms idle auto-dismiss: without interaction the pin closes itself
+  // after `seconds`. The first hover, press, or key disarms it for good:
+  // a pin the user touched is theirs to close.
+  void armIdleDismiss(qint64 seconds) {
+    if (seconds <= 0)
+      return;
+    dismissTotalMs_ = std::min<qint64>(seconds, 86400) * 1000;
+    dismissTimer_.setSingleShot(true);
+    connect(&dismissTimer_, &QTimer::timeout, this, [this] { close(); });
+    dismissTimer_.start(dismissTotalMs_);
+    dismissTick_.setInterval(250);
+    connect(&dismissTick_, &QTimer::timeout, this, [this] { update(); });
+    dismissTick_.start();
+    dismissClock_.start();
+  }
+
+  void disarmIdleDismiss() {
+    dismissTimer_.stop();
+    dismissTick_.stop();
+    dismissTotalMs_ = 0;
+    update();
+  }
+
   void requestDragSnapshot() {
     if (queryPending_)
       return;
@@ -368,6 +393,8 @@ protected:
     }
     if (!toast_.isEmpty())
       paintToast(painter);
+    if (dismissTimer_.isActive())
+      paintDismissCountdown(painter);
     if (!hovered_)
       return;
 
@@ -399,7 +426,33 @@ protected:
     painter.drawText(pill, Qt::AlignCenter, toast_);
   }
 
+  void paintDismissCountdown(QPainter &painter) const {
+    const qint64 remainingMs =
+        std::max<qint64>(0, dismissTotalMs_ - dismissClock_.elapsed());
+    // Thin remaining-time bar along the bottom edge, shrinking away.
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(12, 12, 16, 160));
+    painter.drawRect(0, height() - 3, width(), 3);
+    painter.setBrush(QColor(245, 245, 247, 220));
+    painter.drawRect(0, height() - 3,
+                      qRound(width() * pinDismissFraction(remainingMs, dismissTotalMs_)), 3);
+    // Numeric countdown, last 10 seconds only: a bottom-left pill in the
+    // same style as the toast.
+    if (remainingMs > 10000)
+      return;
+    const QString text =
+        QStringLiteral("%1s").arg((remainingMs + 999) / 1000);
+    const QFontMetrics metrics(painter.font());
+    const QRectF pill(12, height() - 42,
+                      metrics.horizontalAdvance(text) + 28, 26);
+    painter.setBrush(QColor(12, 12, 16, 205));
+    painter.drawRoundedRect(pill, 13, 13);
+    painter.setPen(QColor(240, 240, 245));
+    painter.drawText(pill, Qt::AlignCenter, text);
+  }
+
   void mousePressEvent(QMouseEvent *event) override {
+    disarmIdleDismiss();
     if (event->button() == Qt::MiddleButton) {
       close();
       return;
@@ -741,6 +794,7 @@ protected:
   }
 
   void keyPressEvent(QKeyEvent *event) override {
+    disarmIdleDismiss();
     if (event->key() == Qt::Key_Escape) {
       close();
       return;
@@ -755,6 +809,7 @@ protected:
   void closeEvent(QCloseEvent *event) override {
     closing_ = true;
     dragWatchTimer_.stop();
+    disarmIdleDismiss();
     closeButtonWatch();
     // The compositor may still list this window while it closes, so it is
     // excluded by name rather than trusted to be gone.
@@ -763,6 +818,7 @@ protected:
   }
 
   void enterEvent(QEnterEvent *) override {
+    disarmIdleDismiss();
     pointerWokeDuringWatch();
     hovered_ = true;
     hoveredControl_ = -1;
@@ -828,6 +884,10 @@ private:
   bool queryPending_ = false;
   bool finishRequested_ = false;
   QTimer dragWatchTimer_;
+  QTimer dismissTimer_;
+  QTimer dismissTick_;
+  QElapsedTimer dismissClock_;
+  qint64 dismissTotalMs_ = 0;
   QRect dragStartRect_;
   QRect dragPreviousRect_;
   QRect dragScreen_;
@@ -857,6 +917,7 @@ int runPinnedCapture(const QString &path) {
     qWarning("omasnap: could not lock pinned image %s", qUtf8Printable(path));
     return 1;
   }
+  window.armIdleDismiss(loadPinDismissAfterSeconds(defaultConfigPath()));
   auto *settle = new QTimer(&window);
   settle->setSingleShot(true);
   settle->setInterval(50);

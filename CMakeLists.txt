@@ -165,6 +165,8 @@ qt_add_executable(omasnap-smoke
   tests/surface-capture-smoke.hpp
   tests/pin-lifecycle-smoke.cpp
   tests/pin-lifecycle-smoke.hpp
+  tests/pin-dismiss-smoke.cpp
+  tests/pin-dismiss-smoke.hpp
   tests/pin-layout-smoke.cpp
   tests/pin-layout-smoke.hpp
   src/stitch.cpp

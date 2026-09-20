@@ -59,3 +59,7 @@ pinInsertionPlan(QVector<QPair<QString, QRect>> column,
 
 /** The hover tip for a pin control, empty outside the known controls. */
 [[nodiscard]] QString pinControlTip(int index);
+
+/** Remaining-time fraction for the pin auto-dismiss bar, clamped to 0..1.
+ *  A non-positive total yields 0. */
+[[nodiscard]] qreal pinDismissFraction(qint64 remainingMs, qint64 totalMs);

@@ -14,6 +14,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Adjustable pen smoothing with undoable levels from 0 to 6.
 - A normal editor window alongside the fullscreen overlay; `W` switches
   presentations while keeping the working document and undo history.
+- Floating pins close themselves after `[pin] dismiss_after_seconds`
+  idle seconds, with a shrinking bottom-edge bar and a countdown pill in
+  the last 10 seconds; any hover, click, or key keeps the pin until closed.
 
 ### Changed
 

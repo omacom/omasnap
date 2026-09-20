@@ -30,6 +30,11 @@ struct OutputConfig {
  *  the default and any other value. */
 [[nodiscard]] bool loadEditorWindowMode(const QString &filePath);
 
+/** Idle seconds after which a floating pin closes itself; 0 means never.
+ *  Reads [pin] dismiss_after_seconds. A missing file or a missing,
+ *  non-numeric, or non-positive value leaves the default 0 untouched. */
+[[nodiscard]] qint64 loadPinDismissAfterSeconds(const QString &filePath);
+
 /** True unless [editor] window = tiled: a windowed editor asks the
  *  compositor to float it at its natural size; tiled leaves it to the
  *  layout. */

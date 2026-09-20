@@ -14,6 +14,7 @@
 #include "recent-snaps.hpp"
 #include "instance-lock-smoke.hpp"
 #include "palette-config-smoke.hpp"
+#include "pin-dismiss-smoke.hpp"
 #include "pin-layout-smoke.hpp"
 #include "stitch-smoke.hpp"
 #include "stitch.hpp"
@@ -11408,6 +11409,12 @@ int main(int argc, char **argv) {
   QString paletteError;
   if (!runPaletteConfigSmoke(paletteError)) {
     qWarning().noquote() << "palette config smoke failed:" << paletteError;
+    return EXIT_FAILURE;
+  }
+
+  QString pinDismissError;
+  if (!runPinDismissConfigSmoke(pinDismissError)) {
+    qWarning().noquote() << "pin dismiss config smoke failed:" << pinDismissError;
     return EXIT_FAILURE;
   }
 

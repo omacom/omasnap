@@ -205,3 +205,9 @@ QString pinControlTip(int index) {
     return {};
   }
 }
+
+qreal pinDismissFraction(qint64 remainingMs, qint64 totalMs) {
+  if (totalMs <= 0)
+    return 0;
+  return std::clamp<qreal>(qreal(remainingMs) / qreal(totalMs), 0, 1);
+}
