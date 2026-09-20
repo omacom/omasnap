@@ -30,8 +30,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   to annotate before output; `--copy`/`--save` bypass the pin.
 - Fade normal capture previews after 10 seconds of idle time. The pin button
   or `Ctrl+P` keeps a shot on screen with a pin icon; new shots stay in front.
-  Hovering pauses expiry; clicking, dragging, scrolling over a preview, or using
-  its controls keeps it until closed. Explicit editor pins also stay until closed.
+  Hovering, dragging, and in-progress actions pause expiry without pinning the
+  preview. Only an explicit pin action keeps it until closed.
 - Pinned captures are floating compositor windows, with automatic packing
   and drag-to-stack placement, without taking focus when they appear.
 - Fold idle pins into a compact deck with a gentle alternating tilt; hover to
@@ -60,6 +60,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   using the stack's 14-pixel gap and allowing for bars on any edge.
 - Match padding across pin controls while keeping the drag-out handle narrow.
 - Show a pointing-hand cursor when hovering over pin buttons.
+- Center labeled Edit and Copy buttons over previews, without tooltips, and
+  place the Lucide pin icon beside Close. Other controls use compact, dark
+  tooltips with the chrome font.
 - Show Omasnap in the application launcher.
 - Pass notification click actions as separate arguments.
 - Keep the editor viewport and text draft aligned when its window resizes.

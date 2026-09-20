@@ -276,9 +276,30 @@ void drawToolbarIcon(QPainter &painter, const QRectF &bounds,
     tray.lineTo(19, 18);
     painter.drawPath(tray);
   } else if (action == QStringLiteral("pin")) {
-    painter.drawRoundedRect(QRectF(8, 4, 8, 6), 2, 2);
-    painter.drawLine(QPointF(5, 10), QPointF(19, 10));
-    painter.drawLine(QPointF(12, 10), QPointF(12, 20));
+    // Lucide's pin, adapted to QPainterPath (ISC; assets/Lucide-ISC.txt).
+    // https://github.com/lucide-icons/lucide/blob/main/icons/pin.svg
+    painter.drawLine(QPointF(12, 17), QPointF(12, 22));
+    QPainterPath pin;
+    pin.moveTo(9, 10.76);
+    pin.cubicTo(8.9996, 11.5189, 8.5697, 12.2123, 7.89, 12.55);
+    pin.lineTo(6.11, 13.45);
+    pin.cubicTo(5.4303, 13.7877, 5.0004, 14.4811, 5, 15.24);
+    pin.lineTo(5, 16);
+    pin.arcTo(QRectF(5, 15, 2, 2), 180, 90);
+    pin.lineTo(18, 17);
+    pin.arcTo(QRectF(17, 15, 2, 2), 270, 90);
+    pin.lineTo(19, 15.24);
+    pin.cubicTo(18.9996, 14.4811, 18.5697, 13.7877, 17.89, 13.45);
+    pin.lineTo(16.11, 12.55);
+    pin.cubicTo(15.4303, 12.2123, 15.0004, 11.5189, 15, 10.76);
+    pin.lineTo(15, 7);
+    pin.arcTo(QRectF(15, 6, 2, 2), 180, -90);
+    pin.arcTo(QRectF(14, 2, 4, 4), 270, 180);
+    pin.lineTo(8, 2);
+    pin.arcTo(QRectF(6, 2, 4, 4), 90, 180);
+    pin.arcTo(QRectF(7, 6, 2, 2), 90, -90);
+    pin.closeSubpath();
+    painter.drawPath(pin);
   } else if (action == QStringLiteral("close")) {
     painter.drawLine(QPointF(6, 6), QPointF(18, 18));
     painter.drawLine(QPointF(18, 6), QPointF(6, 18));

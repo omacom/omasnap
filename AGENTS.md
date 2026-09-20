@@ -4,8 +4,8 @@ Omasnap is a super fast, native Wayland screenshot and annotation overlay,
 built for [Omarchy](https://omarchy.org) on Hyprland. It captures region,
 window, or full monitor (plus a scrolling-region mode that stitches a taller
 page into one image), then copies it and opens a floating compositor preview.
-The preview fades after 10 seconds unless interacted with or kept with its pin
-button or Ctrl+P.
+The preview fades after 10 seconds of idle time unless explicitly kept with its
+pin button or Ctrl+P. Hovering and in-progress actions pause its countdown.
 It opens an annotation editor on demand, with vector layers
 (arrows, lines, freehand, highlighter, rectangles, ellipses, numbered
 markers, text, OCR). Finished captures go to clipboard,
