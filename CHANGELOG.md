@@ -52,6 +52,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Remove the screen-share exclusion rule from the recommended Hyprland setup.
+  It blacks out the scrolling capture region, including its transparent hole.
 - Report a missing preview image when copying instead of using its smaller
   display thumbnail as the screenshot.
 - Speed up lossless PNG output and load a small display image for the corner

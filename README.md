@@ -141,9 +141,15 @@ hl.layer_rule({
   match = { namespace = "^omasnap$" },
   no_anim = true,
   animation = "none",
-  no_screen_share = true,
 })
 ```
+
+Do not add `no_screen_share = true` to the Omasnap layer rule. Hyprland
+replaces an excluded layer's entire rectangle with black in captures, including
+transparent areas. Because the scrolling overlay covers the monitor, that rule
+blacks out the live region and prevents stitching. If you used an earlier version
+of these instructions, remove that property and reload Hyprland before capturing
+again. Ordinary captures already grab the screen before the overlay appears.
 
 Each of these keys toggles: the first press opens the overlay, the next press dismisses it.
 

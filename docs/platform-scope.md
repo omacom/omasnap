@@ -24,6 +24,11 @@ abstractions.
   on-demand keyboard interactivity so Escape can still reach it when focused.
   Pointer events over the chrome restore exclusive focus. This documents a
   Hyprland quirk, not a generic Wayland rule.
+- Hyprland's `no_screen_share` layer rule draws a black rectangle over the
+  layer's full bounds in output captures, including transparent regions. Do not
+  apply it to Omasnap: the scrolling overlay needs to capture the live desktop
+  through its transparent region. Ordinary captures happen before the overlay
+  maps and do not need an exclusion rule.
 - Notifications prefer `omarchy-notification-send` and fall back to
   `OMARCHY_OCR_LANGS`/`OMASNAP_OCR_LANGS` conventions that assume an Omarchy
   install (see `src/capture.cpp`, README's OCR section).
