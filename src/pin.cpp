@@ -849,7 +849,6 @@ protected:
         toggleKept();
         return;
       }
-      expiry_.setKept(true);
       if (dragButtonRect().contains(position)) {
         beginFileDrag();
         return;
@@ -929,10 +928,8 @@ protected:
       endStackDrag();
       return;
     }
-    if (!dragMoved_ && rect != dragStartRect_) {
+    if (!dragMoved_ && rect != dragStartRect_)
       dragMoved_ = true;
-      expiry_.setKept(true);
-    }
     if (dragMoved_)
       previewInsertion(rect);
     const bool still = rect == dragPreviousRect_;
@@ -981,10 +978,8 @@ protected:
             !dragWatchTimer_.isActive())
           continue;
         dragButtonDown_ = events[index].value != 0;
-        if (*dragButtonDown_) {
-          expiry_.setKept(true);
+        if (*dragButtonDown_)
           continue;
-        }
         finishDrag();
         closeButtonWatch();
         return;
@@ -1039,8 +1034,6 @@ protected:
       endStackDrag();
       return;
     }
-    if (!dragMoved_)
-      expiry_.setKept(true);
     QRect visible = rect;
     if (!rect.isEmpty() && !dragScreen_.contains(rect) && !dragOriginScreen_.isEmpty()) {
       // Remember the starting monitor throughout the drag. A clipped drop
@@ -1155,7 +1148,6 @@ protected:
   };
 
   void runAction(std::function<ActionResult()> worker, QString message) {
-    expiry_.setKept(true);
     if (actionPending_)
       return;
     actionPending_ = true;
@@ -1308,7 +1300,6 @@ protected:
   void wheelEvent(QWheelEvent *event) override {
     // Pinned captures deliberately keep a stable display-shaped frame so the
     // controls remain usable and the image area never reflows.
-    expiry_.setKept(true);
     event->accept();
   }
 
