@@ -5,6 +5,7 @@
 #include "editor.hpp"
 #include "output-config.hpp"
 #include "output-image.hpp"
+#include "recent-snaps.hpp"
 
 #include <QApplication>
 #include <QByteArray>
@@ -44,7 +45,7 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
   if (!directory.isValid())
     return false;
   const std::array variables = {"XDG_CONFIG_HOME", "OMASNAP_SCREENSHOT_DIR",
-                               "OMASNAP_TEST_OUTPUT_PNG", "PATH"};
+                               "OMASNAP_TEST_OUTPUT_PNG", "OMASNAP_RECENT_DIR", "PATH"};
   std::array<QByteArray, variables.size()> previous;
   for (std::size_t i = 0; i < variables.size(); ++i)
     previous[i] = qgetenv(variables[i]);
@@ -265,13 +266,11 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
     const QImage expected = stitched.scaled(
         qRound(stitched.width() / scale), qRound(stitched.height() / scale),
         Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-    for (const bool reopen : {false, true}) {
+    const auto checkExport = [&](CaptureEditor &target, bool reopen) {
       const QString savedDir = directory.filePath(
           QStringLiteral("scroll-%1-%2").arg(scale).arg(reopen));
       qputenv("OMASNAP_SCREENSHOT_DIR", savedDir.toUtf8());
-      CaptureEditor reopened(restored, CaptureEditor::CaptureMode::File,
-                              QuickOutputMode::None, log);
-      CaptureEditor &target = reopen ? reopened : editor;
+      qputenv("OMASNAP_RECENT_DIR", (savedDir + QStringLiteral("/recents")).toUtf8());
       target.resize(800, 600);
       target.show();
       application.processEvents();
@@ -285,7 +284,26 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
                     .arg(scale).arg(reopen);
         return false;
       }
-    }
+      const auto recents = listRecentSnaps();
+      OperationLog shelved;
+      if (recents.size() != 1 ||
+          !loadOperationLog(recents.first().logPath, shelved, error) ||
+          shelved.outputScale != scale || shelved.previewSize != log.previewSize ||
+          QImage(recents.first().sourcePath).convertToFormat(QImage::Format_RGB32) !=
+              stitched) {
+        error = QStringLiteral("Logical output changed recent source pixels or scale metadata");
+        return false;
+      }
+      return true;
+    };
+    if (!checkExport(editor, false))
+      return false;
+    // Editors use one process-level working path. Construct the reopened one
+    // only after the first has finished shelving and relinquished that path.
+    CaptureEditor reopened(restored, CaptureEditor::CaptureMode::File,
+                            QuickOutputMode::None, log);
+    if (!checkExport(reopened, true))
+      return false;
   }
   return true;
 }
