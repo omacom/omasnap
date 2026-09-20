@@ -76,7 +76,12 @@ bool runCaptureDelaySmoke(QString &error) {
                             QFileDevice::ReadOwner | QFileDevice::WriteOwner |
                                 QFileDevice::ExeOwner) ||
       !writeCommand(root.filePath(QStringLiteral("hyprctl")),
-                    "#!/bin/sh\nprintf '%s\\n' '[{\"name\":\"TEST\","
+                    "#!/bin/sh\n"
+                    "if [ -n \"$OMASNAP_SIGNAL_DURING_PROBE\" ]; then\n"
+                    "  kill -\"$OMASNAP_SIGNAL_DURING_PROBE\" \"$PPID\"\n"
+                    "  sleep 0.1\n"
+                    "fi\n"
+                    "printf '%s\\n' '[{\"name\":\"TEST\","
                     "\"focused\":true,\"width\":64,\"height\":48,\"scale\":1}]'\n") ||
       !writeCommand(root.filePath(QStringLiteral("omarchy-notification-send")),
                     "#!/bin/sh\nexit 0\n")) {
@@ -173,6 +178,20 @@ bool runCaptureDelaySmoke(QString &error) {
         !screenshots.entryList({QStringLiteral("*.png")}, QDir::Files).isEmpty() ||
         QFile::exists(root.filePath(QStringLiteral("runtime/omasnap/omasnap.instance")))) {
       error = QStringLiteral("Cancelled delay captured pixels or retained its instance lock");
+      return false;
+    }
+  }
+  // A signal can arrive during synchronous monitor discovery, before the
+  // event loop has dispatched the socket notifier. It still cancels the
+  // forthcoming countdown and releases the lock without any output.
+  for (const auto &signal : {QStringLiteral("TERM"), QStringLiteral("INT")}) {
+    environment.insert(QStringLiteral("OMASNAP_SIGNAL_DURING_PROBE"), signal);
+    QProcess cancelled;
+    if (!start(cancelled, {"fullscreen", "--save", "--delay", "30"}) ||
+        !finishedSuccessfully(cancelled) ||
+        !screenshots.entryList({QStringLiteral("*.png")}, QDir::Files).isEmpty() ||
+        QFile::exists(root.filePath(QStringLiteral("runtime/omasnap/omasnap.instance")))) {
+      error = QStringLiteral("Signal received before countdown was lost");
       return false;
     }
   }

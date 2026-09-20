@@ -51,10 +51,12 @@ public:
                      fds_) != 0)
       return; // Default signal disposition stays in effect.
     signalFd_ = fds_[0];
+    signalReceived_ = 0;
 
     struct sigaction sa{};
     sa.sa_handler = [](int) {
       const int savedErrno = errno;
+      signalReceived_ = 1;
       const char byte = 1;
       const int fd = signalFd_;
       if (fd >= 0)
@@ -72,7 +74,6 @@ public:
 
     notifier_ = new QSocketNotifier(fds_[1], QSocketNotifier::Read, this);
     connect(notifier_, &QSocketNotifier::activated, this, [this] {
-      notified_ = true;
       notifier_->setEnabled(false);
       char bytes[32];
       while (::read(fds_[1], bytes, sizeof(bytes)) > 0) {
@@ -89,7 +90,10 @@ public:
     closeSockets();
   }
 
-  [[nodiscard]] bool wasNotified() const { return notified_; }
+  // The delay timer can quit the event loop before its queued socket event
+  // runs. Observe receipt in the handler so that pending cancellation still
+  // prevents the synchronous fullscreen capture/output path from starting.
+  [[nodiscard]] bool wasNotified() const { return signalReceived_ != 0; }
 
 private:
   void closeSockets() {
@@ -104,11 +108,11 @@ private:
 
   static inline int fds_[2]{-1, -1};
   static inline volatile sig_atomic_t signalFd_ = -1;
+  static inline volatile sig_atomic_t signalReceived_ = 0;
   struct sigaction previousSigint_{};
   struct sigaction previousSigterm_{};
   bool sigintInstalled_ = false;
   bool sigtermInstalled_ = false;
-  bool notified_ = false;
   QSocketNotifier *notifier_ = nullptr;
 };
 // All compositor IPC runs on a worker, including the pre-map rules. A

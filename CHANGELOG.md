@@ -48,6 +48,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Delayed captures observe cancellation received as the countdown event loop
+  exits, before synchronous fullscreen output can begin.
+
 - Preserve monitor scaling when opening scrolling captures for annotation
   or from a floating preview, so 2× captures do not appear twice as large.
   Retain the original pixel dimensions when the logical size rounds.
