@@ -8,6 +8,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 ### Added
 
 - Save As (`Ctrl+Shift+S`): choose a PNG destination without closing the editor.
+  Closing during preparation or chooser cancellation cannot reopen the editor;
+  unfinished drawing gestures and initial backdrop loading finish before saving.
+  Explicit non-PNG filenames are rejected without changing the draft or file.
 
 - Standard, Pointy, Curved, and Double arrow styles, with editable bends.
 - Text wrapping at the canvas edge or a dragged width, preserved when

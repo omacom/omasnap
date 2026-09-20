@@ -57,7 +57,10 @@ frames come in, however slow the compositor's damage-driven capture is.
 Save As opens its chooser with `QFileDialog::open()` and restores the editor
 when it closes. Suggested output paths are prepared on a worker; accepting a
 path renders and atomically writes PNG pixels on a worker too. Cancel keeps the
-text draft and operation log untouched. The editor remains open after saving.
+text draft and operation log untouched. The editor remains open after saving. Closing or destroying the editor invalidates
+pending chooser/focus callbacks and closes its chooser; an already accepted
+write owns copied state and may finish without touching the editor. Save As
+is unavailable during active drawing/panning gestures or initial backdrop loading.
 
 ## Pointer motion on large monitors
 

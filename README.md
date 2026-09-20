@@ -438,7 +438,7 @@ into a scrolling capture. Explicit `region`, `windows`, `fullscreen`, and
 | `Ctrl+Shift+Z`, `Ctrl+Y` | Redo |
 | `Ctrl+C` | Copy PNG only |
 | `Ctrl+S` | Save PNG only |
-| `Ctrl+Shift+S` | Save As: choose a PNG destination and keep editing; remembers the folder within this editor session |
+| `Ctrl+Shift+S` | Save As: choose a PNG destination (`.png` is added when omitted; other formats are rejected) and keep editing; remembers the folder within this editor session |
 | `Enter` | Copy and save (with a text layer selected: edit it) |
 | `Ctrl+P` / `P` | Keep the capture pinned on screen and close the editor |
 | `Esc` | Dismiss the annotator; keep an originating pin in place with its edits and undo history |

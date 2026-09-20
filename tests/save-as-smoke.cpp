@@ -5,6 +5,7 @@
 
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QFileDialog>
 #include <QPlainTextEdit>
 #include <QLineEdit>
@@ -114,6 +115,33 @@ bool runSaveAsSmoke(QString &error) {
       error = QStringLiteral("Cancelled save chooser was not disposed");
       return false;
     }
+    // QFileDialog accepts explicit non-PNG suffixes despite its name filter.
+    // Even an approved overwrite must not replace that file with PNG bytes.
+    const QString wrongFormat = directory.filePath(QStringLiteral("keep.jpg"));
+    QFile existing(wrongFormat);
+    if (!existing.open(QIODevice::WriteOnly) || existing.write("keep original") != 13) {
+      error = QStringLiteral("Could not prepare Save As format fixture");
+      return false;
+    }
+    existing.close();
+    editor.saveAs();
+    if (!waitUntil([] { return saveDialog() != nullptr; })) {
+      error = QStringLiteral("Format fixture could not open Save As");
+      return false;
+    }
+    dialog = saveDialog();
+    dialog->setOption(QFileDialog::DontConfirmOverwrite);
+    dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(wrongFormat);
+    QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+    if (!waitUntil([&] { return !editor.busy_; }) || !editor.textEditing() ||
+        textEditor->toPlainText() != QStringLiteral("Keep this draft") ||
+        editor.operationIndex() != before ||
+        !editor.statusForTest().contains(QStringLiteral("choose a .png")) ||
+        !existing.open(QIODevice::ReadOnly) || existing.readAll() != "keep original") {
+      error = QStringLiteral("Non-PNG Save As changed its destination or draft");
+      return false;
+    }
+    existing.close();
     QTest::keyClick(QApplication::focusWidget(), Qt::Key_S,
                      Qt::ControlModifier | Qt::ShiftModifier);
     if (!waitUntil([] { return saveDialog() != nullptr; })) {
@@ -122,7 +150,7 @@ bool runSaveAsSmoke(QString &error) {
     }
     dialog = saveDialog();
     const QString output = directory.filePath(
-        windowed ? QStringLiteral("window.png") : QStringLiteral("overlay.png"));
+        windowed ? QStringLiteral("window.png") : QStringLiteral("overlay.PNG"));
     // Enter the path as a user does; selectFile() can leave the old name in
     // the visible chooser while its asynchronous directory model reloads.
     auto *filename = dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
@@ -132,7 +160,7 @@ bool runSaveAsSmoke(QString &error) {
       return false;
     }
     filename->selectAll();
-    QTest::keyClicks(filename, output);
+    QTest::keyClicks(filename, windowed ? output.chopped(4) : output);
     QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
     if (!waitUntil([&] { return !editor.busy_; }) || !editor.isVisible() ||
         editor.textEditing() || QImage(output).convertToFormat(QImage::Format_ARGB32) !=
@@ -169,6 +197,89 @@ bool runSaveAsSmoke(QString &error) {
     }
     editor.close();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+  }
+  {
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+    editor.show();
+    // A chooser must not steal the mouse release that commits a live gesture,
+    // or export before the configured backdrop has established the document.
+    for (bool *pending : {&editor.dragging_, &editor.panning_,
+                          &editor.configuredCustomDefaultPending_}) {
+      *pending = true;
+      editor.saveAs();
+      if (editor.busy_ || editor.saveAsActive_) {
+        error = QStringLiteral("Save As interrupted an unfinished edit");
+        return false;
+      }
+      *pending = false;
+    }
+    editor.close();
+  }
+  // A finished worker may still have its GUI completion queued when close
+  // arrives. Closing must invalidate that completion, even without destruction.
+  for (const bool windowed : {false, true}) {
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+    editor.setWindowedPresentation(windowed);
+    editor.show();
+    editor.saveAs();
+    for (auto *watcher : editor.findChildren<QFutureWatcherBase *>())
+      watcher->waitForFinished();
+    editor.close();
+    QCoreApplication::processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    if (saveDialog() || editor.isVisible()) {
+      if (auto *dialog = saveDialog())
+        dialog->reject();
+      error = QStringLiteral("Closing during Save As preparation reopened UI");
+      return false;
+    }
+    // Close while the chooser is visible, then after its rejection but before
+    // deferred deletion/restoration. Neither route may resurrect the editor.
+    for (const bool rejectFirst : {false, true}) {
+      editor.show();
+      editor.saveAs();
+      if (!waitUntil([] { return saveDialog() != nullptr; })) {
+        error = QStringLiteral("Close-race fixture could not open Save As");
+        return false;
+      }
+      if (rejectFirst)
+        saveDialog()->reject();
+      editor.close();
+      if (!waitUntil([] { return saveDialog() == nullptr; })) {
+        error = QStringLiteral("Closing editor left an orphan save chooser");
+        return false;
+      }
+      QCoreApplication::processEvents();
+      if (editor.isVisible()) {
+        error = QStringLiteral("Closing during Save As cancellation reopened editor");
+        return false;
+      }
+    }
+  }
+  {
+    auto editor = std::make_unique<CaptureEditor>(capture, CaptureEditor::CaptureMode::File);
+    editor->show();
+    editor->saveAs();
+    for (auto *watcher : editor->findChildren<QFutureWatcherBase *>())
+      watcher->waitForFinished();
+    editor.reset();
+    QCoreApplication::processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    if (saveDialog()) {
+      saveDialog()->reject();
+      error = QStringLiteral("Destroyed editor left a save chooser");
+      return false;
+    }
+    // Accepted output owns copied pixels/state and finishes safely even if
+    // the editor is destroyed before its worker completion reaches the GUI.
+    editor = std::make_unique<CaptureEditor>(capture, CaptureEditor::CaptureMode::File);
+    const QString output = directory.filePath(QStringLiteral("destroyed.png"));
+    editor->saveAsToPath(output);
+    editor.reset();
+    if (!waitUntil([&] { return !QImage(output).isNull(); })) {
+      error = QStringLiteral("Destroying editor interrupted accepted Save As output");
+      return false;
+    }
   }
   return true;
 }

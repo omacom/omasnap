@@ -13,6 +13,7 @@
 #include <QFutureWatcher>
 #include <QPlainTextEdit>
 #include <QPixmap>
+#include <QPointer>
 #include <QRegion>
 #include <QLineF>
 #include <QTimer>
@@ -21,6 +22,8 @@
 #include <optional>
 #include <memory>
 
+class QCloseEvent;
+class QFileDialog;
 class QKeyEvent;
 class QMouseEvent;
 class QPaintEvent;
@@ -138,6 +141,7 @@ public:
   void setSuppressSnapshots(bool suppress) { suppressSnapshots_ = suppress; }
 
 protected:
+  void closeEvent(QCloseEvent *event) override;
   bool eventFilter(QObject *watched, QEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   void keyReleaseEvent(QKeyEvent *event) override;
@@ -618,6 +622,7 @@ private:
   void redoEdit();
   void selectWindowInDirection(int key);
   friend bool runSaveAsSmoke(QString &error);
+  void cancelSaveAs();
   void restoreSaveAsFocus();
   void saveAs();
   void showSaveAsDialog(const QString &suggested);
@@ -894,6 +899,8 @@ private:
   QFutureWatcher<OcrResult> ocrWatcher_;
   QFutureWatcher<FinishResult> finishWatcher_;
   bool saveAsActive_ = false;
+  quint64 saveAsRequest_ = 0;
+  QPointer<QFileDialog> saveAsDialog_;
   QString saveAsDirectory_;
   QFutureWatcher<ReopenResult> reopenWatcher_;
   QFutureWatcher<QImage> backdropWatcher_;
