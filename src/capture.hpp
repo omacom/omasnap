@@ -2,9 +2,12 @@
 #pragma once
 
 #include "cut.hpp"
+#include "pin.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 
 #include <QPainterPath>
 #include <QColor>
@@ -41,9 +44,11 @@ struct CaptureData {
   /** Logical size the native source image is presented at. */
   QSize previewSize;
   QVector<WindowTarget> windows;
-  /** Original monitor scale for images edited in native-pixel coordinates
-   *  (scroll stitches). Zero uses monitor.scale for ordinary captures. */
+  /** Original export scale, before logical presentation dimensions rounded.
+   *  Zero uses monitor.scale for freshly captured images. */
   qreal outputScale = 0.0;
+  /** Loaded documents retain their exact pixel dimensions during rendering. */
+  bool preserveSourceResolution = false;
 };
 
 enum class BackgroundStyle {
@@ -57,12 +62,13 @@ enum class BackgroundStyle {
   Custom
 };
 enum class CanvasBoundaryMode { Framed, Overflow, Image };
-enum class QuickOutputMode { None, Copy, Save, Both };
+enum class QuickOutputMode { None, Copy, Save, Both, CopyAndPreview };
 
 enum class SpotlightShape { Ellipse, Rectangle, RoundedRectangle };
 enum class RedactionStyle { Solid, Pixelate };
 enum class TextBackground { Plain, Pill, Outline };
 enum class TextFont { Neucha, JetBrainsMono, InterDisplay };
+enum class ArrowStyle { Standard, Pointy, Curved, Double };
 
 struct Annotation {
   enum class Kind {
@@ -95,7 +101,17 @@ struct Annotation {
   TextBackground textBackground = TextBackground::Pill;
   /// Typeface is a layer property so reopened and duplicated labels keep it.
   TextFont textFont = TextFont::Neucha;
+  ArrowStyle arrowStyle = ArrowStyle::Standard;
   quint64 id = 0;
+  /** Explicit quadratic Bezier control for Curved/Double arrows. Empty uses
+   *  the calibrated perpendicular-offset curve. */
+  std::optional<QPointF> curveControl = std::nullopt;
+  /// Wrap width for text layers in image px; 0 leaves the layer unbounded.
+  qreal textWidth = 0.0;
+  /// Raw pointer geometry retained so smoothing changes never compound.
+  QVector<QPointF> rawPoints{};
+  /// Pen post-stroke smoothing level (0--6); unused by other layer kinds.
+  int smoothingLevel = 0;
 
   bool operator==(const Annotation &) const = default;
 };
@@ -172,7 +188,21 @@ enum class AnnotationLayer { Redaction, Default };
                                          bool includeWindows, QString &error);
 /** Bounds of a text layer's glyph box, or of its readability pill when it
  *  has one; `start` is the baseline origin. */
-[[nodiscard]] QRectF annotationTextBounds(const Annotation &annotation);
+/// Narrowest wrap width worth producing; below this a line would be a sliver,
+/// so the text stays on one line instead.
+inline constexpr qreal kMinimumTextWrapWidth = 48.0;
+/** Width a text layer wraps to: its own `textWidth`, else the room left
+ *  before an optional right edge (`canvasWidth`, 0 = unbounded). The editor
+ *  supplies that edge while typing, then stores an explicit width only when
+ *  the draft actually wrapped. */
+[[nodiscard]] qreal annotationTextWrapWidth(const Annotation &annotation,
+                                            qreal canvasWidth);
+/** The display lines of a text layer: hard newlines first, then each of those
+ *  word-wrapped to annotationTextWrapWidth(). */
+[[nodiscard]] QStringList annotationTextLines(const Annotation &annotation,
+                                              qreal canvasWidth = 0.0);
+[[nodiscard]] QRectF annotationTextBounds(const Annotation &annotation,
+                                          qreal canvasWidth = 0.0);
 /**
  * Pixel-aligned annotation space selected by `boundaryMode`. Grow contains
  * every painted extent, Frame stops at the normal backdrop frame, and Image
@@ -258,7 +288,21 @@ void describeFileCapture(CaptureData &capture, QImage image,
 [[nodiscard]] bool quickOutput(const QImage &image, QuickOutputMode mode,
                                QString &error);
 [[nodiscard]] bool copyTextToClipboard(const QString &text, QString &error);
-void paintAnnotation(QPainter &painter, const Annotation &annotation);
+/** Paints one annotation. `arrowDisplayScale` affects only the on-screen tail
+ *  legibility floor for Standard/Pointy arrows; exports use the default 1.0. */
+void paintAnnotation(QPainter &painter, const Annotation &annotation,
+                     qreal arrowDisplayScale = 1.0);
+/** Visual extent of an arrow, including its head and stroke. The optional
+ *  display scale matches the preview-only Standard/Pointy tail floor; canvas
+ *  growth and exports use the natural 1.0 default. */
+[[nodiscard]] QRectF arrowVisualBounds(const Annotation &annotation,
+                                       qreal displayScale = 1.0);
+/** The on-curve midpoint handle used to reshape Curved/Double arrows. */
+[[nodiscard]] QPointF arrowCurveHandlePoint(const Annotation &annotation);
+/** Shape-aware arrow hit test in annotation-space pixels. */
+[[nodiscard]] bool arrowContainsPoint(const Annotation &annotation,
+                                      const QPointF &point,
+                                      qreal tolerance = 0.0);
 [[nodiscard]] QPainterPath spotlightPath(const Annotation &annotation);
 void paintSpotlights(QPainter &painter, const QImage &source,
                      const QRectF &targetBounds, const QRectF &sourceRect,
@@ -270,7 +314,8 @@ void paintSpotlights(QPainter &painter, const QImage &source,
  */
 void paintDefaultLayer(QPainter &painter, const QImage &redacted,
                        const QRectF &logicalBounds,
-                       const QVector<Annotation> &annotations);
+                       const QVector<Annotation> &annotations,
+                       qreal arrowDisplayScale = 1.0);
 /** `customBackdrop` is the image drawn (cover-fit) for
  *  `BackgroundStyle::Custom`; a null image there paints nothing, same as
  *  `BackgroundStyle::None`. */
@@ -319,9 +364,29 @@ QImage applyRedactionsScaled(QImage image, const QVector<Annotation> &redactions
 [[nodiscard]] QString moveSnapshotToScreenshots(const QString &sourcePath,
                                                 QString &error,
                                                 const QString &appSlug = {});
+/** Saves an already-rendered PNG without consuming the live pin's source. */
+[[nodiscard]] QString copySnapshotToScreenshots(const QString &sourcePath,
+                                                QString &error);
 [[nodiscard]] QString temporarySnapshotPath();
 [[nodiscard]] QString pinnedSnapshotPath(int index);
 void prunePinnedSnapshots();
+/** Private runtime path for handing a live edit to the other editor
+ *  presentation (overlay to window or back). */
+[[nodiscard]] QString editorHandoffPath();
+void pruneEditorHandoffs();
+/** Writes a private handoff and an ownership marker for the receiving editor. */
+bool saveEditorHandoff(const QImage &source, const QString &path,
+                       const OperationLog &log, const QString &token,
+                       QString &error);
+/** Consumes only a handoff whose ownership marker matches the launch token. */
+bool removeEditorHandoff(const QString &path, const QString &token);
+/** Window size for a windowed editor: the capture at its logical size
+ *  plus the chrome, where `legendHeight` is the measured key guide band,
+ *  scaled down to fit inside `available` with a little margin, never
+ *  smaller than a usable floor. */
+[[nodiscard]] QSize editorWindowSize(const QSize &preview,
+                                     const QSize &available,
+                                     int legendHeight);
 /**
  * Writes `image` into the private runtime directory. `quality` is the Qt PNG
  * quality knob, which maps inversely onto zlib levels: -1 keeps the default
@@ -330,11 +395,24 @@ void prunePinnedSnapshots();
 /** Saves a pinned snapshot plus a sidecar log recording the logical size,
  *  so editing the pin later reopens at the captured scale. */
 [[nodiscard]] bool savePinnedSnapshot(const QImage &image, const QString &path,
-                                      const QSize &logicalSize, QString &error);
+                                      const QSize &logicalSize, QString &error,
+                                      qreal outputScale = 0.0);
+/** Saves and launches a private pin, optionally copying the same PNG first.
+ *  Call on a worker: encoding, clipboard verification and process launch block.
+ *  Returns the owned snapshot path, or removes it on failure. */
+[[nodiscard]] QString launchPinnedCapture(
+    const QImage &image, const QSize &logicalSize, bool copy,
+    PinLifetime lifetime, QString &error,
+    const std::function<bool(const QString &, const QStringList &)> &launcher = {},
+    qreal outputScale = 0.0);
 [[nodiscard]] bool saveTemporarySnapshot(const QImage &image, QString path,
                                          QString &error, int quality = -1);
 [[nodiscard]] QString recognizeText(const QImage &image, QString &error);
-/** Quotes a string for a shell argument passed to omarchy-notification-send. */
-[[nodiscard]] QString shellQuote(QString value);
+/** Builds the omarchy-notification-send argv. With an image, the click command
+ *  follows --exec as separate words (program, then file URL) and nothing else
+ *  comes after it, since --exec consumes the rest of the line unparsed. */
+[[nodiscard]] QStringList
+captureNotificationArguments(const QString &message,
+                             const QString &imagePath = {});
 void sendCaptureNotification(const QString &message,
                              const QString &imagePath = {});

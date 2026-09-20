@@ -7,10 +7,11 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QString>
+#include <memory>
 
 #include <fcntl.h>
 #include <sys/file.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 PinSnapshotFile::PinSnapshotFile(QString path)
@@ -30,50 +31,48 @@ PinSnapshotFile::~PinSnapshotFile() {
   // Only the last holder may unlink. Upgrade SH -> EX; if another pin still
   // holds SH, leave the file for that process.
   const bool lastOwner = !preserve_ && ::flock(fd_, LOCK_EX | LOCK_NB) == 0;
-  static const QRegularExpression internalName(
-      QStringLiteral("^pin-[1-9][0-9]*-[1-9][0-9]*-[0-9a-f]{16}\\.png$"));
-  const QFileInfo fileInfo(path_);
-  const QString runtime = secureRuntimeDirectory();
-  if (lastOwner && !runtime.isEmpty() && fileInfo.absolutePath() == runtime &&
-      internalName.match(fileInfo.fileName()).hasMatch()) {
+  if (lastOwner && isOwnedPath(path_)) {
     QFile::remove(path_);
     QFile::remove(operationLogPath(path_));
+    QFile::remove(previewPath());
+    QFile::remove(operationLogPath(previewPath()));
   }
   ::close(fd_);
 }
 
 bool PinSnapshotFile::isLocked() const { return fd_ >= 0; }
 
+bool PinSnapshotFile::isOwnedPath(const QString &path) {
+  static const QRegularExpression internalName(
+      QStringLiteral("^pin-[1-9][0-9]*-[1-9][0-9]*-[0-9a-f]{16}\\.png$"));
+  const QFileInfo file(path);
+  const QString runtime = secureRuntimeDirectory();
+  return !runtime.isEmpty() && file.absolutePath() == runtime &&
+         internalName.match(file.fileName()).hasMatch() && !file.isSymLink();
+}
+
 void PinSnapshotFile::preserveForEditor() { preserve_ = true; }
 
-PinSlotLock::PinSlotLock() {
-  const QString runtime = secureRuntimeDirectory();
-  if (runtime.isEmpty())
-    return;
-  for (int candidate = 0; candidate < 1024; ++candidate) {
-    const QString path = QDir(runtime).filePath(
-        QStringLiteral(".pin-slot-%1.lock").arg(candidate));
-    const int fd = ::open(QFile::encodeName(path).constData(),
-                          O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
-                          S_IRUSR | S_IWUSR);
-    if (fd < 0)
-      continue;
-    if (::fchmod(fd, S_IRUSR | S_IWUSR) == 0 &&
-        ::flock(fd, LOCK_EX | LOCK_NB) == 0) {
-      fd_ = fd;
-      index_ = candidate;
-      return;
-    }
-    ::close(fd);
+std::shared_ptr<PinSnapshotFile> copyPinDocument(const QString &path, QString &error) {
+  const QString copy = pinnedSnapshotPath(1);
+  if (copy.isEmpty() || !QFile::copy(path, copy)) {
+    error = QStringLiteral("Could not retain the pinned capture for editing");
+    return {};
   }
+  auto document = std::make_shared<PinSnapshotFile>(copy);
+  if (!document->isLocked()) {
+    QFile::remove(copy);
+    error = QStringLiteral("Could not lock the pinned document");
+    return {};
+  }
+  if (!QFile::setPermissions(copy, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+    error = QStringLiteral("Could not make the pinned document private");
+    return {};
+  }
+  OperationLog log;
+  const QString sidecar = operationLogPath(path);
+  if ((QFile::exists(sidecar) && !loadOperationLog(sidecar, log, error)) ||
+      !saveOperationLog(operationLogPath(copy), log, error))
+    return {};
+  return document;
 }
-
-PinSlotLock::~PinSlotLock() {
-  if (fd_ < 0)
-    return;
-  ::close(fd_);
-}
-
-bool PinSlotLock::isLocked() const { return fd_ >= 0; }
-
-int PinSlotLock::index() const { return index_; }

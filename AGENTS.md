@@ -3,10 +3,13 @@
 Omasnap is a super fast, native Wayland screenshot and annotation overlay,
 built for [Omarchy](https://omarchy.org) on Hyprland. It captures region,
 window, or full monitor (plus a scrolling-region mode that stitches a taller
-page into one image), then opens an annotation editor with vector layers
+page into one image), then copies it and opens a floating compositor preview.
+The preview fades after 10 seconds unless interacted with or kept with its pin
+button or Ctrl+P.
+It opens an annotation editor on demand, with vector layers
 (arrows, lines, freehand, highlighter, rectangles, ellipses, numbered
 markers, text, OCR). Finished captures go to clipboard,
-`~/Pictures/Screenshots`, or a pinned always-on-top layer surface.
+`~/Pictures/Screenshots`, or a floating capture pinned across workspaces.
 
 ## Project principles
 
@@ -26,7 +29,9 @@ change that touches the principle, not just this summary.
 - **Every operation is undoable.** The operation log is the source of
   truth; the visible image is rebuilt from it. Rendering for editing is a
   pure, repeatable function of that log — nothing is baked into the working
-  image as you draw. Output is applied only on **Copy**, **Save**, or both,
+  image as you draw. Fresh captures copy and show a timed preview by default;
+  during editing, output is applied only on **Copy**, **Save**, or both
+  (or an explicit pin or a return to its preview),
   which is the one moment a flattened image is produced. Redaction is the
   deliberate, documented exception: it must actually destroy pixels at
   render time so nothing recoverable leaks into an export, while remaining
@@ -90,7 +95,8 @@ change that touches the principle, not just this summary.
 | `src/cut.cpp/.hpp` | Cut-band tool: remove a strip and collapse the gap |
 | `src/recent-snaps.cpp/.hpp` | The recents shelf: shelving/reopening working documents |
 | `src/output-config.cpp/.hpp`, `src/palette-config.cpp/.hpp` | The optional `omasnap.conf` INI: output destination/filename, color presets |
-| `src/pin.cpp/.hpp`, `src/pin-file.cpp/.hpp`, `src/pin-layout.cpp/.hpp` | Pinned-capture layer-shell surfaces (bottom-right, all workspaces) |
+| `src/pin.cpp/.hpp`, `src/pin-file.cpp/.hpp`, `src/pin-layout.cpp/.hpp` | Floating pinned captures, their files, and compositor placement |
+| `src/pin-expiry.cpp/.hpp` | Preview countdown, interaction pauses, and fade |
 | `src/icons.cpp/.hpp` | Vector icon renderer for toolbar and pin controls |
 | `src/cli-path.cpp/.hpp` | Command-line image target resolution |
 | `src/eyedropper.cpp/.hpp` | Display-to-source color sampling |
@@ -123,9 +129,14 @@ wayland wayland-protocols wl-clipboard tesseract tesseract-data-eng`. See
 ## Release process
 
 1. Bump `project(omasnap VERSION ...)` in `CMakeLists.txt`.
+   Move the `Unreleased` entries in `CHANGELOG.md` into that version's
+   section, add its comparison link, and start a fresh `Unreleased` section.
+   Update the Unreleased comparison link to compare the new tag with `main`.
 2. Build and run the smoke test (above).
 3. Commit, tag `v<version>`, push main and the tag. The GitHub workflow
    attaches the build artifact to the release automatically.
+   Copy the new changelog section into the GitHub release notes so users
+   can read the changes alongside the download.
 4. **Update omarchy-pkgs on every new version release.** In the
    [omarchy-pkgs](https://github.com/omacom-io/omarchy-pkgs) fork
    (`pkgbuilds/omasnap/`):

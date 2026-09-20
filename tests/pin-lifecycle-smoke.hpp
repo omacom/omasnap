@@ -4,3 +4,4 @@
 class QString;
 
 [[nodiscard]] bool runPinLifecycleSmoke(QString &error);
+[[nodiscard]] bool runPinExpirySmoke(QString &error);

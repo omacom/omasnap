@@ -186,8 +186,51 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
       return false;
     }
   }
-  // Scrolling captures keep native editing coordinates, but must remember the
-  // monitor scale for export, including when their working document reopens.
+  // Fresh captures downsize only the initial clipboard output. Their preview
+  // keeps native pixels and exact export scale for a later edit.
+  for (const bool scrolling : {false, true}) {
+    CaptureData capture;
+    capture.monitor.name = QStringLiteral("TEST");
+    capture.monitor.scale = 2.0;
+    capture.previewSize = {400, 300};
+    capture.monitor.geometry = QRect(QPoint(), capture.previewSize);
+    capture.monitor.pixelSize = {800, 600};
+    capture.source = QImage(800, 600, QImage::Format_RGB32);
+    capture.source.fill(Qt::cyan);
+    CaptureEditor editor(capture, scrolling ? CaptureEditor::CaptureMode::Scroll
+                                            : CaptureEditor::CaptureMode::Fullscreen,
+                         QuickOutputMode::CopyAndPreview);
+    QString preview;
+    editor.setProcessLauncherForTest([&](const QString &, const QStringList &args) {
+      if (args.size() != 2 || args.first() != QStringLiteral("--preview"))
+        return false;
+      preview = args.last();
+      return true;
+    });
+    editor.resize(800, 600);
+    editor.show();
+    QImage native = capture.source;
+    if (scrolling) {
+      native = QImage(603, 1203, QImage::Format_RGB32);
+      native.fill(Qt::cyan);
+      editor.adoptStitchedForTest(native);
+    }
+    editor.waitForExport();
+    const auto cleanup = qScopeGuard([&] {
+      QFile::remove(preview);
+      QFile::remove(operationLogPath(preview));
+    });
+    OperationLog log;
+    if (preview.isEmpty() || editor.isVisible() || QImage(preview).size() != native.size() ||
+        QImage(clipboard).size() != QSize(qRound(native.width() / 2.0),
+                                        qRound(native.height() / 2.0)) ||
+        !loadOperationLog(operationLogPath(preview), log, error) || log.outputScale != 2.0) {
+      error = QStringLiteral("Logical clipboard output changed the native preview or lost its scale");
+      return false;
+    }
+  }
+  // Scrolling captures retain logical editing coordinates and the original
+  // export scale, including when their working document reopens.
   for (const qreal scale : {1.5, 2.0}) {
     CaptureData monitor;
     monitor.monitor.name = QStringLiteral("TEST");
@@ -204,9 +247,9 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
     if (!editor.waitForSnapshot())
       return false;
     editor.adoptStitchedForTest(stitched);
-    if (editor.captureData().previewSize != stitched.size() ||
+    if (editor.captureData().previewSize != (QSizeF(stitched.size()) / scale).toSize() ||
         !editor.waitForSnapshot()) {
-      error = QStringLiteral("Stitched editing coordinates changed");
+      error = QStringLiteral("Stitched logical presentation changed");
       return false;
     }
     OperationLog log;

@@ -57,6 +57,8 @@ add_library(omasnap-core STATIC
   src/output-config.hpp
   src/output-image.cpp
   src/output-image.hpp
+  src/pin-expiry.cpp
+  src/pin-expiry.hpp
   src/overlay-chrome.cpp
   src/overlay-chrome.hpp
   src/eyedropper.cpp
@@ -74,6 +76,8 @@ add_library(omasnap-core STATIC
   src/scroll-inject.hpp
   src/startup-timing.cpp
   src/startup-timing.hpp
+  src/stroke-smoothing.cpp
+  src/stroke-smoothing.hpp
   ${PROTOCOL_SOURCES}
   src/editor.cpp
   src/editor.hpp
@@ -153,6 +157,8 @@ qt_add_executable(omasnap-smoke
   tests/palette-config-smoke.hpp
   tests/output-image-smoke.cpp
   tests/output-image-smoke.hpp
+  tests/stroke-smoothing-smoke.cpp
+  tests/stroke-smoothing-smoke.hpp
   src/cli-path.cpp
   src/recent-snaps.cpp
   src/recent-snaps.hpp

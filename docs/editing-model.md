@@ -32,9 +32,12 @@ flatten or repaint the full capture. **Nothing is baked into the working
 image as you draw.** Add a rectangle, change your mind, delete it — the
 source pixels underneath were never touched.
 
-Output happens at exactly three moments, all user-initiated: **Copy**,
+Completing a fresh capture copies it and shows a timed preview by default. The
+preview fades after 10 seconds of idle time; its pin button or Ctrl+P keeps it.
+`--editor overlay` or `--editor window` opens annotation before output; a pin's
+Edit button also opens the editor on demand. During editing, output happens on **Copy**,
 **Save**, or both together (`CaptureEditor::finish()`), plus pinning a
-snapshot. Each of those calls `renderCapture` once, off the UI thread (see
+snapshot or returning edits to an existing pin. Each render runs off the UI thread (see
 [threading.md](threading.md)), and writes the result. Until one of those
 happens, everything remains a log entry you can undo.
 
@@ -42,9 +45,20 @@ Copy/Save can optionally downscale this completed raster to logical size
 (`output/logical_size`). Resizing runs after rendering, including redaction,
 on the output worker. It never changes the working source, operation log,
 OCR input, or pinned image; native-resolution exports remain the default.
-Stitched captures keep their original monitor scale separately in the working
-log's `outputScale` field because their editing coordinates are native pixels.
-This makes logical-size export consistent after reopening them from recents.
+Working documents retain the original export scale in the log, so rounding
+their logical presentation size does not change output size after reopening.
+
+Opening a pin for annotation leaves its compositor window in place. A private
+copy retains the pristine source and operation log; `Esc` commits any text draft,
+dismisses the annotator, and updates the pin's rendered preview. Reopening reads
+the source and log, so undo still works. Copying or dragging the pin shares only
+the rendered preview. The original user file is never overwritten, and the last
+pin/editor owner removes the private source, log, and preview together.
+
+Scrolling captures retain the monitor's scale when they become editable
+documents. Their native pixels stay intact; only the logical presentation size
+changes. Loaded documents also retain their exact pixel dimensions on export,
+even when the logical size was rounded for a scaled display.
 
 ## The two exceptions, and why they're still safe
 

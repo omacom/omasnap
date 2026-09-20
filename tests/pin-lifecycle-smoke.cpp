@@ -3,16 +3,87 @@
 
 #include "capture.hpp"
 #include "pin-file.hpp"
+#include "pin-expiry.hpp"
 
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QElapsedTimer>
+#include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QScopeGuard>
+#include <QTest>
+#include <QStringList>
+#include <algorithm>
 
 #include <fcntl.h>
 #include <sys/file.h>
 #include <unistd.h>
+
+bool runPinExpirySmoke(QString &error) {
+  PinExpiry timed(false), kept(true), pinnedLater(false), paused(false),
+      unpinned(true), keptDuringFade(false), hoveredDuringFade(false);
+  QSignalSpy timedClosed(&timed, &PinExpiry::expired);
+  QSignalSpy keptClosed(&kept, &PinExpiry::expired);
+  QSignalSpy pinnedClosed(&pinnedLater, &PinExpiry::expired);
+  QSignalSpy pausedClosed(&paused, &PinExpiry::expired);
+  QSignalSpy unpinnedClosed(&unpinned, &PinExpiry::expired);
+  QSignalSpy fadedKeptClosed(&keptDuringFade, &PinExpiry::expired);
+  QSignalSpy fadedHoveredClosed(&hoveredDuringFade, &PinExpiry::expired);
+  bool faded = false, pinnedInFade = false, pausedInFade = false;
+  qreal keptOpacity = 1.0, hoveredOpacity = 1.0;
+  QElapsedTimer elapsed, unpinnedElapsed;
+  qint64 closedAt = 0, unpinnedAt = 0;
+  QObject::connect(&timed, &PinExpiry::opacityChanged, &timed, [&](qreal opacity) {
+    faded = faded || (opacity > 0.0 && opacity < 1.0);
+  });
+  QObject::connect(&timed, &PinExpiry::expired, &timed, [&] { closedAt = elapsed.elapsed(); });
+  QObject::connect(&unpinned, &PinExpiry::expired, &unpinned, [&] { unpinnedAt = unpinnedElapsed.elapsed(); });
+  QObject::connect(&keptDuringFade, &PinExpiry::opacityChanged, &keptDuringFade, [&](qreal opacity) {
+    keptOpacity = opacity;
+    if (!pinnedInFade && opacity < 1.0) {
+      pinnedInFade = true;
+      keptDuringFade.setKept(true);
+    }
+  });
+  QObject::connect(&hoveredDuringFade, &PinExpiry::opacityChanged, &hoveredDuringFade, [&](qreal opacity) {
+    hoveredOpacity = opacity;
+    if (!pausedInFade && opacity < 1.0) {
+      pausedInFade = true;
+      hoveredDuringFade.setPaused(true);
+    }
+  });
+  elapsed.start();
+  for (PinExpiry *expiry : {&timed, &kept, &pinnedLater, &paused, &unpinned,
+                            &keptDuringFade, &hoveredDuringFade})
+    expiry->start();
+  QTest::qWait(200);
+  pinnedLater.setKept(true);
+  paused.setPaused(true);
+  unpinnedElapsed.start();
+  unpinned.setKept(false);
+  while ((timedClosed.isEmpty() || unpinnedClosed.isEmpty()) && elapsed.elapsed() < 13000)
+    QTest::qWait(20);
+  if (timedClosed.size() != 1 || unpinnedClosed.size() != 1 || !faded ||
+      closedAt < 10000 || unpinnedAt < 10000) {
+    error = QStringLiteral("A preview did not fade after ten seconds, or unpinning did not restart its lifetime");
+    return false;
+  }
+  if (!keptClosed.isEmpty() || !pinnedClosed.isEmpty() || !pausedClosed.isEmpty() ||
+      !fadedKeptClosed.isEmpty() || !fadedHoveredClosed.isEmpty() ||
+      !pinnedInFade || !pausedInFade || keptOpacity != 1.0 || hoveredOpacity != 1.0) {
+    error = QStringLiteral("Pinning or hovering failed to keep a preview visible, including during its fade");
+    return false;
+  }
+  hoveredDuringFade.setPaused(false);
+  if (!fadedHoveredClosed.wait(1000) || fadedHoveredClosed.size() != 1) {
+    error = QStringLiteral("Leaving a fading preview did not resume its expiry");
+    return false;
+  }
+  return true;
+}
 
 bool runPinLifecycleSmoke(QString &error) {
   const QString firstPath = pinnedSnapshotPath(987654);
@@ -24,6 +95,39 @@ bool runPinLifecycleSmoke(QString &error) {
 
   QImage image(8, 8, QImage::Format_ARGB32_Premultiplied);
   image.fill(Qt::white);
+
+  // Copying a temporary pin's path exports a durable file; closing the pin
+  // must still clean up its runtime document without invalidating that path.
+  QTemporaryDir screenshots;
+  if (!screenshots.isValid()) {
+    error = QStringLiteral("Could not create pin path export directory");
+    return false;
+  }
+  const QByteArray oldDirectory = qgetenv("OMASNAP_SCREENSHOT_DIR");
+  const auto restoreDirectory = qScopeGuard([&] {
+    oldDirectory.isNull() ? qunsetenv("OMASNAP_SCREENSHOT_DIR")
+                          : qputenv("OMASNAP_SCREENSHOT_DIR", oldDirectory);
+  });
+  qputenv("OMASNAP_SCREENSHOT_DIR", screenshots.path().toUtf8());
+  const QString sourcePath = pinnedSnapshotPath(987661);
+  QString exportedPath;
+  if (!savePinnedSnapshot(image, sourcePath, QSize(4, 4), error))
+    return false;
+  {
+    PinSnapshotFile source(sourcePath);
+    exportedPath = copySnapshotToScreenshots(sourcePath, error);
+    if (!source.isLocked() || exportedPath.isEmpty() ||
+        !QFile::exists(sourcePath) || !QFile::exists(operationLogPath(sourcePath)) ||
+        QFileInfo(exportedPath).absolutePath() != screenshots.path()) {
+      error = QStringLiteral("Sharing a pin path consumed its source or ignored the output directory");
+      return false;
+    }
+  }
+  if (QFile::exists(sourcePath) || QFile::exists(operationLogPath(sourcePath)) ||
+      QImage(exportedPath).convertToFormat(image.format()) != image) {
+    error = QStringLiteral("Closing a pin invalidated the shared file or leaked its runtime document");
+    return false;
+  }
 
   // Editing a pinned snapshot reopens at the captured scale: the pin save
   // records the logical size in a sidecar the file editor reads back.
@@ -168,36 +272,22 @@ bool runPinLifecycleSmoke(QString &error) {
   }
   QFile::remove(unrelatedPath);
 
-  int expectedReusedSlot = -1;
-  {
-    PinSlotLock first;
-    PinSlotLock second;
-    if (!first.isLocked() || !second.isLocked() || first.index() == second.index()) {
-      error = QStringLiteral("Pin slots were not claimed uniquely");
-      return false;
-    }
-    expectedReusedSlot = first.index();
-  }
-  {
-    PinSlotLock reused;
-    if (!reused.isLocked() || reused.index() != expectedReusedSlot) {
-      error = QStringLiteral("Closed pin slot was not reused");
-      return false;
-    }
-  }
-
   const QString path = pinnedSnapshotPath(987654);
-  if (!saveTemporarySnapshot(image, path, error))
+  const QString preview = path + QStringLiteral(".preview.png");
+  if (!savePinnedSnapshot(image, path, QSize(4, 4), error) ||
+      !savePinnedSnapshot(image, preview, QSize(4, 4), error))
     return false;
-  QFile agedFile(path);
-  if (!agedFile.open(QIODevice::ReadOnly) ||
-      !agedFile.setFileTime(QDateTime::currentDateTime().addDays(-2),
-                            QFileDevice::FileModificationTime)) {
-    error = QStringLiteral("Could not age pin snapshot");
-    QFile::remove(path);
-    return false;
+  const QStringList documentFiles{path, operationLogPath(path), preview,
+                                   operationLogPath(preview)};
+  for (const QString &filePath : documentFiles) {
+    QFile agedFile(filePath);
+    if (!agedFile.open(QIODevice::ReadOnly) ||
+        !agedFile.setFileTime(QDateTime::currentDateTime().addDays(-2),
+                              QFileDevice::FileModificationTime)) {
+      error = QStringLiteral("Could not age pin document");
+      return false;
+    }
   }
-  agedFile.close();
 
   bool survived = false;
   {
@@ -208,10 +298,16 @@ bool runPinLifecycleSmoke(QString &error) {
       return false;
     }
     prunePinnedSnapshots();
-    survived = QFileInfo::exists(path);
+    survived = std::all_of(documentFiles.cbegin(), documentFiles.cend(),
+                            [](const QString &filePath) { return QFileInfo::exists(filePath); });
   }
   if (!survived) {
-    error = QStringLiteral("Active pin snapshot was pruned");
+    error = QStringLiteral("An active pin lost its source, log, or preview during pruning");
+    return false;
+  }
+  if (std::any_of(documentFiles.cbegin(), documentFiles.cend(),
+                   [](const QString &filePath) { return QFileInfo::exists(filePath); })) {
+    error = QStringLiteral("Closing a pin left part of its editable document behind");
     return false;
   }
 

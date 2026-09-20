@@ -30,7 +30,7 @@ reading its corresponding worker:
 | `ocrWatcher_` | Renders the OCR crop and runs `tesseract` |
 | `finishWatcher_` | Renders the export, encodes PNG, does the clipboard round trip, moves the file |
 | `snapshotWatcher_` | Writes the crash-recovery working snapshot + operation log |
-| `pinWatcher_` | Renders the image for a pinned layer surface |
+| `pinWatcher_` | Renders the image for a pinned compositor window |
 | `recentsWatcher_` | Lists and decodes thumbnails for the recents shelf |
 | `backdropWatcher_` | Decodes an optional user-supplied backdrop image |
 | `highlighterProbeWatcher_` | Detects a nearby screenshot text row for highlighter Snap mode |
@@ -96,7 +96,9 @@ purpose every time, since nothing enforces it automatically.
   then PNG-encoded and wrote it to disk in the `pinWatcher_::finished` slot —
   back on the UI thread, after the watcher had already proven the async
   shape was easy to reach. Fixed to do the encode+write inside the same
-  worker lambda as the render, so the slot only launches the pin process.
+  worker lambda as the render and process launch, so the slot only closes
+  the editor or displays an error. Automatic copy-and-preview output uses the
+  same worker helper, including clipboard verification.
 
 ## A known violation, not yet fixed
 
@@ -130,3 +132,56 @@ earlier in the same call.
 See also [editing-model.md](editing-model.md) for what state a background
 render is allowed to read, and [dependencies.md](dependencies.md) for the
 processes (`tesseract`, `wl-copy`/`wl-paste`, `hyprctl`) these workers spawn.
+
+## Floating pins
+
+Pin placement, compositor polling, and move dispatches run on a single worker
+per pin process. The GUI applies completed geometry snapshots through a watcher;
+it never waits for `hyprctl` during a drag. A runtime lock serializes placement
+across pin processes, with short-lived target reservations covering compositor
+animation latency. The initial monitor query uses the same worker pool; a fallback frame maps
+immediately and adopts the display-shaped size when the query finishes.
+Clipboard actions, saved copies for path sharing, editor launches, and drag
+payload preparation also run on workers. Final drag placement reports completion
+and retries a failed move;
+after repeated failures, the remaining stack closes the insertion gap.
+For compositor-initiated Super drags, the same geometry watch is armed while
+Super is held over a pin. Motion during that drag is not mistaken for release;
+the mouse release or releasing Super completes placement. There is no permanent
+polling timer on idle pins and no global shortcut registration.
+
+Hovering a deck starts a single fan watch, owned by the last pin entered. Its
+worker samples the pointer while the fan is open, including the gaps between
+windows, and stops when the deck folds. The runtime placement transaction shares
+hover ownership and drag state so other pin processes cannot fold a live drag.
+It also records freely placed pins, which must stay free even when aligned with
+the screen edge. Fan moves use compositor animations and preserve the native
+windows; folding restores their stacking order without a focus dispatch.
+Closing an active pin compacts the deck and focuses the next pin on the same
+monitor in that worker transaction. Opening annotation leaves the pin alive,
+so there is no closing-pin focus transfer to compete with the editor.
+The same transaction publishes each card's tilt. A filesystem watcher triggers
+a small worker read when that state changes; it adds no idle polling. The UI
+animates the painted card and its input region inside the existing window bounds.
+Pin frames are drawn with their images so the outline can rotate too; the runtime
+pin rule disables the compositor's rectangular border, shadow and background blur.
+
+Returning from annotation renders and saves the pin preview and operation log
+on a worker. A filesystem watch on the completed log starts a worker to decode
+the new preview and prepare its drag payload. The GUI updates the image inside
+the existing window; its compositor position and stack membership are unchanged.
+
+Normal previews use a one-shot ten-second timer and a short paint-opacity fade.
+Explicit pins and direct interaction disable that timer. Hover and shared stack
+activity pause the remaining time; a click, drag, wheel event or action keeps only
+the affected preview. Unpinning restarts its countdown, paused until ongoing
+interaction finishes. Expiry compacts the stack on the placement worker and never issues
+a focus transfer. No extra compositor polling or process is needed for the fade.
+
+## Pen smoothing budget
+
+Release-time smoothing bounds the iterative RDP pass to 32,768 point-to-segment
+comparisons over at most 2,048 samples. When that budget runs out, unexamined
+spans retain their samples; no quadratic scan continues on the input thread.
+At most three Chaikin passes then produce 16,384 points. The initial arc-length
+resampling remains linear in the raw stroke length.

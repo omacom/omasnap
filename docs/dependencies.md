@@ -11,7 +11,7 @@ From `CMakeLists.txt`, this is the entire list:
 | Dependency | What it's for |
 |---|---|
 | **Qt6** (Concurrent, Core, Gui, Test, Widgets) 6.8+ | Everything: windowing, painting, the editor UI, the worker-pool threading model ([threading.md](threading.md)), the test harness |
-| **LayerShellQt** | Layer-shell surfaces (the capture overlay, the editor, pinned captures) |
+| **LayerShellQt** | Layer-shell surfaces (the capture overlay and editor) |
 | **wayland-client** (pkg-config) | Raw protocol client code (`ext-image-copy-capture`, `zwlr_virtual_pointer_v1`) that LayerShellQt/QtWayland don't expose |
 | **wayland-scanner** + protocol XML | Generates the C bindings for the above at build time; not a runtime dependency |
 
@@ -33,7 +33,7 @@ no user-visible benefit.
 
 | Process | Used for | Required? |
 |---|---|---|
-| `hyprctl` | Monitor/window discovery (`-j` JSON), natural-scroll policy query | Yes — see [platform-scope.md](platform-scope.md) |
+| `hyprctl` | Monitor/window discovery (`-j` JSON), floating pin placement, natural-scroll policy query | Yes — see [platform-scope.md](platform-scope.md) |
 | `wl-copy` / `wl-paste` | Writing PNG/text to the Wayland clipboard, and verifying the write | Yes |
 | `tesseract` | OCR text recognition | Only if OCR is used; missing tesseract fails just that action |
 | `omarchy-notification-send` | Capture-finished notifications | No — falls back silently if absent (checked with `command -v` semantics via failed `QProcess::startDetached`) |
@@ -63,8 +63,8 @@ spend it on.
 ## The one config file
 
 `~/.config/omasnap/omasnap.conf` is optional INI, read with `QSettings`.
-It exists for exactly two things people legitimately need to override
-(screenshot destination/filename pattern, and preset colors) — not as a
+Its existing overrides cover screenshot destination/filename patterns, preset
+colors, editor presentation, and custom backdrop defaults. It is not a
 general settings mechanism. See the "minimally configurable" principle in
 [AGENTS.md](../AGENTS.md) before adding a new key: the bar is "this is a
 real escape hatch for a real divergent need," the same bar the existing
