@@ -93,6 +93,11 @@ Ask, in order:
 
 ## Binary size
 
+The pin icon in `src/icons.cpp` uses [Lucide's pin geometry](https://github.com/lucide-icons/lucide/blob/main/icons/pin.svg),
+adapted to the existing `QPainterPath` renderer. Its ISC notice is in
+`assets/Lucide-ISC.txt` and installed with the font licenses. No icon library,
+SVG renderer, or theme lookup is needed.
+
 Single, statically-linked-where-practical binary, installed to
 `~/.local/bin/omasnap` (see the repository's `install-omarchy`). Every
 dependency added here is weight every user carries on every install and

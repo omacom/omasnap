@@ -9,8 +9,8 @@ resizable vector layers and preserves the monitor's native pixels on scaled disp
 
 Select a capture and it copies straight to the clipboard, with a floating preview for
 copying again, dragging into another app, or opening the editor on demand.
-The preview fades after 10 seconds unless you interact with it. Clicking, dragging,
-scrolling over it, or using its controls keeps it on screen, as does `Ctrl+P`.
+The preview fades after 10 seconds of idle time. Hovering and unfinished actions
+pause its countdown; only the pin button or `Ctrl+P` keeps it on screen.
 
 [![Looping Omasnap demonstration](assets/omasnap.gif)](assets/omasnap.mp4)
 
@@ -21,8 +21,7 @@ scrolling over it, or using its controls keeps it on screen, as does `Ctrl+P`.
   window, fullscreen, and scrolling-region modes remain available.
 - Fresh captures copy immediately and show a floating preview for 10 seconds
   without taking keyboard focus. Hover for Pin, Edit, Copy, file drag, and Close
-  controls. Interacting with the shot keeps it on screen, as does the pin button
-  or `Ctrl+P`.
+  controls. Use the pin button or `Ctrl+P` to keep it on screen.
 - A pointer-side readout that turns any drag into a ruler: the pointer position
   while the crosshair is idle, then the frame size in native export pixels while a
   region, a hovered window, or a crop handle is being sized.
@@ -174,6 +173,7 @@ The install step places:
 - `~/.local/share/licenses/omasnap/Neucha-OFL.txt`
 - `~/.local/share/licenses/omasnap/JetBrainsMono-OFL.txt`
 - `~/.local/share/licenses/omasnap/Inter-OFL.txt`
+- `~/.local/share/licenses/omasnap/Lucide-ISC.txt`
 
 Launch Omasnap from the application launcher by searching for its name, or use
 the screenshot keybindings above.
@@ -465,12 +465,15 @@ into a scrolling capture. Explicit `region`, `windows`, `fullscreen`, and
 ### Capture previews and pins
 
 Normal captures show a preview that fades after 10 seconds of idle time, replacing
-the completion notification. Hovering the stack pauses the countdown. Clicking,
-dragging (including Super+drag), scrolling over a preview, or using its controls
-keeps that shot until you close it. The pin button or `Ctrl+P` on a focused preview
-also keeps it. Kept shots show a highlighted pin icon even when the other controls
-are hidden. Unpinning starts a fresh 10-second countdown.
+the completion notification. Hovering the stack, dragging, and in-progress
+actions pause the countdown; it resumes when the preview is idle again. Clicking,
+scrolling, copying, or editing does not pin the preview. Only the pin button or
+`Ctrl+P` on a focused preview keeps it until closed. Kept shots show a highlighted
+pin icon even when the other controls are hidden. Unpinning starts a fresh
+10-second countdown.
 New captures always go in front of the existing stack, including kept shots.
+Opening Edit leaves the preview's expiry policy unchanged; pin it first to keep
+the preview available throughout annotation.
 
 In the editor, `Ctrl+P` or `P` renders a capture that stays pinned. It writes a
 `pin-<pid>-<n>-<random>.png` under the runtime snapshot directory, and launches
@@ -504,8 +507,12 @@ the single-instance lock immediately. Pins from separate captures accumulate as 
 processes.
 
 Hover the pin to reveal its controls and use its keyboard shortcuts; the cursor
-becomes a pointing hand over each button. Pins follow normal mouse focus while
-hovered and keep focus with the current app when first created.
+becomes a pointing hand over each button. **Edit** and **Copy** sit in the center
+of the image, with text labels and no tooltips. The pin button sits beside **×**
+at the top-right; the drag handle and file-path button sit at the top-left.
+Icon buttons use compact, dark tooltips for their actions and shortcuts.
+Pins follow normal mouse focus while hovered and keep focus with the current
+app when first created.
 Closing an active or hovered pin focuses the next pin on that monitor, starting
 with the front of the remaining stack, so repeated `X` presses dismiss them
 without needing another mouse movement. Opening a pin for annotation keeps
@@ -532,7 +539,8 @@ closing or expiring the preview leaves the saved copy available. A pin opened fr
 an existing file copies that file's original path.
 
 Hyprland placement uses runtime dispatches and
-requires no user window rules. The controls use the annotation toolbar’s vector icons.
+requires no user window rules. The controls use the annotation toolbar’s vector
+icons, including Lucide’s pin drawn directly by the renderer.
 
 Canvas boundary changes affect only preview and export clipping. The complete vector
 geometry stays in the operation log, so switching back to Grow restores every off-canvas

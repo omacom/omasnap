@@ -85,5 +85,9 @@ pinInsertionPlan(QVector<QPair<QString, QRect>> column,
 /// Global logical geometry excluding reserved space for bars on any edge.
 [[nodiscard]] QRect pinMonitorWorkArea(const QJsonObject &monitor);
 
-/** The hover tip for a pin control, empty outside the known controls. */
+/// Control geometry shared by painting and hit testing: labeled actions in
+/// the center, drag/path at top-left, and pin/close at top-right.
+[[nodiscard]] QRectF pinControlRect(const QSize &frame, int index);
+
+/** Hover tips for icon controls; labeled actions and unknown controls are empty. */
 [[nodiscard]] QString pinControlTip(int index, bool kept = false);
