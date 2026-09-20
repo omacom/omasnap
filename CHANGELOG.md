@@ -7,6 +7,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Added
 
+- `--delay SECONDS` captures after a cancellable wait without taking focus,
+  allowing menus and tooltips to be arranged before the screen is sampled.
+
 - Standard, Pointy, Curved, and Double arrow styles, with editable bends.
 - Text wrapping at the canvas edge or a dragged width, preserved when
   reopening a capture.

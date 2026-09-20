@@ -1,6 +1,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 #include "capture.hpp"
+#include "capture-delay.hpp"
 #include "cli-path.hpp"
 #include "editor.hpp"
 #include "instance-lock.hpp"
@@ -71,6 +72,7 @@ public:
 
     notifier_ = new QSocketNotifier(fds_[1], QSocketNotifier::Read, this);
     connect(notifier_, &QSocketNotifier::activated, this, [this] {
+      notified_ = true;
       notifier_->setEnabled(false);
       char bytes[32];
       while (::read(fds_[1], bytes, sizeof(bytes)) > 0) {
@@ -86,6 +88,8 @@ public:
       ::sigaction(SIGTERM, &previousSigterm_, nullptr);
     closeSockets();
   }
+
+  [[nodiscard]] bool wasNotified() const { return notified_; }
 
 private:
   void closeSockets() {
@@ -104,6 +108,7 @@ private:
   struct sigaction previousSigterm_{};
   bool sigintInstalled_ = false;
   bool sigtermInstalled_ = false;
+  bool notified_ = false;
   QSocketNotifier *notifier_ = nullptr;
 };
 // All compositor IPC runs on a worker, including the pre-map rules. A
@@ -177,6 +182,12 @@ int main(int argc, char **argv) {
 
   QString filePath = parser.value(QStringLiteral("file"));
   const bool clipboardInput = parser.isSet(QStringLiteral("clipboard"));
+  int delaySeconds = 0;
+  if (parser.isSet(QStringLiteral("delay")) &&
+      !parseCaptureDelay(parser.value(QStringLiteral("delay")), delaySeconds)) {
+    qCritical() << "--delay takes a whole number from 0 through 3600 seconds";
+    return 2;
+  }
 
   const QString editorModeArg = parser.value(QStringLiteral("editor")).trimmed().toLower();
   if (!editorModeArg.isEmpty() &&
@@ -214,6 +225,7 @@ int main(int argc, char **argv) {
   if (parser.isSet(QStringLiteral("pin")) || parser.isSet(QStringLiteral("preview"))) {
     if (!filePath.isEmpty() || clipboardInput || requestedModes > 0 ||
         !positional.isEmpty() || quickOutputMode != QuickOutputMode::None ||
+        parser.isSet(QStringLiteral("delay")) ||
         (parser.isSet(QStringLiteral("pin")) && parser.isSet(QStringLiteral("preview")))) {
       qCritical()
           << "Pinned mode cannot be combined with capture or edit targets";
@@ -268,6 +280,11 @@ int main(int argc, char **argv) {
     return 2;
   }
   const bool editingImage = clipboardInput || !filePath.isEmpty();
+  if (parser.isSet(QStringLiteral("delay")) &&
+      (editingImage || parser.isSet(QStringLiteral("file")))) {
+    qCritical() << "--delay cannot be combined with an image input";
+    return 2;
+  }
   if (editingImage && quickOutputMode != QuickOutputMode::None) {
     qCritical()
         << "Quick output options cannot be combined with an image input";
@@ -371,6 +388,14 @@ int main(int argc, char **argv) {
   }
   startupTimingMark(editingImage ? "input image prepared"
                                  : "focused monitor probed");
+
+  if (delaySeconds > 0) {
+    qInfo().noquote() << QStringLiteral("Capturing in %1 seconds; run omasnap "
+                                       "again to cancel.").arg(delaySeconds);
+    if (signalNotifier.wasNotified() || !runCaptureDelay(delaySeconds) ||
+        signalNotifier.wasNotified())
+      return 0;
+  }
 
   // Grab the output before the layer exists. ext-image-copy-capture waits for
   // a composited frame, so mapping the dim overlay first photographs the veil.
