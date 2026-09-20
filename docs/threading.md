@@ -54,6 +54,11 @@ frames come in, however slow the compositor's damage-driven capture is.
   whatever cadence the page's animation settles at, never stalls painting
   the overlay's own chrome.
 
+Save As opens its chooser with `QFileDialog::open()` and restores the editor
+when it closes. Suggested output paths are prepared on a worker; accepting a
+path renders and atomically writes PNG pixels on a worker too. Cancel keeps the
+text draft and operation log untouched. The editor remains open after saving.
+
 ## Pointer motion on large monitors
 
 Input and `QWidget` painting necessarily share Qt's GUI thread, but pointer

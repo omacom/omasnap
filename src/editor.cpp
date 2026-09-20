@@ -1072,7 +1072,8 @@ CaptureEditor::~CaptureEditor() {
 bool CaptureEditor::eventFilter(QObject *watched, QEvent *event) {
   if (watched == textEditor_ && event->type() == QEvent::KeyPress) {
     auto *key = static_cast<QKeyEvent *>(event);
-    if (key->key() == Qt::Key_P && key->modifiers() == Qt::ControlModifier) {
+    if (key->matches(QKeySequence::SaveAs) ||
+        (key->key() == Qt::Key_P && key->modifiers() == Qt::ControlModifier)) {
       keyPressEvent(key);
       return true;
     }
@@ -1101,9 +1102,10 @@ bool CaptureEditor::eventFilter(QObject *watched, QEvent *event) {
       handleEscape();
       return true;
     }
-  } else if (watched == textEditor_ && event->type() == QEvent::FocusOut) {
+  } else if (watched == textEditor_ && event->type() == QEvent::FocusOut &&
+             !saveAsActive_) {
     QTimer::singleShot(0, this, [this] {
-      if (textEditing() && !textEditor_->hasFocus())
+      if (textEditing() && !textEditor_->hasFocus() && !saveAsActive_)
         acceptText();
     });
   }
@@ -3902,6 +3904,13 @@ void CaptureEditor::paintOcrOverlay(QPainter &painter, const QRectF &image,
   painter.restore();
 }
 
+void CaptureEditor::restoreSaveAsFocus() {
+  if (textEditing())
+    textEditor_->setFocus(Qt::OtherFocusReason);
+  else
+    setFocus(Qt::OtherFocusReason);
+}
+
 void CaptureEditor::finish(OutputMode mode) {
   if (busy_ || selection_.isEmpty())
     return;
@@ -4291,6 +4300,9 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     undoEdit();
   } else if (event->matches(QKeySequence::Copy)) {
     finish(OutputMode::Copy);
+    return;
+  } else if (event->matches(QKeySequence::SaveAs)) {
+    saveAs();
     return;
   } else if (event->matches(QKeySequence::Save)) {
     finish(OutputMode::Save);
@@ -6724,6 +6736,7 @@ QVector<QPair<QString, QString>> editorHotkeyEntries() {
           {QStringLiteral("Enter"), QStringLiteral("Copy + save")},
           {QStringLiteral("Ctrl+C"), QStringLiteral("Copy only")},
           {QStringLiteral("Ctrl+S"), QStringLiteral("Save only")},
+          {QStringLiteral("Ctrl+Shift+S"), QStringLiteral("Save As…")},
           {QStringLiteral("Esc"), QStringLiteral("Close")}};
 }
 

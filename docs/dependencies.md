@@ -51,14 +51,21 @@ its own process in `main()` before `QApplication` is constructed: honouring
 the session value loads the `qgtk3` plugin,
 which initialises GTK3, GLib/GIO and dconf inside the process — measured at
 81–112 ms of `QApplication` construction and ~20–24 MiB of RSS on an Omarchy
-laptop — for an overlay that is hand-painted, opens no dialogs and reads no
-palette. The only relevant values the external theme supplied were its
+laptop — for hand-painted chrome and Qt's built-in file chooser. The only relevant values the external theme supplied were its
 general and fixed fonts; their chrome and application-default replacements
 are pinned by `chromeFont()`, `chromeMonoFont()`, and `chromeDefaultFont()`
 (`src/overlay-chrome.cpp`) instead. Do not make startup or chrome rendering
 depend on an external desktop theme, `QStyle`- or palette-derived chrome, or
 icon-theme lookup: each is a startup cost with nothing in this codebase to
 spend it on.
+
+## Save As dialog
+
+Save As uses the existing Qt Widgets file chooser asynchronously, with pinned
+chrome fonts and explicit colors. The overlay alone receives its layer-shell
+role through `LayerShellQt::Window::get`; the inherited global shell override
+is cleared so the chooser and overwrite prompts use ordinary xdg-shell windows.
+No native platform-theme plugin or new dependency is needed.
 
 ## The one config file
 

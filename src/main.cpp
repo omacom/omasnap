@@ -128,28 +128,22 @@ int main(int argc, char **argv) {
   QCoreApplication::setApplicationName(QStringLiteral("omasnap"));
   QCoreApplication::setApplicationVersion(QString::fromLatin1(OMASNAP_VERSION));
   QCoreApplication::setOrganizationName(QStringLiteral("Omarchy"));
-  // Choose the Wayland shell before Qt connects. Pins and file editors
-  // use compositor windows; fresh captures select on a fullscreen overlay.
+  // Resolve editor presentation before Qt consumes its own command-line flags.
   QStringList rawArguments;
   for (int index = 0; index < argc; ++index)
     rawArguments.push_back(QString::fromLocal8Bit(argv[index]));
   QCommandLineParser startupParser;
   configureCaptureCommandLine(startupParser, true);
   const bool startupParsed = startupParser.parse(rawArguments);
-  const bool pinInvocation = startupParsed &&
-      (startupParser.isSet(QStringLiteral("pin")) || startupParser.isSet(QStringLiteral("preview")));
   const bool windowedEditorProcess = startupParsed &&
       windowedEditorRequested(startupParser, loadEditorWindowMode(defaultConfigPath()));
-  if (pinInvocation || windowedEditorProcess) {
-    // Child windows can inherit layer-shell from their capture overlay.
-    qunsetenv("QT_WAYLAND_SHELL_INTEGRATION");
-  } else {
-    qputenv("QT_WAYLAND_SHELL_INTEGRATION", "layer-shell");
-  }
+  // Window::get below gives only the capture surface a layer-shell role.
+  // Dialogs and pinned windows keep Qt's normal xdg-shell integration.
+  qunsetenv("QT_WAYLAND_SHELL_INTEGRATION");
   // Omarchy exports QT_QPA_PLATFORMTHEME=gtk3 session-wide. Honouring it
   // loads the qgtk3 plugin, which initialises GTK inside this process
   // (measured 81-112 ms of QApplication construction, plus ~20-24 MiB of
-  // RSS) for a hand-painted overlay that opens no dialogs and reads no palette.
+  // RSS) for hand-painted chrome and Qt's own file chooser.
   // Qt's built-in generic theme is all it needs, so select it by name
   // (an empty value would let Qt pick a theme from XDG_CURRENT_DESKTOP
   // instead). The chrome font is pinned in chromeFont() rather than taken

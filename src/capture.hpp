@@ -355,6 +355,13 @@ QImage applyRedactionsScaled(QImage image, const QVector<Annotation> &redactions
  * `screenshot-<yyyy-MM-dd_HH-mm-ss>[-<appSlug>].png`. The date leads so the
  * folder always sorts chronologically.
  */
+/** Suggested PNG destination from output config, without creating files.
+ * Reads config: call on a worker. */
+[[nodiscard]] QString suggestedScreenshotPath(const QString &appSlug = {});
+/** Atomically saves flattened PNG pixels, preserving an existing file on
+ * failure. PNG encoding and disk I/O must run on a worker. */
+[[nodiscard]] bool savePngFile(const QImage &image, const QString &path,
+                              QString &error, int quality = -1);
 [[nodiscard]] QString moveSnapshotToScreenshots(const QString &sourcePath,
                                                 QString &error,
                                                 const QString &appSlug = {});

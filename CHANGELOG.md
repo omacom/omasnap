@@ -7,6 +7,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Added
 
+- Save As (`Ctrl+Shift+S`): choose a PNG destination without closing the editor.
+
 - Standard, Pointy, Curved, and Double arrow styles, with editable bends.
 - Text wrapping at the canvas edge or a dragged width, preserved when
   reopening a capture.

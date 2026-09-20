@@ -617,6 +617,11 @@ private:
   void replayLog();
   void redoEdit();
   void selectWindowInDirection(int key);
+  friend bool runSaveAsSmoke(QString &error);
+  void restoreSaveAsFocus();
+  void saveAs();
+  void showSaveAsDialog(const QString &suggested);
+  void saveAsToPath(const QString &path);
   void finish(OutputMode mode);
   void completeFinish(const FinishResult &result);
   void handleEscape();
@@ -888,6 +893,8 @@ private:
   QColor textColor_;
   QFutureWatcher<OcrResult> ocrWatcher_;
   QFutureWatcher<FinishResult> finishWatcher_;
+  bool saveAsActive_ = false;
+  QString saveAsDirectory_;
   QFutureWatcher<ReopenResult> reopenWatcher_;
   QFutureWatcher<QImage> backdropWatcher_;
   bool reopenPending_ = false;
