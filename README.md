@@ -17,9 +17,11 @@ preview keeps it on screen.
 
 ## Features
 
-- Smart selection by default: drag a freeform region, click a window to crop
-  it, or click open monitor space for the full monitor. Explicit region,
-  window, fullscreen, and scrolling-region modes remain available.
+- Smart selection by default: drag a freeform region and release to capture.
+  With a fixed aspect ratio, adjust the region and press Enter to capture.
+  Click a window to crop it, or click open monitor space for the full monitor.
+  Explicit region, window, fullscreen, and scrolling-region modes remain
+  available.
 - Fresh captures copy immediately and show a floating preview for 10 seconds
   without taking keyboard focus. Hover for Pin, Edit, Copy, file drag, and Close
   controls. Use the pin button, `Ctrl+P`, `T` while hovered, or drag the preview to
@@ -253,7 +255,9 @@ the annotator open after the capture. Press either key again to turn it off.
 The editor then controls whether the result is copied, saved, or both.
 
 Quick output skips the preview as well as the annotation editor. Add `--copy` to copy
-only, `--save` to save only, or both flags to copy and save. Region and window captures output after selection;
+only, `--save` to save only, or both flags to copy and save. Region captures
+output on release in Free mode or after Enter with a fixed aspect ratio;
+window captures output on selection;
 fullscreen captures output immediately. Quick output cannot be combined with `--file`,
 `--clipboard`, or `--pin`.
 
@@ -416,12 +420,17 @@ annotation. The windowed editor keeps its guide above the toolbar.
 
 The default smart picker infers the capture kind from the gesture: drag for a
 region, click a window for that window, or click open space for the full
-focused monitor. Whatever is lit is what will be captured.
+focused monitor. In **Free** mode, releasing the mouse captures immediately.
+With a **fixed aspect ratio**, releasing leaves an adjustable box: drag inside
+it to move it or drag a corner handle to resize it, then press **Enter** to capture.
+**Esc** cancels an in-progress adjustment or clears a completed selection;
+clicking outside the box starts a new region. Window and monitor clicks capture
+immediately. Whatever is lit is what will be captured.
 
-Press `S` before drawing to select a scrolling region; once drawn, the page
-inside it goes live and the scroll controls appear in place. A small **Scroll
-capture** button under an image already open in the editor turns that region
-into a scrolling capture. Explicit `region`, `windows`, `fullscreen`, and
+Press `S` before drawing to select a scrolling region; after release in Free
+mode or **Enter** with a fixed ratio, the page inside it goes live and the scroll
+controls appear in place. A small **Scroll capture** button under an image
+already open in the editor turns that region into a scrolling capture. Explicit `region`, `windows`, `fullscreen`, and
 `scroll` command-line targets remain available for scripts and keybindings.
 While scrolling, use the on-screen Done and Cancel buttons, or `Enter` and
 `Esc` when the overlay has keyboard focus. Move the pointer back over the
@@ -430,15 +439,22 @@ controls to return focus from the live page.
 | Input | Action |
 |---|---|
 | Click | In smart mode, capture the window under the pointer, or the full monitor outside any window |
-| Drag | Select a region, with its native pixel size shown at the pointer |
+| Drag | Free: release to capture. Fixed ratio: release to adjust, drag inside to move or a corner to resize, then Enter to capture |
+| `F` / `Shift+F` | Cycle aspect ratio forward/backward before, during, or after a region drag: Free, 1:1, 16:9, 16:10, 4:3, 3:2, 9:16, 10:16, 3:4, 2:3 |
+| `Ctrl+F` | Reset aspect ratio to Free, including during a drag |
 | `S` | Toggle scrolling-region mode |
 | `E` / `A` | Toggle annotation after capture; the capture guide shows on/off, and the choice also applies to scrolling captures |
-| `R` | Restore the last drawn region, including from a previous Omasnap launch in this login session (same monitor and overlay size) |
+| `R` | Restore the last drawn region, including from a previous Omasnap launch in this login session (same monitor and overlay size); adjust it and press Enter |
 | `SUPER + Arrow` | Move among windows in window mode |
-| `Enter` | Capture the highlighted window |
+| `Enter` | Capture the adjusted region or highlighted window |
 | `Ctrl+A` | Select the full focused monitor |
 | Hover the right-edge stack | Fan out the five most recent captures; click one to reopen it |
-| `Esc` | Dismiss; cancel a selection drag if one is in progress |
+| `Esc` | Undo an in-progress adjustment, clear a drawn region, or dismiss the picker |
+
+Aspect-ratio drawing keeps the starting corner fixed and fits inside the mouse
+drag using both axes. The real pointer can move outside the constrained box.
+The guide shows the active ratio, and each launch starts Free. For scrolling
+captures, the ratio constrains only the initial region.
 
 Region memory is stored in Omasnap's private runtime directory. It survives
 closing and reopening Omasnap and lasts until those runtime files are removed

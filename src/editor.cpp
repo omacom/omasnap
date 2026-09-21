@@ -257,6 +257,17 @@ QRect parseStoredRegion(const QString &line, const QString &monitor,
 constexpr qreal kNudgeStep = 1.0;
 constexpr qreal kNudgeStepShift = 10.0;
 
+struct CaptureAspectRatio {
+  const char *label;
+  qreal ratio;
+};
+constexpr std::array<CaptureAspectRatio, 10> kCaptureAspectRatios{{
+    {"Free", 0.0}, {"1:1", 1.0}, {"16:9", 16.0 / 9.0},
+    {"16:10", 16.0 / 10.0}, {"4:3", 4.0 / 3.0}, {"3:2", 3.0 / 2.0},
+    {"9:16", 9.0 / 16.0}, {"10:16", 10.0 / 16.0},
+    {"3:4", 3.0 / 4.0}, {"2:3", 2.0 / 3.0},
+}};
+
 /** Keeps a downward submenu alive while the pointer travels toward it. */
 bool inDownwardSubmenuTriangle(const QPointF &origin, const QRectF &submenu,
                                const QPointF &pointer) {
@@ -1108,6 +1119,7 @@ CaptureEditor::~CaptureEditor() {
   finishWatcher_.waitForFinished();
   pinWatcher_.waitForFinished();
   dismissFuture_.waitForFinished();
+  regionMemoryFuture_.waitForFinished();
   // Never remove the working snapshot under an in-flight write; drain the
   // current render (dropping any coalesced follow-up) before cleanup.
   snapshotDirty_ = false;
@@ -2087,8 +2099,25 @@ QRectF CaptureEditor::normalizedSelection(const QPointF &first,
   const QRectF bounds(QPointF(), QSizeF(width(), height()));
   const QPointF a(std::clamp(first.x(), bounds.left(), bounds.right()),
                   std::clamp(first.y(), bounds.top(), bounds.bottom()));
-  const QPointF b(std::clamp(second.x(), bounds.left(), bounds.right()),
-                  std::clamp(second.y(), bounds.top(), bounds.bottom()));
+  QPointF b(std::clamp(second.x(), bounds.left(), bounds.right()),
+            std::clamp(second.y(), bounds.top(), bounds.bottom()));
+  qreal ratio = kCaptureAspectRatios.at(captureAspectIndex_).ratio;
+  if (ratio > 0.0) {
+    // Constrain native pixels, including when the overlay and source have
+    // different dimensions. Fit inside the raw drag with the press point fixed.
+    // Both dimensions reach zero at either anchor axis, so changing quadrants
+    // cannot flip a nonzero rectangle across the anchor.
+    if (!capture_.source.isNull() && width() > 0 && height() > 0)
+      ratio *= (qreal(width()) / height()) *
+               (qreal(capture_.source.height()) / capture_.source.width());
+    const QPointF delta = b - a;
+    const qreal signX = delta.x() < 0 ? -1.0 : 1.0;
+    const qreal signY = delta.y() < 0 ? -1.0 : 1.0;
+    const qreal constrainedHeight =
+        std::min(std::abs(delta.x()) / ratio, std::abs(delta.y()));
+    b = a + QPointF(signX * constrainedHeight * ratio,
+                    signY * constrainedHeight);
+  }
   return QRectF(a, b).normalized();
 }
 
@@ -2099,6 +2128,63 @@ QSizeF CaptureEditor::windowLegendSize() const {
     legendSize_ = hotkeyLegendAnchoredSize(editorHotkeyEntries(), width() - 28.0);
   }
   return legendSize_;
+}
+
+std::array<QPointF, 4> CaptureEditor::selectionCorners() const {
+  return {selection_.topLeft(), selection_.topRight(),
+          selection_.bottomRight(), selection_.bottomLeft()};
+}
+
+int CaptureEditor::selectionHandleAt(const QPointF &point) const {
+  if (!selectionReady_)
+    return -1;
+  const auto corners = selectionCorners();
+  for (int i = 0; i < 4; ++i) {
+    if (QRectF(corners.at(i) - QPointF(9, 9), QSizeF(18, 18)).contains(point))
+      return i;
+  }
+  return -1;
+}
+
+void CaptureEditor::adjustPendingSelection(const QPointF &point) {
+  const QPointF delta = point - selectionPress_;
+  if (selectionDragHandle_ == -2) {
+    selection_ = originalSelection_.translated(
+        std::clamp(delta.x(), -originalSelection_.left(),
+                   width() - originalSelection_.right()),
+        std::clamp(delta.y(), -originalSelection_.top(),
+                   height() - originalSelection_.bottom()));
+    return;
+  }
+  const std::array<QPointF, 4> corners{
+      originalSelection_.topLeft(), originalSelection_.topRight(),
+      originalSelection_.bottomRight(), originalSelection_.bottomLeft()};
+  const QPointF anchor = corners.at((selectionDragHandle_ + 2) % 4);
+  const QRectF resized = normalizedSelection(
+      anchor, corners.at(selectionDragHandle_) + delta);
+  // Keep handles usable when the pointer crosses the fixed corner.
+  if (resized.width() >= 2 && resized.height() >= 2)
+    selection_ = resized;
+}
+
+void CaptureEditor::confirmRegionSelection() {
+  if (!selectionReady_ || dragging_)
+    return;
+  const QString saved = formatStoredRegion(capture_.monitor.name, size(),
+                                           selection_.toRect());
+  // Only the confirmed box becomes the remembered region; tentative moves
+  // never touch the session file, and writing it must not delay capture.
+  regionMemoryFuture_ = QtConcurrent::run([saved] {
+    const QString path = storedCaptureRegionPath();
+    if (path.isEmpty())
+      return;
+    QFile file(path);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+      file.write(saved.toUtf8());
+  });
+  selectionReady_ = false;
+  commitRegion(selection_, QStringLiteral("Area selected · Select moves layers · "
+                                          "wheel zooms · outer handles crop"));
 }
 
 qreal CaptureEditor::toolbarTop() const {
@@ -2535,8 +2621,13 @@ QString CaptureEditor::measurementText() const {
     }
     // A fresh drag reads 0 × 0 rather than falling back to the pointer
     // position: the number must track the frame the moment it starts.
-    if (dragging_ || !selection_.isEmpty())
-      return formatPixelSize(sourceRect(selection_).size());
+    if (dragging_ || !selection_.isEmpty()) {
+      QString text = formatPixelSize(sourceRect(mapWidgetToPreview(selection_)).size());
+      if (captureAspectIndex_ != 0)
+        text += QStringLiteral(" · %1").arg(QString::fromLatin1(
+            kCaptureAspectRatios.at(captureAspectIndex_).label));
+      return text;
+    }
     return formatPixelPoint(sourcePoint(cursor_));
   }
   if (tool_ == Tool::Select && dragging_ &&
@@ -3487,6 +3578,7 @@ void CaptureEditor::enterEdit(QString status) {
 }
 
 void CaptureEditor::enterSelectedCapture(QString editStatus) {
+  selectionReady_ = false;
   if (quickOutputMode_ != QuickOutputMode::None) {
     if (configuredCustomDefaultPending_) {
       pendingSelectedCapture_ = std::move(editStatus);
@@ -3524,9 +3616,25 @@ void CaptureEditor::enterExport() {
 
 void CaptureEditor::handleEscape() {
   // Selecting: there is nothing to step back from, so one Esc closes (the
-  // launch key then Esc is the quickest "never mind"). Only a drag in flight
-  // is cancelled first. Editing: dismiss and return the document to its pin.
+  // launch key then Esc is the quickest "never mind"). Pending selections
+  // and in-progress drags are cancelled first. Editing: dismiss and return the document to its pin.
   if (phase_ == Phase::Select) {
+    if (selectionReady_) {
+      if (dragging_) {
+        selection_ = originalSelection_;
+        dragging_ = false;
+        setStatus(QStringLiteral("Adjustment cancelled · Enter captures"));
+      } else {
+        selectionReady_ = false;
+        selection_ = {};
+        smartMode_ = captureMode_ == CaptureMode::Smart && !scrollMode_;
+        hoveredWindow_ = smartMode_ ? windowAt(cursor_) : -1;
+        setStatus(QStringLiteral("Selection cancelled · drag to select an area"));
+      }
+      updatePointerCursor();
+      update();
+      return;
+    }
     if (!dragging_) {
       close();
       return;
@@ -4373,6 +4481,34 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     return;
   }
   if (phase_ == Phase::Select) {
+    if (selectionReady_ &&
+        (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
+      confirmRegionSelection();
+      event->accept();
+      return;
+    }
+    if (!windowMode_ && event->key() == Qt::Key_F &&
+        (event->modifiers() == Qt::NoModifier ||
+         event->modifiers() == Qt::ShiftModifier ||
+         event->modifiers() == Qt::ControlModifier)) {
+      if (!event->isAutoRepeat() && !(selectionReady_ && dragging_)) {
+        if (event->modifiers() == Qt::ControlModifier) {
+          captureAspectIndex_ = 0;
+        } else {
+          const int count = static_cast<int>(kCaptureAspectRatios.size());
+          const int step = event->modifiers() == Qt::ShiftModifier ? -1 : 1;
+          captureAspectIndex_ = (captureAspectIndex_ + step + count) % count;
+        }
+        if (dragging_)
+          selection_ = normalizedSelection(dragStart_, cursor_);
+        else if (selectionReady_)
+          selection_ = normalizedSelection(selection_.topLeft(), selection_.bottomRight());
+        updatePointerCursor();
+        update();
+      }
+      event->accept();
+      return;
+    }
     if (event->matches(QKeySequence::SelectAll)) {
       selectFullscreen();
       return;
@@ -4425,10 +4561,11 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
               parseStoredRegion(QString::fromUtf8(file.readLine(256)),
                                 capture_.monitor.name, size());
           if (!region.isEmpty()) {
-            commitRegion(QRectF(region),
-                         QStringLiteral("Last area restored · Select moves "
-                                        "layers · Ctrl+wheel zooms · outer handles "
-                                        "crop"));
+            selection_ = QRectF(region);
+            selectionReady_ = true;
+            smartMode_ = false;
+            setStatus(QStringLiteral("Last area restored · drag to move · corners resize · Enter captures"));
+            updatePointerCursor();
             update();
           }
         }
@@ -4949,7 +5086,7 @@ QRegion CaptureEditor::pointerMotionRegion(const QPointF &point,
   add(QRectF(point.x() - 230, point.y() - 70, 460, 140));
 
   if (phase_ == Phase::Select) {
-    if (!windowMode_ && !dragging_ && !recentsOpen_) {
+    if (!windowMode_ && !dragging_ && !selectionReady_ && !recentsOpen_) {
       add(QRectF(point.x() - 3, 0, 7, height()));
       add(QRectF(0, point.y() - 3, width(), 7));
     }
@@ -5190,9 +5327,12 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
   if (capturePending_)
     return;
   if (phase_ == Phase::Select) {
-    if (!dragging_)
+    if (!dragging_ && !selectionReady_)
       trackRecentsHover();
-    if (smartMode_) {
+    if (selectionReady_) {
+      if (dragging_)
+        adjustPendingSelection(cursor_);
+    } else if (smartMode_) {
       if (dragging_)
         selection_ = normalizedSelection(dragStart_, cursor_);
       else
@@ -5596,6 +5736,20 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
     return;
   }
   if (phase_ == Phase::Select) {
+    if (selectionReady_) {
+      selectionDragHandle_ = selectionHandleAt(cursor_);
+      if (selectionDragHandle_ >= 0 || selection_.contains(cursor_)) {
+        if (selectionDragHandle_ < 0)
+          selectionDragHandle_ = -2;
+        originalSelection_ = selection_;
+        selectionPress_ = cursor_;
+        dragging_ = true;
+        updatePointerCursor();
+        update();
+        return;
+      }
+      selectionReady_ = false;
+    }
     trackRecentsHover();
     if (recentsOpen_) {
       if (const int recent = recentAt(cursor_); recent >= 0)
@@ -5607,6 +5761,7 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
       return;
     }
     dragStart_ = cursor_;
+    selectionDragHandle_ = -1;
     selection_ = {};
     dragging_ = true;
     if (smartMode_) {
@@ -5944,6 +6099,15 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
   if (capturePending_ || event->button() != Qt::LeftButton || !dragging_)
     return;
   if (phase_ == Phase::Select) {
+    if (selectionReady_) {
+      adjustPendingSelection(event->position());
+      dragging_ = false;
+      if (captureAspectIndex_ == 0)
+        confirmRegionSelection();
+      updatePointerCursor();
+      update();
+      return;
+    }
     selection_ = normalizedSelection(dragStart_, event->position());
     dragging_ = false;
     const qreal selectedArea = selection_.width() * selection_.height();
@@ -5960,19 +6124,13 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
       return;
     }
     if (selection_.width() >= 2 && selection_.height() >= 2) {
-      // Remember the drawn region for this session, so R can bring it back
-      // on the next capture. A convenience, so failing to write is no error.
-      const QString path = storedCaptureRegionPath();
-      if (!path.isEmpty()) {
-        QFile file(path);
-        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-          file.write(formatStoredRegion(capture_.monitor.name, size(),
-                                        selection_.toRect())
-                         .toUtf8());
-      }
-      commitRegion(selection_,
-                   QStringLiteral("Area selected · Select moves layers · wheel "
-                                  "zooms · outer handles crop"));
+      selectionReady_ = true;
+      smartMode_ = false;
+      hoveredWindow_ = -1;
+      if (captureAspectIndex_ == 0)
+        confirmRegionSelection();
+      else
+        setStatus(QStringLiteral("Drag inside to move · corners resize · Enter captures · Esc cancels"));
     }
     updatePointerCursor();
     update();
@@ -6429,6 +6587,13 @@ void CaptureEditor::updatePointerCursor() {
   }
   if (phase_ == Phase::Select) {
     clearHighlighterPreview();
+    if (selectionReady_) {
+      const int handle = dragging_ ? selectionDragHandle_ : selectionHandleAt(cursor_);
+      applyCursor(handle >= 0 ? (handle % 2 == 0 ? Qt::SizeFDiagCursor : Qt::SizeBDiagCursor)
+                  : dragging_ ? Qt::ClosedHandCursor
+                  : selection_.contains(cursor_) ? Qt::OpenHandCursor : Qt::CrossCursor);
+      return;
+    }
     const bool pointing =
         windowMode_ || (recentsOpen_ && recentAt(cursor_) >= 0);
     applyCursor(pointing ? Qt::PointingHandCursor
@@ -6589,6 +6754,7 @@ bool CaptureEditor::hasLiveScreen() const {
 }
 
 void CaptureEditor::setScrollMode(bool enabled) {
+  selectionReady_ = false;
   smartMode_ = false;
   scrollMode_ = enabled;
   if (enabled)
@@ -6735,6 +6901,7 @@ void CaptureEditor::adoptImage(QImage image, OperationLog log, CaptureMode kind,
 }
 
 void CaptureEditor::returnToSelect() {
+  selectionReady_ = false;
   pinDocument_.reset();
   if (textEditing()) {
     textEditor_->clear();
@@ -7074,7 +7241,12 @@ void CaptureEditor::selectFullscreen() {
 
 QVector<QPair<QString, QString>> CaptureEditor::captureHotkeyEntries() const {
   QVector<QPair<QString, QString>> hotkeys;
-  if (smartMode_)
+  if (selectionReady_)
+    hotkeys = {{QStringLiteral("Drag inside"), QStringLiteral("Move area")},
+               {QStringLiteral("Drag corner"), QStringLiteral("Resize area")},
+               {QStringLiteral("Enter"), QStringLiteral("Capture area")},
+               {QStringLiteral("Esc"), QStringLiteral("Cancel area")}};
+  else if (smartMode_)
     hotkeys = {
         {QStringLiteral("Click"), QStringLiteral("Window / full screen")},
         {QStringLiteral("Drag"), QStringLiteral("Area")},
@@ -7087,6 +7259,20 @@ QVector<QPair<QString, QString>> CaptureEditor::captureHotkeyEntries() const {
                {QStringLiteral("R"), QStringLiteral("Last region")},
                {QStringLiteral("S"), QStringLiteral("Scrolling region")},
                {QStringLiteral("Esc"), QStringLiteral("Close")}};
+  if (!windowMode_) {
+    hotkeys.insert(hotkeys.size() - 1,
+                   {QStringLiteral("Release"),
+                    captureAspectIndex_ == 0 ? QStringLiteral("Capture area")
+                    : selectionReady_ ? QStringLiteral("Keep adjusting")
+                                      : QStringLiteral("Adjust, then Enter")});
+    hotkeys.insert(hotkeys.size() - 1,
+                   {QStringLiteral("Ctrl+F"), QStringLiteral("Free aspect ratio")});
+    hotkeys.insert(hotkeys.size() - 1,
+                   {QStringLiteral("F / Shift+F"),
+                    QStringLiteral("Aspect ratio: %1")
+                        .arg(QString::fromLatin1(
+                            kCaptureAspectRatios.at(captureAspectIndex_).label))});
+  }
   hotkeys.insert(hotkeys.size() - 1,
                  {QStringLiteral("E / A"),
                   quickOutputMode_ == QuickOutputMode::None
@@ -7163,7 +7349,13 @@ void CaptureEditor::paintSelect(QPainter &painter) {
     painter.drawRect(outline);
   }
 
-  if (!exporting && !windowMode_ && !dragging_ && !recentsOpen_) {
+  if (!exporting && selectionReady_) {
+    painter.setPen(QPen(chromeTheme().surface, 1));
+    painter.setBrush(chromeTheme().foreground);
+    for (const QPointF &corner : selectionCorners())
+      painter.drawRect(QRectF(corner - QPointF(3.5, 3.5), QSizeF(7, 7)));
+  }
+  if (!exporting && !windowMode_ && !dragging_ && !selectionReady_ && !recentsOpen_) {
     painter.setPen(QPen(chromeAlpha(chromeTheme().foreground, 56), 1));
     painter.drawLine(QPointF(cursor_.x(), 0), QPointF(cursor_.x(), height()));
     painter.drawLine(QPointF(0, cursor_.y()), QPointF(width(), cursor_.y()));
