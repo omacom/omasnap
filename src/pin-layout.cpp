@@ -329,6 +329,8 @@ QRectF pinControlRect(const QSize &frame, int index) {
     return {inset, inset, dragWidth, size};
   case 5: // Pin
     return {right - size - gap, inset, size, size};
+  case 6: // Show in folder, beside Copy path
+    return {inset + dragWidth + size + gap * 2, inset, size, size};
   default:
     return {};
   }
@@ -340,6 +342,8 @@ QString pinControlTip(int index, bool kept) {
     return QStringLiteral("Close · X / Super+W / Esc / middle-click");
   case 2:
     return QStringLiteral("Copy saved file path · L / F");
+  case 6:
+    return QStringLiteral("Show in folder · R");
   case 4:
     return QStringLiteral("Drag this image out");
   case 5:

@@ -84,7 +84,7 @@ pinInsertionPlan(QVector<QPair<QString, QRect>> column,
 [[nodiscard]] QRect pinMonitorWorkArea(const QJsonObject &monitor);
 
 /// Control geometry shared by painting and hit testing: labeled actions in
-/// the center, drag/path at top-left, and pin/close at top-right.
+/// the center, drag/path/folder at top-left, and pin/close at top-right.
 [[nodiscard]] QRectF pinControlRect(const QSize &frame, int index);
 
 /** Hover tips for icon controls; labeled actions and unknown controls are empty. */

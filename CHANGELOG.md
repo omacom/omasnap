@@ -9,6 +9,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 - `--delay SECONDS` captures after a cancellable wait without taking focus,
   allowing menus and tooltips to be arranged before the screen is sampled.
+- A folder button beside each preview or pin's link-copy button, plus `R` while
+  hovered, to save the shot if needed and reveal it in the default file browser.
+- A readable shortcuts card above the capture/editor canvas. Press `?` or click
+  its header to collapse it; scroll the card when the screen is too short.
 - Press `E` (edit) or `A` (annotate) in the capture picker to toggle keeping
   the annotator open after capture, including scrolling captures.
 - Press `T` ("tack") while hovering a preview to pin or unpin it, alongside
@@ -16,6 +20,20 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Changed
 
+- Remember the latest five completed captures even after their previews expire,
+  without requiring annotation, copying, saving, or pinning. Recent cards always
+  reopen for annotation, and further edits update the same entry.
+- Keep a subtle dotted image boundary visible with every tool, with crop handles
+  available only in Select mode when no annotation is selected.
+- Framed canvas growth keeps 15 px of mat beyond a layer that outgrows the
+  normal frame, so an arrow or label no longer ends flush against the edge.
+- A label typed outside the image grows the canvas as soon as its caret is
+  placed there and keeps pace with the text, instead of flashing away when the
+  placing click ends and only returning on commit.
+- Canvas growth is live in both directions: the mat and card shadow follow a
+  layer as it is drawn or carried past the image edge, and give way again as
+  it is carried back, instead of settling on release. Framed previews its
+  window-gray frame the way Overflow previews its tight bounds.
 - Keep a preview pinned once it is dragged, whether reordering the stack or
   moving it elsewhere on screen, including Super+left-drag.
 - Use the active window-border color for the pin icon while a preview is pinned.
@@ -28,6 +46,24 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 - Delayed captures observe cancellation received as the countdown event loop
   exits, before synchronous fullscreen output can begin.
+- Show the corner preview and dismiss the overlay before saving the full-resolution
+  recent document, removing the extra history-compression pause after capture.
+- Preserve image proportions when reopening a pin or preview whose backdrop
+  or annotations expanded the original capture.
+- Extend spotlight dimming across the live canvas while typing text outside
+  it, without waiting for the text to be committed.
+- A long label being typed can no longer end up shifted sideways with the
+  start of every line cut off. Its box is always sized to the text, yet a
+  sideways touchpad swipe over it, or Qt centring the caret at the end of a
+  full line, could scroll it, and nothing scrolled it back until commit.
+- A spotlight on a grown canvas no longer recomposes that whole canvas on
+  every repaint, pointer hover included: only the patch its lens magnifies is
+  composed, which takes a 6K drag from 37 ms a frame to under 5.
+- Moving or drawing a layer no longer leaves torn outlines, stale selection
+  handles, or a stepped block of dimming or backdrop behind it. Dragging out a
+  spotlight, hollow ellipses, selected pen and highlighter strokes, layers
+  carried past the image edge in Overflow, and any layer carried past the edge
+  while a spotlight is on the canvas all repaint completely.
 - Show capture crosshair guides and the correct hovered window on pointer entry,
   without waiting for the first mouse movement.
 - Keep dashed selection outlines stable during partial repaints, including

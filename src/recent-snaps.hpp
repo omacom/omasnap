@@ -7,6 +7,11 @@
 #include <QImage>
 #include <QString>
 #include <QVector>
+#include <memory>
+#include <optional>
+
+struct OperationLog;
+class QLockFile;
 
 struct RecentSnap {
   /// Full-resolution source the editor reopens.
@@ -30,14 +35,38 @@ constexpr int kRecentThumbEdge = 320;
 [[nodiscard]] QString recentSnapsDirectory();
 
 /// Newest first, at most `kRecentSnapLimit`. Thumbnails are decoded when
-/// `loadThumbnails` is set.
+/// `loadThumbnails` is set. Worker-only: waits for captures still being saved.
 [[nodiscard]] QVector<RecentSnap> listRecentSnaps(bool loadThumbnails = true);
 
-/// Adopts a working document (moving `sourcePath` and `logPath` into the
-/// shelf) and stores a thumbnail of `rendered`. Prunes beyond the limit.
-[[nodiscard]] bool recordRecentSnap(const QString &sourcePath,
-                                    const QString &logPath,
+/// Reserve a capture before showing its preview. The output worker can then
+/// report completion and save history afterward; readers wait for this capture
+/// instead of reopening a flattened preview while its source is still encoding.
+/// Keep the reservation alive until record() and any replacement cleanup finish.
+class RecentSnapWriter final {
+public:
+  explicit RecentSnapWriter(QString recentId);
+  ~RecentSnapWriter();
+  [[nodiscard]] bool record(const QImage &source, const OperationLog &log,
+                            const QImage &rendered, QString &error);
+
+private:
+  QString recentId_;
+  QString root_;
+  QString stem_;
+  QString error_;
+  std::unique_ptr<QLockFile> pending_;
+};
+
+/// Saves a working document and thumbnail on a worker. Replaces an entry with
+/// the same log.recentId and prunes beyond the limit; never consumes live files.
+[[nodiscard]] bool recordRecentSnap(const QImage &source,
+                                    const OperationLog &log,
                                     const QImage &rendered, QString &error);
+
+/// Worker-only. Waits for this capture's pending write, if any. A timeout is an
+/// error, not permission to replace its editable layers with flattened pixels.
+[[nodiscard]] std::optional<RecentSnap> findRecentSnap(const QString &recentId,
+                                                      QString *error = nullptr);
 
 /// Deletes one entry's files.
 void removeRecentSnap(const RecentSnap &snap);

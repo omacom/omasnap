@@ -258,6 +258,22 @@ void drawToolbarIcon(QPainter &painter, const QRectF &bounds,
     link.lineTo(15, 17);
     painter.drawPath(link);
     painter.drawLine(QPointF(8, 12), QPointF(16, 12));
+  } else if (action == QStringLiteral("folder")) {
+    QPainterPath folder;
+    folder.moveTo(3, 10);
+    folder.lineTo(3, 6);
+    folder.quadTo(3, 4, 5, 4);
+    folder.lineTo(9, 4);
+    folder.lineTo(12, 7);
+    folder.lineTo(19, 7);
+    folder.quadTo(21, 7, 21, 9);
+    folder.moveTo(3, 10);
+    folder.lineTo(22, 10);
+    folder.lineTo(19, 20);
+    folder.lineTo(4, 20);
+    folder.quadTo(3, 20, 3, 18);
+    folder.closeSubpath();
+    painter.drawPath(folder);
   } else if (action == QStringLiteral("drag-handle")) {
     painter.setPen(Qt::NoPen);
     painter.setBrush(color);

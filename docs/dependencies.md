@@ -36,13 +36,15 @@ no user-visible benefit.
 |---|---|---|
 | `hyprctl` | Monitor/window discovery (`-j` JSON), floating pin placement, natural-scroll policy query | Yes — see [platform-scope.md](platform-scope.md) |
 | `wl-copy` / `wl-paste` | Writing PNG/text to the Wayland clipboard, and verifying the write | Yes |
+| `xdg-open` | Opening a screenshot's containing folder in the default file browser | For Show in folder |
+| `xdg-mime` / `busctl` | Resolve the default folder application and ask it to select the screenshot with `FileManager1.ShowItems` | Optional — falls back to `xdg-open` |
 | `tesseract` | OCR text recognition | Only if OCR is used; missing tesseract fails just that action |
 | `omarchy-notification-send` | Capture-finished notifications | No — falls back silently if absent (checked with `command -v` semantics via failed `QProcess::startDetached`) |
 
-Each of these is invoked through the same small `runProcess`/
-`QProcess::startDetached` helpers in `src/capture.cpp`, from a background
-worker (see [threading.md](threading.md)) — never inline on the UI thread,
-and always with a timeout.
+These run through the small `QProcess` helpers in `src/capture.cpp` and
+`src/pin.cpp`, from a background worker (see [threading.md](threading.md)).
+Calls that wait for a result have a timeout; long-lived applications launch
+detached. None run inline on the UI thread.
 
 ## Not a dependency: external Qt platform themes
 
