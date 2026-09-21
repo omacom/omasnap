@@ -7,6 +7,7 @@
 #include "output-config.hpp"
 #include "overlay-chrome.hpp"
 #include "output-image.hpp"
+#include "overlay-dismissal.hpp"
 #include "pin.hpp"
 #include "pin-file.hpp"
 #include "recent-snaps.hpp"
@@ -554,6 +555,7 @@ int main(int argc, char **argv) {
       LayerShellQt::Window::KeyboardInteractivityExclusive);
   layerWindow->setActivateOnShow(true);
   editor.setLayerWindow(layerWindow);
+  OverlayDismissal overlayDismissal(editor);
   startupTimingMark("layer surface configured");
   editor.show();
   editor.setFocus(Qt::ActiveWindowFocusReason);

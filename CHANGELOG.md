@@ -10,6 +10,18 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Optional logical-size Copy/Save output on scaled monitors with
   `[output] logical_size = true`; editable sources and previews retain native pixels.
 
+### Fixed
+
+- Preserve the editor's keyboard focus when late pointer events arrive from a
+  dismissed scrolling panel.
+
+- Keep the scrolling overlay eligible for keyboard focus after releasing its
+  exclusive grab, so Escape remains available when the overlay has focus.
+
+## 1.21.0
+
+### Added
+
 - Standard, Pointy, Curved, and Double arrow styles, with editable bends.
 - Text wrapping at the canvas edge or a dragged width, preserved when
   reopening a capture.
@@ -34,8 +46,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   preview. Only an explicit pin action keeps it until closed.
 - Pinned captures are floating compositor windows, with automatic packing
   and drag-to-stack placement, without taking focus when they appear.
-- Fold idle pins into a compact deck with a gentle alternating tilt; hover to
-  straighten and fan them into exposed cards, keeping the fan open between
+- Fold idle pins into a compact deck with the recents shelf's alternating tilt.
+  Hover to straighten and fan them into exposed cards, keeping the fan open between
   cards and throughout a drag.
 - Default capture selection accepts a region drag, a window click, or a
   click on open space for the focused monitor.
@@ -48,6 +60,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Route compositor close requests from pins to the open editor overlay, so
+  `Super+W` returns to the pin like `Esc`, preserving edits and undo history.
 - Preserve monitor scaling when opening scrolling captures for annotation
   or from a floating preview, so 2× captures do not appear twice as large.
   Retain the original pixel dimensions when the logical size rounds.
@@ -99,6 +113,7 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Keep the toolbar, capture tabs, hotkey legend, and canvas geometry aligned.
 - Remove the pixels actually covered by a cut-band drag.
 
-[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.20.1...main)
+[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.21.0...main)
+· [1.21.0 changes](https://github.com/omacom/omasnap/compare/v1.20.1...v1.21.0)
 · [1.20.1 changes](https://github.com/omacom/omasnap/compare/v1.20.0...v1.20.1)
 · [1.20.0 changes](https://github.com/omacom/omasnap/compare/v1.19.1...v1.20.0)
