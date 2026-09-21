@@ -1,6 +1,7 @@
 /** @fileoverview Tests stacked pin slots and compositor dispatch strings. */
 #include "pin-layout-smoke.hpp"
 
+#include "card-stack.hpp"
 #include "pin-layout.hpp"
 #include "cli-path.hpp"
 #include <QCommandLineParser>
@@ -180,17 +181,18 @@ bool runPinLayoutSmoke(QString &error) {
   const auto folded = pinStackLayout(deck, {}, screen, 10, 14, false);
   const auto fanned = pinStackLayout(deck, {}, screen, 10, 14, true);
   for (int depth = 0; depth < 20; ++depth) {
-    const qreal tilt = pinStackTilt(depth, false);
-    if (pinStackTilt(depth, true) != 0.0 || (depth == 0 && tilt != 0.0) ||
-        (depth > 0 && (std::abs(tilt) > 3.0 ||
+    const qreal tilt = stackCardTilt(depth);
+    if (stackCardTilt(depth, 1.0) != 0.0 || (depth == 0 && tilt != 0.0) ||
+        (depth > 0 && (std::abs(tilt) <= std::abs(stackCardTilt(depth - 1)) ||
                        (depth % 2 == 0 ? tilt <= 0.0 : tilt >= 0.0)))) {
-      error = QStringLiteral("The pin deck tilt did not stay bounded and alternate beneath a straight front card");
+      error = QStringLiteral("The card deck tilt did not grow and alternate beneath a straight front card");
       return false;
     }
   }
   for (const QSize frame : {QSize(200, 50), QSize(200, 113), QSize(200, 400)}) {
     const QRectF card = QRectF(QPointF(), frame).adjusted(1, 1, -1, -1);
-    for (const qreal tilt : {-3.0, -2.0, 0.0, 2.0, 3.0}) {
+    for (int depth = 0; depth < 20; ++depth) {
+      const qreal tilt = stackCardTilt(depth);
       const QTransform transform = pinCardTransform(frame, tilt);
       if (!QRectF(QPointF(), frame).contains(transform.mapRect(card)) ||
           (tilt == 0.0 && !transform.isIdentity())) {

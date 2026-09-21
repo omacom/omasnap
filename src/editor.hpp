@@ -22,6 +22,7 @@
 #include <memory>
 
 class QKeyEvent;
+class QCloseEvent;
 class QMouseEvent;
 class QPaintEvent;
 class QWheelEvent;
@@ -139,6 +140,7 @@ public:
 
 protected:
   bool eventFilter(QObject *watched, QEvent *event) override;
+  void closeEvent(QCloseEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   void keyReleaseEvent(QKeyEvent *event) override;
   void leaveEvent(QEvent *event) override;

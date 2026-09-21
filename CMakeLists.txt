@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(omasnap VERSION 1.20.1 LANGUAGES C CXX)
+project(omasnap VERSION 1.21.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CTest)
 set(CMAKE_AUTOMOC ON)
@@ -33,12 +33,15 @@ foreach(PROTOCOL_XML IN LISTS PROTOCOL_XMLS)
 endforeach()
 
 add_library(omasnap-core STATIC
+  src/card-stack.hpp
   src/cli-path.cpp
   src/cli-path.hpp
   src/icons.cpp
   src/icons.hpp
   src/instance-lock.cpp
   src/instance-lock.hpp
+  src/overlay-dismissal.cpp
+  src/overlay-dismissal.hpp
   src/pin-file.cpp
   src/pin-file.hpp
   src/pin-layout.cpp
@@ -144,6 +147,8 @@ if(BUILD_TESTING)
 qt_add_executable(omasnap-smoke
   tests/capture-delay-smoke.cpp
   tests/capture-delay-smoke.hpp
+  tests/scroll-focus-smoke.cpp
+  tests/scroll-focus-smoke.hpp
   tests/editor-smoke.cpp
   tests/clipboard-smoke.cpp
   tests/clipboard-smoke.hpp

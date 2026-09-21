@@ -55,8 +55,8 @@ pause its countdown; only the pin button or `Ctrl+P` keeps it on screen.
   live preview and dashed seam marker while dragging; annotations shift to follow.
 - Pin a finished capture as a bottom-right floating compositor window, launched
   from the same `omasnap` executable and visible on every workspace.
-  Pins form a compact, gently tilted deck while idle; hover to straighten
-  and fan them out.
+  Pins form a compact deck with the recents shelf's alternating tilt while
+  idle; hover to straighten and fan them out.
   Dropping a pin partly off-screen or underneath a bar brings it fully back
   inside the monitor where the drag started, with the same 14-pixel gap as
   the stack from any screen edge or reserved bar area.
@@ -406,18 +406,27 @@ inside it goes live and the scroll controls appear in place. A small **Scroll
 capture** button under an image already open in the editor turns that region
 into a scrolling capture. Explicit `region`, `windows`, `fullscreen`, and
 `scroll` command-line targets remain available for scripts and keybindings.
+While scrolling, use the on-screen Done and Cancel buttons, or `Enter` and
+`Esc` when the overlay has keyboard focus. Move the pointer back over the
+controls to return focus from the live page.
 
 | Input | Action |
 |---|---|
 | Click | In smart mode, capture the window under the pointer, or the full monitor outside any window |
 | Drag | Select a region, with its native pixel size shown at the pointer |
 | `S` | Toggle scrolling-region mode |
-| `R` | Restore the last region drawn this session (same monitor) |
+| `R` | Restore the last drawn region, including from a previous Omasnap launch in this login session (same monitor and overlay size) |
 | `SUPER + Arrow` | Move among windows in window mode |
 | `Enter` | Capture the highlighted window |
 | `Ctrl+A` | Select the full focused monitor |
 | Hover the right-edge stack | Fan out the five most recent captures; click one to reopen it |
 | `Esc` | Dismiss; cancel a selection drag if one is in progress |
+
+Region memory is stored in Omasnap's private runtime directory. It survives
+closing and reopening Omasnap and lasts until those runtime files are removed
+(normally when the login session ends). A region from another monitor, a
+different overlay size, or outside the current screen is ignored; draw a new
+region after changing the display layout.
 
 ### Annotation editor
 
@@ -459,7 +468,7 @@ into a scrolling capture. Explicit `region`, `windows`, `fullscreen`, and
 | `Ctrl+S` | Save PNG only |
 | `Enter` | Copy and save (with a text layer selected: edit it) |
 | `Ctrl+P` / `P` | Keep the capture pinned on screen and close the editor |
-| `Esc` | Dismiss the annotator; keep an originating pin in place with its edits and undo history |
+| `Esc` / `Super+W` | Dismiss the annotator; keep an originating pin in place with its edits and undo history |
 | Right-click | Return to Select; cancel active drawing |
 
 ### Capture previews and pins
@@ -481,8 +490,9 @@ the same `omasnap` executable in
 detached pin mode. Hyprland floats and pins each window on every workspace.
 Idle pins overlap in a compact deck at the focused monitor's bottom-right
 corner, newest in front. The front card stays straight; the cards behind it
-alternate a gentle 2–3° lean. Omasnap paints the rounded frames with the images
-so their edges tilt together, with transparent corners that take no input.
+alternate the same growing lean as the recents shelf: −3°, +6°, −9°, +12°.
+Omasnap paints the rounded frames with the images so their edges tilt together,
+with transparent corners that take no input.
 Hover to straighten and fan them upward into fully exposed cards, wrapping into
 further columns when needed. The front card stays anchored; moving between cards
 keeps the fan open, and leaving folds it after a short delay. Placement accounts for
@@ -520,6 +530,8 @@ the pin in place and gives focus to the editor. One `Esc` dismisses the editor
 and updates that same pin, including any text being typed. Reopening it restores
 the editable layers and undo history. `P` / `Ctrl+P` in that editor returns to
 the existing pin too.
+While the overlay is open, a compositor close aimed at a pin (including stock
+`Super+W`) dismisses the overlay as `Esc` would, leaving the pins in place.
 Automatic expiry compacts the stack without transferring keyboard focus.
 
 | Input on a pin | Action |

@@ -141,10 +141,9 @@ private:
   /// the keyboard over by zone, and offer the modes.
   void enterSelected();
   void applyInputRegion();
-  /// Takes or releases the exclusive keyboard grab. Held only while a region
-  /// is being drawn; released for as long as one exists, because Hyprland
-  /// pins pointer focus to a layer that holds it and the page underneath has
-  /// to stay scrollable.
+  /// Takes exclusive keyboard focus over the chrome, or switches to on-demand
+  /// focus over the live page. Hyprland pins pointer focus to an exclusive
+  /// layer, so the grab must be released for the page to stay scrollable.
   void setKeyboardGrab(bool grab);
   /// Holds the grab only while the pointer is on the overlay's own chrome, and
   /// only when an event has said where the pointer is.
