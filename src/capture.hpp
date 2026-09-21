@@ -310,6 +310,10 @@ void paintDefaultLayer(QPainter &painter, const QImage &redacted,
                        const QRectF &logicalBounds,
                        const QVector<Annotation> &annotations,
                        qreal arrowDisplayScale = 1.0);
+// Logical image-frame dimensions, shared by the editor and native-pixel export.
+inline constexpr qreal kBackdropMargin = 64.0;
+inline constexpr qreal kCaptureImageRadius = 14.0;
+
 /** `customBackdrop` is the image drawn (cover-fit) for
  *  `BackgroundStyle::Custom`; a null image there paints nothing, same as
  *  `BackgroundStyle::None`. */

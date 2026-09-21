@@ -1,6 +1,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 #include "capture.hpp"
+#include "chrome-theme.hpp"
 #include "cli-path.hpp"
 #include "editor.hpp"
 #include "instance-lock.hpp"
@@ -159,6 +160,7 @@ int main(int argc, char **argv) {
   // widget is created, so painter/widget default-font text keeps its size and
   // face.
   QApplication::setFont(chromeDefaultFont());
+  initializeChromeTheme();
 
   // A stitched scroll capture (or any tall pinned image) exceeds Qt's default
   // 256 MB image-decode allocation limit; lift it so --file/--pin can open it.

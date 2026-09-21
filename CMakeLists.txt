@@ -62,6 +62,8 @@ add_library(omasnap-core STATIC
   src/pin-expiry.hpp
   src/overlay-chrome.cpp
   src/overlay-chrome.hpp
+  src/chrome-theme.cpp
+  src/chrome-theme.hpp
   src/eyedropper.cpp
   src/eyedropper.hpp
   src/surface-capture.cpp
@@ -146,7 +148,11 @@ if(BUILD_TESTING)
 qt_add_executable(omasnap-smoke
   tests/scroll-focus-smoke.cpp
   tests/scroll-focus-smoke.hpp
+  tests/chrome-theme-smoke.cpp
+  tests/chrome-theme-smoke.hpp
   tests/editor-smoke.cpp
+  tests/selection-repaint-smoke.cpp
+  tests/selection-repaint-smoke.hpp
   tests/clipboard-smoke.cpp
   tests/clipboard-smoke.hpp
   tests/instance-lock-smoke.cpp

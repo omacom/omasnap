@@ -25,6 +25,7 @@
 class QFileDialog;
 class QKeyEvent;
 class QCloseEvent;
+class QEnterEvent;
 class QMouseEvent;
 class QPaintEvent;
 class QWheelEvent;
@@ -145,6 +146,7 @@ protected:
   void closeEvent(QCloseEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   void keyReleaseEvent(QKeyEvent *event) override;
+  void enterEvent(QEnterEvent *event) override;
   void leaveEvent(QEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
   void mouseDoubleClickEvent(QMouseEvent *event) override;
@@ -273,6 +275,7 @@ private:
   /// the layer it belongs to.
   [[nodiscard]] Interaction selectedHandleAt(const QPointF &point) const;
   [[nodiscard]] Interaction pointerHandle() const;
+  [[nodiscard]] bool draggingPointHandle() const;
   [[nodiscard]] Qt::CursorShape handleCursorShape(Interaction handle) const;
   /// Moves the edges a box handle owns, keeping the opposite ones put; Shift
   /// on a corner keeps the proportions.
@@ -484,7 +487,8 @@ private:
   /// zoom 1, the viewport band once zoomed (the content fills it then).
   [[nodiscard]] qreal chromeAnchorTop() const;
   /// baseImageRect transformed by the current view zoom and pan (content and
-  /// annotations map through this). Equals baseImageRect at zoom 1.
+  /// annotations map through this). Crop drags hold the source mapping fixed
+  /// until release. Otherwise equals baseImageRect at zoom 1.
   [[nodiscard]] QRectF editImageRect() const;
   /// Fullscreen content band where a canvas-growing tool may begin outside
   /// the current canvas, excluding the toolbar and bottom status chrome.
@@ -594,6 +598,7 @@ private:
   void refreshCanvasRect();
   [[nodiscard]] bool canvasGrown() const;
   [[nodiscard]] BackgroundStyle effectiveBackgroundStyle() const;
+  [[nodiscard]] bool hasCaptureBackground() const;
   void enterEdit(QString status);
   /// Routes a confirmed screen selection to quick export or the editor.
   void enterSelectedCapture(QString editStatus);
@@ -710,6 +715,7 @@ private:
   QRectF canvasRect_;
   QPointF dragStart_;
   QRectF originalSelection_;
+  /// Source frame at crop press, anchoring pointer mapping and live painting.
   QRectF cropDragImageRect_;
   QRectF marqueeRect_;
   QPointF cursor_;
@@ -815,8 +821,9 @@ private:
   QImage redactionBase_;
   QSize redactionBaseSize_;
   bool redactionBaseStale_ = true;
-  // Select-phase capture scaled and dimmed once per source, widget size, and DPR.
+  // Select-phase capture scaled and dimmed once per source, size, DPR, and theme.
   QPixmap dimmedBackdrop_;
+  QColor backdropScrim_;
   QSize backdropSize_;
   qreal backdropRatio_ = 0.0;
   qint64 backdropKey_ = 0;
@@ -864,6 +871,9 @@ private:
   QString snapshotPath_;
   std::shared_ptr<PinSnapshotFile> pinDocument_;
   QuickOutputMode quickOutputMode_ = QuickOutputMode::None;
+  // E/A can temporarily replace automatic output with annotation, then
+  // restore the original destination (including explicit --copy/--save).
+  QuickOutputMode captureOutputBeforeEdit_ = QuickOutputMode::CopyAndPreview;
   QString status_ = QStringLiteral("Drag to select an area");
   InlineTextEdit *textEditor_ = nullptr;
   QPointF textPoint_;

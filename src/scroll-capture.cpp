@@ -1,5 +1,6 @@
 /** @fileoverview Manual scroll capture overlay (see scroll-capture.hpp). */
 #include "scroll-capture.hpp"
+#include "chrome-theme.hpp"
 
 #include "scroll-inject.hpp"
 
@@ -59,9 +60,6 @@ constexpr int kGripBand = 16;
 /// How long to let the compositor show a frame with the chrome hidden before
 /// grabbing the first one. Two frames at 60 Hz, with room to spare.
 constexpr int kChromeSettleMs = 60;
-const QColor kDim(0, 0, 0, 150);
-const QColor kAccent(10, 132, 255);
-const QColor kWarn(255, 159, 10);
 
 struct ModeButton {
   const char *label;
@@ -999,13 +997,15 @@ void ScrollCapturePanel::paintEvent(QPaintEvent *) {
   painter.setRenderHint(QPainter::Antialiasing);
   {
     painter.setCompositionMode(QPainter::CompositionMode_Source);
-    painter.fillRect(rect(), kDim);
+    painter.fillRect(rect(), chromeAlpha(chromeTheme().scrim, 150));
     painter.fillRect(region_, Qt::transparent);
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
     // Drawn first, low-opacity, no card: the live page, the region outline,
     // the pills paint over it wherever they overlap.
     drawHotkeyLegend(painter, rect(), legendEntries());
-    painter.setPen(QPen(statusWarning_ ? kWarn : kAccent, 2));
+    painter.setPen(QPen(statusWarning_
+                           ? QBrush(chromeTheme().warning)
+                           : chromeTheme().selectionBorder.brush(region_), 2));
     painter.setBrush(Qt::NoBrush);
     // Fully outside the region so no overlay pixel lands in the capture.
     painter.drawRect(region_.adjusted(-3, -3, 3, 3));
@@ -1015,18 +1015,18 @@ void ScrollCapturePanel::paintEvent(QPaintEvent *) {
     if (phase_ == Phase::Selected) {
       const int thickness = 4;
       painter.setPen(Qt::NoPen);
-      painter.setBrush(QColor(255, 255, 255, 235));
+      painter.setBrush(chromeAlpha(chromeTheme().foreground, 235));
       for (const auto &[grip, which] : gripRects()) {
         if (which == Grip::Move) {
           const QPointF middle = grip.center();
-          painter.setBrush(QColor(20, 20, 26, 215));
-          painter.setPen(QPen(QColor(255, 255, 255, 235), 2));
+          painter.setBrush(chromeTheme().surface);
+          painter.setPen(QPen(chromeAlpha(chromeTheme().foreground, 235), 2));
           painter.drawEllipse(middle, grip.width() / 2.0 - 2,
                               grip.height() / 2.0 - 2);
           painter.drawLine(middle + QPointF(-9, 0), middle + QPointF(9, 0));
           painter.drawLine(middle + QPointF(0, -9), middle + QPointF(0, 9));
           painter.setPen(Qt::NoPen);
-          painter.setBrush(QColor(255, 255, 255, 235));
+          painter.setBrush(chromeAlpha(chromeTheme().foreground, 235));
           continue;
         }
         if (grip.bottom() < region_.top())
@@ -1043,48 +1043,48 @@ void ScrollCapturePanel::paintEvent(QPaintEvent *) {
               QRect(grip.left(), grip.top(), thickness, grip.height()));
       }
     }
-    QFont buttonFont = painter.font();
-    buttonFont.setPixelSize(15);
-    buttonFont.setBold(true);
+    const QFont buttonFont = chromeFont(15, true);
     painter.setFont(buttonFont);
     if (phase_ == Phase::Selected) {
       for (int index = 0; index < kModeButtonCount; ++index) {
         const QRect button = modeButtonRect(index);
         painter.setPen(Qt::NoPen);
         painter.setBrush(kModeButtons[index].automatic
-                             ? kAccent
-                             : QColor(40, 40, 48, 240));
+                             ? chromeTheme().accent
+                             : chromeTheme().button);
         painter.drawRoundedRect(button, 8, 8);
-        painter.setPen(Qt::white);
+        painter.setPen(kModeButtons[index].automatic ? chromeTheme().accentText
+                                                    : chromeTheme().buttonText);
         painter.drawText(button, Qt::AlignCenter,
                          QString::fromUtf8(kModeButtons[index].label));
       }
       const QRect cancelSlot = selectedCancelButtonRect();
       painter.setPen(Qt::NoPen);
-      painter.setBrush(QColor(40, 40, 48, 240));
+      painter.setBrush(chromeTheme().button);
       painter.drawRoundedRect(cancelSlot, 8, 8);
-      painter.setPen(Qt::white);
+      painter.setPen(chromeTheme().buttonText);
       painter.drawText(cancelSlot, Qt::AlignCenter, QStringLiteral("Cancel"));
     } else {
       const QRect done = doneButtonRect();
       const QRect backRect = backButtonRect();
       const QRect cancelRect = cancelButtonRect();
       painter.setPen(Qt::NoPen);
-      painter.setBrush(kAccent);
+      painter.setBrush(chromeTheme().accent);
       painter.drawRoundedRect(done, 8, 8);
-      painter.setBrush(QColor(40, 40, 48, 240));
+      painter.setBrush(chromeTheme().button);
       painter.drawRoundedRect(backRect, 8, 8);
       painter.drawRoundedRect(cancelRect, 8, 8);
-      painter.setPen(Qt::white);
+      painter.setPen(chromeTheme().accentText);
       painter.drawText(done, Qt::AlignCenter, QStringLiteral("Done · stitch"));
+      painter.setPen(chromeTheme().buttonText);
       painter.drawText(backRect, Qt::AlignCenter, QStringLiteral("Back"));
       painter.drawText(cancelRect, Qt::AlignCenter, QStringLiteral("Cancel"));
       if (autoStalled_) {
         const QRect resume = continueButtonRect();
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(40, 40, 48, 240));
+        painter.setBrush(chromeTheme().button);
         painter.drawRoundedRect(resume, 8, 8);
-        painter.setPen(Qt::white);
+        painter.setPen(chromeTheme().buttonText);
         painter.drawText(resume, Qt::AlignCenter, QStringLiteral("Continue"));
       }
     }
