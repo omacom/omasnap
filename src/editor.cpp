@@ -1,6 +1,7 @@
 /** @fileoverview Handles screenshot selection, annotation, and editor drawing.
  */
 #include "editor.hpp"
+#include "card-stack.hpp"
 #include "pin-file.hpp"
 
 #include "stitch.hpp"
@@ -20,6 +21,7 @@
 #include <QUuid>
 #include <QSignalBlocker>
 #include <QClipboard>
+#include <QCloseEvent>
 #include <QCursor>
 #include <QDateTime>
 #include <QDebug>
@@ -1074,7 +1076,8 @@ bool CaptureEditor::eventFilter(QObject *watched, QEvent *event) {
   if (watched == textEditor_ && event->type() == QEvent::KeyPress) {
     auto *key = static_cast<QKeyEvent *>(event);
     if (key->matches(QKeySequence::SaveAs) ||
-        (key->key() == Qt::Key_P && key->modifiers() == Qt::ControlModifier)) {
+        (key->key() == Qt::Key_P && key->modifiers() == Qt::ControlModifier) ||
+        (key->key() == Qt::Key_W && key->modifiers() == Qt::MetaModifier)) {
       keyPressEvent(key);
       return true;
     }
@@ -4144,6 +4147,22 @@ void CaptureEditor::handleToolbar(const QString &action) {
   update();
 }
 
+void CaptureEditor::closeEvent(QCloseEvent *event) {
+  cancelSaveAs();
+  if (!event->spontaneous()) {
+    QWidget::closeEvent(event);
+    return;
+  }
+  // A compositor close of the normal editor window must return its edits to
+  // the pin too. Wait until Qt has left its close handler before Escape can
+  // call close() again; programmatic completion and handoff still close normally.
+  event->ignore();
+  QTimer::singleShot(0, this, [this] {
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    keyPressEvent(&escape);
+  });
+}
+
 void CaptureEditor::keyPressEvent(QKeyEvent *event) {
   modifiersSeen_ = true;
   if (!ocrResultText_.isEmpty()) {
@@ -4159,8 +4178,10 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
   }
   const Tool toolBefore = tool_;
   const QString statusBefore = status_;
+  const bool dismiss = event->key() == Qt::Key_Escape ||
+      (event->key() == Qt::Key_W && event->modifiers() == Qt::MetaModifier);
   if (capturePending_) {
-    if (event->key() == Qt::Key_Escape)
+    if (dismiss)
       handleEscape();
     event->accept();
     return;
@@ -4194,7 +4215,7 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     update();
     return;
   }
-  if (event->key() == Qt::Key_Escape) {
+  if (dismiss) {
     handleEscape();
     return;
   }
@@ -6392,13 +6413,10 @@ CaptureEditor::recentCards(qreal fan) const {
     const QPointF stacked(stackX + index * 1.5, stackY + index * 3.0);
     const QPointF fanned(fanX, y + size.height() / 2.0);
     const QPointF centre = stacked + (fanned - stacked) * fan;
-    // Alternate the lean of the cards beneath so the stack reads as a deck
-    // rather than a slide; the top card lies straight.
-    const qreal lean = (index % 2 == 0 ? 1.0 : -1.0) * index * 3.0;
     RecentCard card;
     card.rect = QRectF(centre - QPointF(size.width() / 2.0, size.height() / 2.0),
                        size);
-    card.rotation = lean * (1.0 - fan);
+    card.rotation = stackCardTilt(index, fan);
     cards.push_back(card);
     y += size.height() + kRecentCardGap;
   }

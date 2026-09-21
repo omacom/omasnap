@@ -3,7 +3,6 @@
 #include "overlay-chrome.hpp"
 
 #include <LayerShellQt/Window>
-#include <QCloseEvent>
 #include <QDialog>
 #include <QDir>
 #include <QFileDialog>
@@ -24,11 +23,6 @@ void CaptureEditor::cancelSaveAs() {
     saveAsDialog_->deleteLater();
     saveAsDialog_.clear();
   }
-}
-
-void CaptureEditor::closeEvent(QCloseEvent *event) {
-  cancelSaveAs();
-  QWidget::closeEvent(event);
 }
 
 void CaptureEditor::saveAs() {

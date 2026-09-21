@@ -178,6 +178,10 @@ Returning from annotation renders and saves the pin preview and operation log
 on a worker. A filesystem watch on the completed log starts a worker to decode
 the new preview and prepare its drag payload. The GUI updates the image inside
 the existing window; its compositor position and stack membership are unchanged.
+A nonblocking local socket routes compositor close requests from pins underneath
+the overlay to its Escape handler. It is present only while the overlay is shown;
+pin expiry and explicit pin actions do not use it. Returning the document still
+runs on the existing worker, and repeated close requests cannot interrupt it.
 
 Normal previews use a one-shot ten-second timer and a short paint-opacity fade.
 Only explicit pin actions disable that timer. Hover, shared stack activity,

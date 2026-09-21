@@ -5,12 +5,14 @@
 #include <QSaveFile>
 #include <QDateTime>
 #include "pin.hpp"
+#include "card-stack.hpp"
 #include "capture.hpp"
 #include "pin-file.hpp"
 #include "pin-expiry.hpp"
 #include "pin-layout.hpp"
 #include "icons.hpp"
 #include "overlay-chrome.hpp"
+#include "overlay-dismissal.hpp"
 
 #include <QApplication>
 #include <QBuffer>
@@ -343,7 +345,7 @@ public:
         columnRight = rect.right();
         depth = 0;
       }
-      tilts.insert(title, pinStackTilt(depth++, expanded));
+      tilts.insert(title, stackCardTilt(depth++, expanded ? 1.0 : 0.0));
     }
     if (tilts != state_.value(QStringLiteral("tilts")).toObject()) {
       state_.insert(QStringLiteral("tilts"), tilts);
@@ -1319,8 +1321,12 @@ protected:
     }
     // Closing transfers keyboard focus to the next pin, which need not have
     // received a pointer-enter event before the next key press arrives.
-    if ((event->key() == Qt::Key_X && event->modifiers() == Qt::NoModifier) ||
-        (event->key() == Qt::Key_W && event->modifiers() == Qt::MetaModifier)) {
+    if (event->key() == Qt::Key_W && event->modifiers() == Qt::MetaModifier) {
+      if (!dismissActiveOverlay())
+        close();
+      return;
+    }
+    if (event->key() == Qt::Key_X && event->modifiers() == Qt::NoModifier) {
       close();
       return;
     }
@@ -1362,6 +1368,13 @@ protected:
   }
 
   void closeEvent(QCloseEvent *event) override {
+    // Hyprland consumes Super+W and closes its active compositor window,
+    // which can still be a pin underneath the exclusive layer-shell editor.
+    // Explicit pin actions and expiry use non-spontaneous close events.
+    if (event->spontaneous() && dismissActiveOverlay()) {
+      event->ignore();
+      return;
+    }
     closing_ = true;
     expiry_.setPaused(true);
     stackStateReloadTimer_.stop();

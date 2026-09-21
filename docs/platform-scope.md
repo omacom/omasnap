@@ -19,8 +19,11 @@ abstractions.
 - The keyboard-grab dance in the scroll and area overlays
   (`setKeyboardGrab` in `src/scroll-capture.cpp`) works around a specific,
   observed Hyprland behavior: an exclusive keyboard grab on a layer surface
-  pins pointer focus to that layer even over an input-region hole. That
-  comment documents a Hyprland quirk, not a generic Wayland rule.
+  pins pointer focus to that layer even over an input-region hole. The
+  overlay therefore releases exclusive focus over the live page, retaining
+  on-demand keyboard interactivity so Escape can still reach it when focused.
+  Pointer events over the chrome restore exclusive focus. This documents a
+  Hyprland quirk, not a generic Wayland rule.
 - Notifications prefer `omarchy-notification-send` and fall back to
   `OMARCHY_OCR_LANGS`/`OMASNAP_OCR_LANGS` conventions that assume an Omarchy
   install (see `src/capture.cpp`, README's OCR section).

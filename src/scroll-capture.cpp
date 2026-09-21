@@ -296,21 +296,17 @@ void ScrollCapturePanel::updateKeyboardZone(const QPoint &point) {
 }
 
 void ScrollCapturePanel::setKeyboardGrab(bool grab) {
-  // Hyprland pins pointer focus to a layer that holds an exclusive keyboard
-  // grab, even over an input-region hole, so while the grab is held the wheel
-  // never reaches the page. Once a region exists the page has to be
-  // scrollable, so the grab goes away for that whole phase instead of being
-  // handed back and forth as the pointer crosses the region's edge: that
-  // handoff depended on knowing where the pointer was, and a Wayland client
-  // cannot ask. Restoring a region put the pointer somewhere we had never
-  // seen it move, and the grab stayed on. The pills are the controls from
-  // then on.
-  if (!layer_ || keyboardGrabbed_ == grab)
+  // Exclusive focus pins the pointer to this layer on Hyprland, including
+  // over the input-region hole. OnDemand releases that grab while keeping the
+  // overlay eligible for keyboard focus: None prevents Escape from reaching
+  // it after scrolling. Pointer events restore Exclusive over the chrome;
+  // entering the live region or leaving the surface releases it again.
+  if (released_ || !layer_ || keyboardGrabbed_ == grab)
     return;
   keyboardGrabbed_ = grab;
   layer_->setKeyboardInteractivity(
       grab ? LayerShellQt::Window::KeyboardInteractivityExclusive
-           : LayerShellQt::Window::KeyboardInteractivityNone);
+           : LayerShellQt::Window::KeyboardInteractivityOnDemand);
 }
 
 // ---- capture -----------------------------------------------------------------
@@ -337,12 +333,9 @@ void ScrollCapturePanel::startCapture(Mode mode, stitch::Axis axis) {
   // capture reads the screen back, so it must not start until the screen no
   // longer has any of our chrome on the part being captured.
   repaint();
-  // Drop the exclusive keyboard grab for the whole capture. Hyprland pins
-  // pointer focus to a layer that holds an exclusive grab (even over an
-  // input-region hole), which stops the wheel reaching the page; with the grab
-  // released the pointer is never pinned, so scrolling the exposed page always
-  // works. Finish/cancel run off the on-screen buttons (mouse clicks, governed
-  // by the input region, not the keyboard).
+  // Release exclusive focus before scrolling starts, even if the mode button
+  // currently has the pointer. OnDemand lets the page receive wheel events;
+  // keyboard shortcuts remain available whenever the overlay has focus.
   setKeyboardGrab(false);
   stopRequested_ = false;
   if (mode_ == Mode::Manual) {
@@ -1123,8 +1116,8 @@ void ScrollCapturePanel::enterEvent(QEnterEvent *event) {
 
 void ScrollCapturePanel::leaveEvent(QEvent *event) {
   // The pointer is off our input region entirely, over the page, or off the
-  // screen. Either way it is not on our chrome, so the keyboard goes back to
-  // whatever is under it and the page can be scrolled again.
+  // screen. Release exclusive focus so the page can be scrolled again, while
+  // remaining eligible for keyboard focus when the user returns.
   setKeyboardGrab(false);
   if (worker_ && !worker_->debugDir.isEmpty())
     qInfo().noquote() << QStringLiteral("scroll: pointer left overlay");
@@ -1252,13 +1245,11 @@ void ScrollCapturePanel::keyPressEvent(QKeyEvent *event) {
     finishCapture();
     return;
   }
-  // A shortcut, never the advertised way: only the pointer being on our own
-  // chrome puts the keyboard here at all.
+  // These shortcuts supplement the buttons whenever the overlay has focus.
   if ((phase_ == Phase::Selected || phase_ == Phase::Capturing) &&
       (event->key() == Qt::Key_S || event->key() == Qt::Key_A)) {
     switchMode(event->key() == Qt::Key_A ? Mode::Auto : Mode::Manual);
     return;
   }
-  // While capturing the layer holds no keyboard, so no key arrives here.
   QWidget::keyPressEvent(event);
 }

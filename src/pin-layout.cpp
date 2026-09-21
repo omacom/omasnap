@@ -105,12 +105,6 @@ pinStackLayout(const QVector<QPair<QString, QRect>> &ordered,
   return layout;
 }
 
-qreal pinStackTilt(int depth, bool expanded) {
-  if (expanded || depth <= 0)
-    return 0.0;
-  return (depth % 2 == 0 ? 1.0 : -1.0) * std::min(3.0, 1.0 + depth);
-}
-
 QTransform pinCardTransform(const QSize &frame, qreal degrees) {
   if (frame.isEmpty() || qFuzzyIsNull(degrees))
     return {};

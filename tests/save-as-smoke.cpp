@@ -4,6 +4,8 @@
 #include "editor.hpp"
 
 #include <QApplication>
+#include <QCloseEvent>
+#include <QWindow>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
@@ -254,6 +256,24 @@ bool runSaveAsSmoke(QString &error) {
         error = QStringLiteral("Closing during Save As cancellation reopened editor");
         return false;
       }
+    }
+  }
+  // Compositor close now routes through the editor's dismissal path. It must
+  // still cancel Save As before that path checks whether the editor is busy.
+  {
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+    editor.setWindowedPresentation(true);
+    editor.show();
+    editor.saveAs();
+    if (!waitUntil([] { return saveDialog() != nullptr; })) {
+      error = QStringLiteral("Compositor-close fixture could not open Save As");
+      return false;
+    }
+    QCloseEvent close;
+    QCoreApplication::sendEvent(editor.windowHandle(), &close);
+    if (!waitUntil([&] { return !editor.isVisible() && !saveDialog(); })) {
+      error = QStringLiteral("Compositor close left Save As or its editor open");
+      return false;
     }
   }
   {

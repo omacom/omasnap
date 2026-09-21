@@ -3,6 +3,7 @@
 /** @fileoverview Exercises capture editor behavior without a live compositor.
  */
 #include "capture.hpp"
+#include "scroll-focus-smoke.hpp"
 #include "output-config.hpp"
 #include "overlay-chrome.hpp"
 #include "cli-path.hpp"
@@ -22,6 +23,7 @@
 #include "pin-lifecycle-smoke.hpp"
 #include "pin-interaction-smoke.hpp"
 #include "pin-file.hpp"
+#include "overlay-dismissal.hpp"
 #include "text-band.hpp"
 #include "transform-smoke.hpp"
 #include "eyedropper.hpp"
@@ -31,6 +33,7 @@
 #include <QTextBlock>
 #include <QTextLayout>
 #include <QBuffer>
+#include <QCloseEvent>
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
@@ -48,6 +51,7 @@
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QWheelEvent>
+#include <QWindow>
 #include <QtTest/QTest>
 
 #include <algorithm>
@@ -2798,6 +2802,14 @@ bool runDraftViewLockCheck(QApplication &application, QString &error) {
  *  through the handoff document and file mode. */
 bool runPinEditorReturnChecks(QApplication &application, QString &error) {
   QTemporaryDir files;
+  const QByteArray previousRuntime = qgetenv("XDG_RUNTIME_DIR");
+  qputenv("XDG_RUNTIME_DIR", QFile::encodeName(files.path()));
+  const auto restoreRuntime = qScopeGuard([previousRuntime] {
+    if (previousRuntime.isNull())
+      qunsetenv("XDG_RUNTIME_DIR");
+    else
+      qputenv("XDG_RUNTIME_DIR", previousRuntime);
+  });
   QImage source(1600, 1200, QImage::Format_ARGB32_Premultiplied);
   source.fill(QColor(QStringLiteral("#203040")));
   const QString original = files.filePath(QStringLiteral("capture.png"));
@@ -2817,7 +2829,28 @@ bool runPinEditorReturnChecks(QApplication &application, QString &error) {
     return first.convertToFormat(QImage::Format_ARGB32) ==
            second.convertToFormat(QImage::Format_ARGB32);
   };
-  for (const bool windowed : {false, true}) {
+  enum class Dismissal { Escape, SuperW, Compositor, Forwarded };
+  struct DismissalCase { bool windowed; Dismissal dismissal; };
+  for (const auto &[windowed, dismissal] : {
+           DismissalCase{false, Dismissal::Escape}, {true, Dismissal::Escape},
+           {false, Dismissal::SuperW}, {true, Dismissal::SuperW},
+           {false, Dismissal::Compositor}, {true, Dismissal::Compositor},
+           {false, Dismissal::Forwarded}}) {
+    const auto dismiss = [&](CaptureEditor &editor, QWidget *input = nullptr) {
+      if (dismissal == Dismissal::Compositor) {
+        // A Close sent to QWindow (outside QWindow::close()) becomes a
+        // spontaneous QWidget close, exactly like the compositor's request.
+        QCloseEvent close;
+        QCoreApplication::sendEvent(editor.windowHandle(), &close);
+        return !close.isAccepted();
+      }
+      if (dismissal == Dismissal::Forwarded)
+        return dismissActiveOverlay();
+      QTest::keyClick(input ? input : &editor,
+                      dismissal == Dismissal::Escape ? Qt::Key_Escape : Qt::Key_W,
+                      dismissal == Dismissal::Escape ? Qt::NoModifier : Qt::MetaModifier);
+      return true;
+    };
     auto pin = copyPinDocument(original, error);
     if (!pin)
       return false;
@@ -2831,6 +2864,9 @@ bool runPinEditorReturnChecks(QApplication &application, QString &error) {
                             QuickOutputMode::None, originalLog);
       editor.setPinDocument(std::make_shared<PinSnapshotFile>(documentPath));
       editor.setWindowedPresentation(windowed);
+      std::unique_ptr<OverlayDismissal> overlayDismissal;
+      if (dismissal == Dismissal::Forwarded)
+        overlayDismissal = std::make_unique<OverlayDismissal>(editor);
       editor.resize(1000, 800);
       editor.show();
       application.processEvents();
@@ -2845,11 +2881,15 @@ bool runPinEditorReturnChecks(QApplication &application, QString &error) {
         return false;
       }
       expected = editor.renderCurrentOutput();
-      QTest::keyClick(&editor, Qt::Key_Escape);
-      if (!settled([&] { return !editor.isVisible(); }) ||
+      if (!dismiss(editor) || !settled([&] { return !editor.isVisible(); }) ||
           !samePixels(QImage(previewPath), expected) ||
           !samePixels(QImage(documentPath), source)) {
-        error = QStringLiteral("One Escape did not return an edited preview with an intact source");
+        error = QStringLiteral("Editor dismissal %1 did not return an edited preview with an intact source")
+                    .arg(static_cast<int>(dismissal));
+        return false;
+      }
+      if (dismissActiveOverlay()) {
+        error = QStringLiteral("The closed overlay still intercepted pin close requests");
         return false;
       }
     }
@@ -2861,6 +2901,9 @@ bool runPinEditorReturnChecks(QApplication &application, QString &error) {
                               QuickOutputMode::None, edited);
       reopened.setPinDocument(std::make_shared<PinSnapshotFile>(documentPath));
       reopened.setWindowedPresentation(windowed);
+      std::unique_ptr<OverlayDismissal> overlayDismissal;
+      if (dismissal == Dismissal::Forwarded)
+        overlayDismissal = std::make_unique<OverlayDismissal>(reopened);
       reopened.resize(1000, 800);
       reopened.show();
       application.processEvents();
@@ -2890,11 +2933,11 @@ bool runPinEditorReturnChecks(QApplication &application, QString &error) {
         return false;
       }
       QTest::keyClicks(input, QStringLiteral("Keep this label"));
-      QTest::keyClick(input, Qt::Key_Escape);
-      if (!settled([&] { return !reopened.isVisible(); }) ||
+      if (!dismiss(reopened, input) || !settled([&] { return !reopened.isVisible(); }) ||
           reopened.annotationCountForTest() != 2 ||
           !samePixels(QImage(previewPath), reopened.renderCurrentOutput())) {
-        error = QStringLiteral("Escape while typing did not keep the label and dismiss the editor");
+        error = QStringLiteral("Editor dismissal %1 while typing lost the label or left the editor open")
+                    .arg(static_cast<int>(dismissal));
         return false;
       }
     }
@@ -5373,9 +5416,23 @@ bool runCanvasBoundaryModeSmoke(QApplication &application, QString &error) {
     error = QStringLiteral("Overflow boundary was not persisted");
     return false;
   }
+  // File-mode construction autosaves immediately to the per-process working
+  // path. Keep the original persisted log separate before creating its reader.
+  QTemporaryDir persisted;
+  const QString persistedLog = persisted.filePath(QStringLiteral("capture.json"));
+  if (!persisted.isValid() || !QFile::copy(editor.workingLogPath(), persistedLog)) {
+    error = QStringLiteral("Could not isolate the persisted boundary log");
+    return false;
+  }
   CaptureEditor restored(capture, CaptureEditor::CaptureMode::File);
+  // Force the new editor's initial save to finish first: restoring must not
+  // depend on winning a race against its replacement of the shared log.
+  if (!restored.waitForSnapshot()) {
+    error = QStringLiteral("Restored editor initial snapshot failed");
+    return false;
+  }
   QString restoreError;
-  if (!restored.restoreOperationLog(editor.workingLogPath(), restoreError) ||
+  if (!restored.restoreOperationLog(persistedLog, restoreError) ||
       restored.currentCanvasBoundaryForTest() !=
           CanvasBoundaryMode::Overflow ||
       restored.currentCanvasForTest() != overflowCanvas ||
@@ -5384,6 +5441,10 @@ bool runCanvasBoundaryModeSmoke(QApplication &application, QString &error) {
     error =
         QStringLiteral("Restoring Overflow changed its layers or clipping: %1")
             .arg(restoreError);
+    return false;
+  }
+  if (!restored.waitForSnapshot()) {
+    error = QStringLiteral("Restored boundary snapshot failed");
     return false;
   }
   restored.close();
@@ -5880,6 +5941,12 @@ bool runSelectOutsideCanvasSmoke(QApplication &application, QString &error) {
                 .arg(shadowRestoreError);
     return false;
   }
+  // Restoring starts an autosave to the shared per-process working path.
+  // Drain it before the original editor begins another history write.
+  if (!shadowRestored.waitForSnapshot()) {
+    error = QStringLiteral("Restored shadow snapshot failed");
+    return false;
+  }
   shadowRestored.close();
   QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
   application.processEvents();
@@ -6085,6 +6152,10 @@ bool runSelectOutsideCanvasSmoke(QApplication &application, QString &error) {
       restored.renderCurrentOutput() != croppedOutput) {
     error = QStringLiteral("Restoring text growth changed canvas: %1")
                 .arg(restoreError);
+    return false;
+  }
+  if (!restored.waitForSnapshot()) {
+    error = QStringLiteral("Restored text-growth snapshot failed");
     return false;
   }
   restored.close();
@@ -10208,6 +10279,10 @@ int main(int argc, char **argv) {
     return 0;
   }
   QString snapshotError;
+  if (!runScrollFocusSmoke(snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 224;
+  }
   if (!runAreaLastRegionSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 119;

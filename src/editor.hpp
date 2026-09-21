@@ -22,9 +22,9 @@
 #include <optional>
 #include <memory>
 
-class QCloseEvent;
 class QFileDialog;
 class QKeyEvent;
+class QCloseEvent;
 class QMouseEvent;
 class QPaintEvent;
 class QWheelEvent;
@@ -141,8 +141,8 @@ public:
   void setSuppressSnapshots(bool suppress) { suppressSnapshots_ = suppress; }
 
 protected:
-  void closeEvent(QCloseEvent *event) override;
   bool eventFilter(QObject *watched, QEvent *event) override;
+  void closeEvent(QCloseEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   void keyReleaseEvent(QKeyEvent *event) override;
   void leaveEvent(QEvent *event) override;

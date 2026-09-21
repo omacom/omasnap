@@ -42,8 +42,6 @@ pinStackLayout(const QVector<QPair<QString, QRect>> &ordered,
                const QVector<QRect> &blockers, const QSize &screenSize,
                int gap, int margin, bool expanded);
 
-/// A restrained, alternating lean beneath a straight front card.
-[[nodiscard]] qreal pinStackTilt(int depth, bool expanded);
 /// Rotate the painted card inside its existing window, fitting every corner.
 [[nodiscard]] QTransform pinCardTransform(const QSize &frame, qreal degrees);
 
