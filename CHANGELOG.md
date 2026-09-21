@@ -7,6 +7,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Added
 
+- `--delay SECONDS` captures after a cancellable wait without taking focus,
+  allowing menus and tooltips to be arranged before the screen is sampled.
 - A folder button beside each preview or pin's link-copy button, plus `R` while
   hovered, to save the shot if needed and reveal it in the default file browser.
 - A readable shortcuts card above the capture/editor canvas. Press `?` or click
@@ -42,6 +44,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Delayed captures observe cancellation received as the countdown event loop
+  exits, before synchronous fullscreen output can begin.
 - Show the corner preview and dismiss the overlay before saving the full-resolution
   recent document, removing the extra history-compression pause after capture.
 - Preserve image proportions when reopening a pin or preview whose backdrop

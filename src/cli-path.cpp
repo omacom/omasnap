@@ -134,6 +134,11 @@ void configureCaptureCommandLine(QCommandLineParser &parser, bool beforeQt) {
       QStringLiteral("Capture a scrolling region and stitch it into one tall "
                      "image, then copy it and show a timed preview."));
   parser.addOption(scrollOption);
+  parser.addOption(QCommandLineOption(
+      QStringLiteral("delay"),
+      QStringLiteral("Wait 0-3600 whole seconds before capturing. Run omasnap "
+                     "again to cancel the wait."),
+      QStringLiteral("seconds")));
   parser.addPositionalArgument(
       QStringLiteral("target"),
       QStringLiteral("Capture mode (smart, region, windows, fullscreen, scroll) or the "

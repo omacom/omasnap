@@ -1,6 +1,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 #include "capture.hpp"
+#include "capture-delay.hpp"
 #include "chrome-theme.hpp"
 #include "cli-path.hpp"
 #include "editor.hpp"
@@ -52,10 +53,12 @@ public:
                      fds_) != 0)
       return; // Default signal disposition stays in effect.
     signalFd_ = fds_[0];
+    signalReceived_ = 0;
 
     struct sigaction sa{};
     sa.sa_handler = [](int) {
       const int savedErrno = errno;
+      signalReceived_ = 1;
       const char byte = 1;
       const int fd = signalFd_;
       if (fd >= 0)
@@ -89,6 +92,11 @@ public:
     closeSockets();
   }
 
+  // The delay timer can quit the event loop before its queued socket event
+  // runs. Observe receipt in the handler so that pending cancellation still
+  // prevents the synchronous fullscreen capture/output path from starting.
+  [[nodiscard]] bool wasNotified() const { return signalReceived_ != 0; }
+
 private:
   void closeSockets() {
     signalFd_ = -1;
@@ -102,6 +110,7 @@ private:
 
   static inline int fds_[2]{-1, -1};
   static inline volatile sig_atomic_t signalFd_ = -1;
+  static inline volatile sig_atomic_t signalReceived_ = 0;
   struct sigaction previousSigint_{};
   struct sigaction previousSigterm_{};
   bool sigintInstalled_ = false;
@@ -180,6 +189,12 @@ int main(int argc, char **argv) {
 
   QString filePath = parser.value(QStringLiteral("file"));
   const bool clipboardInput = parser.isSet(QStringLiteral("clipboard"));
+  int delaySeconds = 0;
+  if (parser.isSet(QStringLiteral("delay")) &&
+      !parseCaptureDelay(parser.value(QStringLiteral("delay")), delaySeconds)) {
+    qCritical() << "--delay takes a whole number from 0 through 3600 seconds";
+    return 2;
+  }
 
   const QString editorModeArg = parser.value(QStringLiteral("editor")).trimmed().toLower();
   if (!editorModeArg.isEmpty() &&
@@ -217,6 +232,7 @@ int main(int argc, char **argv) {
   if (parser.isSet(QStringLiteral("pin")) || parser.isSet(QStringLiteral("preview"))) {
     if (!filePath.isEmpty() || clipboardInput || requestedModes > 0 ||
         !positional.isEmpty() || quickOutputMode != QuickOutputMode::None ||
+        parser.isSet(QStringLiteral("delay")) ||
         (parser.isSet(QStringLiteral("pin")) && parser.isSet(QStringLiteral("preview")))) {
       qCritical()
           << "Pinned mode cannot be combined with capture or edit targets";
@@ -271,6 +287,11 @@ int main(int argc, char **argv) {
     return 2;
   }
   const bool editingImage = clipboardInput || !filePath.isEmpty();
+  if (parser.isSet(QStringLiteral("delay")) &&
+      (editingImage || parser.isSet(QStringLiteral("file")))) {
+    qCritical() << "--delay cannot be combined with an image input";
+    return 2;
+  }
   if (editingImage && quickOutputMode != QuickOutputMode::None) {
     qCritical()
         << "Quick output options cannot be combined with an image input";
@@ -374,6 +395,14 @@ int main(int argc, char **argv) {
   }
   startupTimingMark(editingImage ? "input image prepared"
                                  : "focused monitor probed");
+
+  if (delaySeconds > 0) {
+    qInfo().noquote() << QStringLiteral("Capturing in %1 seconds; run omasnap "
+                                       "again to cancel.").arg(delaySeconds);
+    if (signalNotifier.wasNotified() || !runCaptureDelay(delaySeconds) ||
+        signalNotifier.wasNotified())
+      return 0;
+  }
 
   // Grab the output before the layer exists. ext-image-copy-capture waits for
   // a composited frame, so mapping the dim overlay first photographs the veil.

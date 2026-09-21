@@ -160,6 +160,14 @@ green `make check`. Fix it with the same worker/watcher shape above
 (`QtConcurrent::run` wrapping the whole call, a small watcher applying the
 result) when you can test it live.
 
+## Delayed capture
+
+`--delay` runs a precise timer in the application's event loop before any
+window is created or pixels are read. The existing signal notifier and
+single-instance lock stay active throughout the wait. A second invocation
+cancels the pending capture. No countdown surface is mapped, so the delay
+cannot steal focus from menus or contribute pixels to the screenshot.
+
 ## Adding new work
 
 If you're adding an operation that touches disk, spawns a process, or does

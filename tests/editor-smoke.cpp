@@ -3,6 +3,7 @@
 /** @fileoverview Exercises capture editor behavior without a live compositor.
  */
 #include "capture.hpp"
+#include "capture-delay-smoke.hpp"
 #include "scroll-focus-smoke.hpp"
 #include "output-config.hpp"
 #include "overlay-chrome.hpp"
@@ -12054,6 +12055,10 @@ int main(int argc, char **argv) {
     return 0;
   }
   QString snapshotError;
+  if (!runCaptureDelaySmoke(snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 223;
+  }
   if (!runShortcutGuideSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 216;

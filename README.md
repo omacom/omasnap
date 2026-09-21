@@ -405,6 +405,25 @@ Install the corresponding Tesseract language data before adding a language to
 `OMARCHY_OCR_LANGS` (which commonly includes the user's script, e.g.
 `tha+eng`), then to `eng`.
 
+## Delayed capture
+
+Use `--delay SECONDS` to arrange a menu or tooltip before the screen is captured:
+
+```bash
+omasnap --delay 5
+omasnap region --delay 3
+omasnap fullscreen --save --delay 10
+```
+
+The delay accepts whole seconds from 0 through 3600. Omasnap waits without
+opening a window or taking focus, then captures the monitor that was focused
+when it started. Region and window selection use the screen as it looked after
+the wait. Copy, save, previews, and `--editor` keep their normal behavior.
+
+Run Omasnap again during the wait to cancel it; `Ctrl+C` in the launching
+terminal also cancels. No screenshot is produced when cancelled. `--delay`
+cannot be combined with an image file, `--clipboard`, or `--pin`.
+
 ## Controls
 
 The capture picker and fullscreen annotator show a readable shortcuts card in

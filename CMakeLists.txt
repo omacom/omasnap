@@ -48,6 +48,8 @@ add_library(omasnap-core STATIC
   src/pin-layout.hpp
   src/capture.cpp
   src/capture.hpp
+  src/capture-delay.cpp
+  src/capture-delay.hpp
   src/cut.cpp
   src/cut.hpp
   src/palette-config.cpp
@@ -147,6 +149,8 @@ target_precompile_headers(omasnap REUSE_FROM omasnap-core)
 
 if(BUILD_TESTING)
 qt_add_executable(omasnap-smoke
+  tests/capture-delay-smoke.cpp
+  tests/capture-delay-smoke.hpp
   tests/scroll-focus-smoke.cpp
   tests/scroll-focus-smoke.hpp
   tests/chrome-theme-smoke.cpp
@@ -195,6 +199,7 @@ target_include_directories(omasnap-smoke PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 target_compile_options(omasnap-smoke PRIVATE -Wall -Wextra -Wpedantic)
+add_dependencies(omasnap-smoke omasnap)
 target_link_libraries(omasnap-smoke PRIVATE omasnap-core Qt6::Test)
 target_precompile_headers(omasnap-smoke REUSE_FROM omasnap-core)
 add_test(NAME omasnap-smoke COMMAND omasnap-smoke "${CMAKE_CURRENT_BINARY_DIR}/omasnap-smoke-output")
