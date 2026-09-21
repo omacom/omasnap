@@ -1,5 +1,6 @@
 /** @fileoverview Shared overlay chrome (see overlay-chrome.hpp). */
 #include "overlay-chrome.hpp"
+#include "chrome-theme.hpp"
 
 #include <QFont>
 #include <QFontMetricsF>
@@ -44,16 +45,14 @@ QFont chromeMonoFont(int pixelSize, bool bold) {
 QRectF drawModeBadge(QPainter &painter, const QRect &bounds,
                      const QString &label, const QColor &accent,
                      QRectF *closeRect) {
-  QFont badgeFont(QStringLiteral("Noto Sans"));
-  badgeFont.setBold(true);
-  badgeFont.setPixelSize(11);
+  const QFont badgeFont = chromeFont(11, true);
   painter.setFont(badgeFont);
   const QString badge = label + QStringLiteral("  ×");
   const int badgeWidth = painter.fontMetrics().horizontalAdvance(badge) + 24;
   const QRectF badgeRect((bounds.width() - badgeWidth) / 2.0, 12, badgeWidth,
                          32);
-  painter.setPen(QPen(QColor(255, 255, 255, 32), 1));
-  painter.setBrush(QColor(18, 18, 22, 235));
+  painter.setPen(QPen(chromeTheme().panelBorder.brush(badgeRect), 1));
+  painter.setBrush(chromeTheme().surface);
   painter.drawRoundedRect(badgeRect, 10, 10);
   painter.setPen(accent);
   painter.drawText(badgeRect, Qt::AlignCenter, badge);
@@ -89,10 +88,10 @@ void drawHotkeyLegend(QPainter &painter, const QRect &bounds,
   for (int index = 0; index < entries.size(); ++index) {
     const qreal y =
         bounds.height() - marginBottom - (index + 1) * rowHeight;
-    painter.setPen(QColor(169, 182, 203, 165));
+    painter.setPen(chromeAlpha(chromeTheme().muted, 165));
     painter.drawText(QRectF(marginLeft, y, keyWidth, rowHeight - 2),
                      Qt::AlignLeft | Qt::AlignVCenter, entries.at(index).first);
-    painter.setPen(QColor(199, 204, 214, 130));
+    painter.setPen(chromeAlpha(chromeTheme().foreground, 130));
     painter.drawText(
         QRectF(marginLeft + keyWidth + keyGap, y,
                bounds.width() - marginLeft - keyWidth - keyGap - 14,
@@ -190,8 +189,8 @@ void drawAnchoredHotkeyLegend(QPainter &painter, const QRect &bounds,
       std::clamp(anchorAbove.center().x() - width / 2.0, 14.0,
                  std::max(14.0, bounds.width() - width - 14.0));
   const QRectF panel(x, 14.0, width, height);
-  painter.setPen(QPen(QColor(255, 255, 255, 34), 1));
-  painter.setBrush(QColor(13, 15, 20, 224));
+  painter.setPen(QPen(chromeTheme().panelBorder.brush(panel), 1));
+  painter.setBrush(chromeTheme().surface);
   painter.drawRoundedRect(panel, 11, 11);
   painter.setFont(font);
   for (int index = 0; index < entries.size(); ++index) {
@@ -201,11 +200,11 @@ void drawAnchoredHotkeyLegend(QPainter &painter, const QRect &bounds,
     for (int before = 0; before < column; ++before)
       cell += layout.columnWidth[before] + kLegendColumnGapAnchored;
     const qreal top = panel.top() + 12 + row * 19;
-    painter.setPen(QColor(QStringLiteral("#a9b6cb")));
+    painter.setPen(chromeTheme().muted);
     painter.drawText(QRectF(cell, top, layout.keyWidth[column], 18),
                      Qt::AlignLeft | Qt::AlignVCenter,
                      entries.at(index).first);
-    painter.setPen(QColor(QStringLiteral("#f5f5f7")));
+    painter.setPen(chromeTheme().foreground);
     painter.drawText(QRectF(cell + layout.keyWidth[column] +
                                 kLegendKeyGapAnchored,
                             top, layout.textWidth[column], 18),
@@ -219,15 +218,14 @@ void drawStatusPill(QPainter &painter, const QRect &bounds,
   if (text.isEmpty())
     return;
 
-  QFont font(QStringLiteral("Noto Sans"));
-  font.setPixelSize(13);
+  const QFont font = chromeFont(13);
   painter.setFont(font);
   const int width = painter.fontMetrics().horizontalAdvance(text) + 28;
   const QRectF pill((bounds.width() - width) / 2.0, bounds.height() - 42.0,
                     width, 30);
-  painter.setPen(QPen(QColor(255, 255, 255, 32), 1));
-  painter.setBrush(QColor(18, 18, 22, 232));
+  painter.setPen(QPen(chromeTheme().panelBorder.brush(pill), 1));
+  painter.setBrush(chromeTheme().surface);
   painter.drawRoundedRect(pill, 10, 10);
-  painter.setPen(Qt::white);
+  painter.setPen(chromeTheme().foreground);
   painter.drawText(pill, Qt::AlignCenter, text);
 }

@@ -10,7 +10,8 @@ resizable vector layers and preserves the monitor's native pixels on scaled disp
 Select a capture and it copies straight to the clipboard, with a floating preview for
 copying again, dragging into another app, or opening the editor on demand.
 The preview fades after 10 seconds of idle time. Hovering and unfinished actions
-pause its countdown; only the pin button or `Ctrl+P` keeps it on screen.
+pause its countdown. The pin button, `Ctrl+P`, `T` while hovered, or dragging the
+preview keeps it on screen.
 
 [![Looping Omasnap demonstration](assets/omasnap.gif)](assets/omasnap.mp4)
 
@@ -21,10 +22,12 @@ pause its countdown; only the pin button or `Ctrl+P` keeps it on screen.
   window, fullscreen, and scrolling-region modes remain available.
 - Fresh captures copy immediately and show a floating preview for 10 seconds
   without taking keyboard focus. Hover for Pin, Edit, Copy, file drag, and Close
-  controls. Use the pin button or `Ctrl+P` to keep it on screen.
+  controls. Use the pin button, `Ctrl+P`, `T` while hovered, or drag the preview to
+  keep it on screen.
 - A pointer-side readout that turns any drag into a ruler: the pointer position
   while the crosshair is idle, then the frame size in native export pixels while a
-  region, a hovered window, or a crop handle is being sized.
+  region, a hovered window, or a crop handle is being sized. Crosshair guides
+  appear without requiring an initial mouse movement.
 - Window capture is a crop of the focused-monitor frame. Overlapping windows stay
   visible; there is no second clean-window recapture.
 - Select/move/resize layers, mouse-wheel scaling, and eight external recropping handles.
@@ -51,8 +54,14 @@ pause its countdown; only the pin button or `Ctrl+P` keeps it on screen.
   one-click whole-image or drag-region OCR (the recognized text is shown beside
   the image and copied to the clipboard),
   mesh-gradient backdrops, and rendered drop shadows on standard backdrop cards.
+  The editor previews the same background padding, rounding, and shadow as the
+  saved image, including when zoomed or fitted to a smaller window.
+- Dragging an arrow head, tail, or bend, or a line endpoint, hides the cursor
+  and drag handles for precise placement. They return on release or cancellation.
 - Cut tool: drag across a band of the image to remove it and collapse the gap, with a
   live preview and dashed seam marker while dragging; annotations shift to follow.
+  Moving or resizing an existing layer suspends the armed tool's action until
+  release, then leaves the tool ready for the next canvas gesture.
 - Pin a finished capture as a bottom-right floating compositor window, launched
   from the same `omasnap` executable and visible on every workspace.
   Pins form a compact deck with the recents shelf's alternating tilt while
@@ -71,6 +80,9 @@ pause its countdown; only the pin button or `Ctrl+P` keeps it on screen.
   along the right edge; hover to fan them out, click one to reopen it in the editor
   with its layers still editable instead of taking a new screenshot.
 - Correct native-pixel export on fractional or integer-scaled monitors.
+- Pins, editor controls, tooltips, and selection outlines follow the current
+  Omarchy theme, including live theme changes. Screenshot pixels, annotation
+  colors, and exported backdrops keep their chosen colors.
 
 ## Platform scope
 
@@ -213,8 +225,8 @@ Drag a region, then pick a direction: **Scroll ↓ / →** scrolls the page
 yourself while omasnap captures each step, and **Auto ↓ / →** scrolls it for
 you, one acknowledged notch at a time, stopping when the page stops moving.
 The frames are aligned and stitched into one image, copied, and shown in a timed
-preview. Keep it with the pin button or `Ctrl+P`, or open its editor to annotate
-it; `Ctrl`+wheel zooms and the wheel scrolls it.
+preview. Keep it with the pin button, `Ctrl+P`, or `T` while hovered, or open its
+editor to annotate it; `Ctrl`+wheel zooms and the wheel scrolls it.
 
 Positional capture modes are also accepted:
 
@@ -231,6 +243,8 @@ previews and pins are ordinary compositor windows and remain visible in later
 screen captures; close or move them aside when they cover the next capture area.
 
 For annotation before any output, add `--editor overlay` or `--editor window`.
+You can also press `E` (edit) or `A` (annotate) in the capture picker to keep
+the annotator open after the capture. Press either key again to turn it off.
 The editor then controls whether the result is copied, saved, or both.
 
 Quick output skips the preview as well as the annotation editor. Add `--copy` to copy
@@ -299,6 +313,15 @@ document, source plus operation log, on a shelf of the five most recent under
 overlay shows them as a small stack of cards on the right; hovering fans them out
 and clicking one reopens that capture in the editor, undo history intact, in place
 of a new screenshot. Finishing a reopened capture replaces its shelf entry.
+
+### Theme
+
+Omasnap reads the current Omarchy palette from
+`~/.local/state/omarchy/current/theme/colors.toml` and uses the surface, control,
+tooltip, and border colors in `shell.toml` when present. Theme changes update
+open windows automatically; missing or invalid values use readable defaults.
+Chrome fonts stay pinned, and loading colors does not load a desktop Qt theme
+plugin or add a startup dependency.
 
 ### Configuration (optional)
 
@@ -407,6 +430,7 @@ controls to return focus from the live page.
 | Click | In smart mode, capture the window under the pointer, or the full monitor outside any window |
 | Drag | Select a region, with its native pixel size shown at the pointer |
 | `S` | Toggle scrolling-region mode |
+| `E` / `A` | Toggle annotation after capture; the capture guide shows on/off, and the choice also applies to scrolling captures |
 | `R` | Restore the last drawn region, including from a previous Omasnap launch in this login session (same monitor and overlay size) |
 | `SUPER + Arrow` | Move among windows in window mode |
 | `Enter` | Capture the highlighted window |
@@ -466,11 +490,14 @@ region after changing the display layout.
 ### Capture previews and pins
 
 Normal captures show a preview that fades after 10 seconds of idle time, replacing
-the completion notification. Hovering the stack, dragging, and in-progress
+the completion notification. Hovering the stack and in-progress
 actions pause the countdown; it resumes when the preview is idle again. Clicking,
-scrolling, copying, or editing does not pin the preview. Only the pin button or
-`Ctrl+P` on a focused preview keeps it until closed. Kept shots show a highlighted
-pin icon even when the other controls are hidden. Unpinning starts a fresh
+scrolling, copying, or editing does not pin the preview. The pin button,
+`Ctrl+P` on a focused preview, or `T` ("tack") while hovered keeps it until closed.
+Dragging the preview also pins it, even if the drag only reorders the stack.
+`T` remains the Text shortcut in the editor. Kept shots show a
+pin icon in the active window-border color, even when the other controls are
+hidden. Unpinning starts a fresh
 10-second countdown.
 New captures always go in front of the existing stack, including kept shots.
 Opening Edit leaves the preview's expiry policy unchanged; pin it first to keep
@@ -484,7 +511,8 @@ Idle pins overlap in a compact deck at the focused monitor's bottom-right
 corner, newest in front. The front card stays straight; the cards behind it
 alternate the same growing lean as the recents shelf: −3°, +6°, −9°, +12°.
 Omasnap paints the rounded frames with the images so their edges tilt together,
-with transparent corners that take no input.
+with transparent corners that take no input. Theme changes keep this single frame
+without adding a second compositor outline.
 Hover to straighten and fan them upward into fully exposed cards, wrapping into
 further columns when needed. The front card stays anchored; moving between cards
 keeps the fan open, and leaving folds it after a short delay. Placement accounts for
@@ -528,7 +556,8 @@ Automatic expiry compacts the stack without transferring keyboard focus.
 
 | Input on a pin | Action |
 |---|---|
-| Pin button, `Ctrl+P` while focused | Keep on screen; press again to unpin and restart the countdown |
+| Pin button, `Ctrl+P` while focused, `T` while hovered | Keep on screen; press again to unpin and restart the countdown |
+| Drag the image background, `Super`+left-drag | Move the preview and keep it on screen, including when reordering the stack |
 | Edit button, `A` / `E` while hovered | Annotate the capture while keeping the same pin |
 | Link button, `L` / `F` while hovered | Save the capture if needed and copy its file path |
 | Copy button, `C` while hovered, `Ctrl+C` | Copy the full-resolution PNG |
@@ -553,9 +582,10 @@ part of a layer.
 Creation tools return to Select after one placement without selecting the new layer. In
 Select mode, lines and straight arrows show two endpoint handles; curved and double arrows
 add an on-curve handle for bending the arc (hold `Shift` to keep that bend centered). Other
-layers show a selection boundary. The eight blue/white handles outside the image recrop
-its corners or edges. After the canvas grows, those crop handles remain on the original
-source frame.
+layers show a selection boundary. The eight handles outside the image recrop
+its corners or edges. The image stays in place while dragging a crop handle, then
+re-centers when released. After the canvas grows, those crop handles remain on the
+original source frame.
 
 ## Development and verification
 

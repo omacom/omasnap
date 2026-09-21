@@ -40,6 +40,12 @@ the capture loop (grab → crop → classify → accumulate) runs on a worker
 thread so the overlay keeps painting the live page and the mode pills while
 frames come in, however slow the compositor's damage-driven capture is.
 
+`ChromeThemeWatcher` in `src/chrome-theme.cpp` reads and parses Omarchy's theme
+files on a worker too. The GUI applies a completed palette and repaints open
+windows; paint handlers only read in-memory values. Debounced filesystem
+notifications trigger reloads, including when the whole theme directory is
+replaced, so idle windows do not poll the filesystem.
+
 ## What this buys, concretely
 
 - **OCR**: whole-image or drag-region text recognition spawns `tesseract`
@@ -165,6 +171,8 @@ a small worker read when that state changes; it adds no idle polling. The UI
 animates the painted card and its input region inside the existing window bounds.
 Pin frames are drawn with their images so the outline can rotate too; the runtime
 pin rule disables the compositor's rectangular border, shadow and background blur.
+The initial placement worker also sets these as per-window properties, preserving
+the frameless surface across compositor and theme reloads without polling.
 
 Returning from annotation renders and saves the pin preview and operation log
 on a worker. A filesystem watch on the completed log starts a worker to decode
@@ -176,8 +184,10 @@ pin expiry and explicit pin actions do not use it. Returning the document still
 runs on the existing worker, and repeated close requests cannot interrupt it.
 
 Normal previews use a one-shot ten-second timer and a short paint-opacity fade.
-Only explicit pin actions disable that timer. Hover, shared stack activity,
-drags, and pending actions pause the remaining time without changing pin state.
+Explicit pin actions and moving a preview disable that timer. The existing drag
+watch detects movement, including a quick drag seen only in its final snapshot.
+Hover, shared stack activity, file sharing drags, and pending actions pause the
+remaining time without changing pin state.
 Unpinning restarts its countdown, paused until ongoing
 interaction finishes. Expiry compacts the stack on the placement worker and never issues
 a focus transfer. No extra compositor polling or process is needed for the fade.

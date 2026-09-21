@@ -5,6 +5,7 @@
 #include <QSaveFile>
 #include <QDateTime>
 #include "pin.hpp"
+#include "chrome-theme.hpp"
 #include "card-stack.hpp"
 #include "capture.hpp"
 #include "pin-file.hpp"
@@ -113,6 +114,32 @@ bool hyprDispatch(const QString &expression) {
   const QString output = runForOutput(QStringLiteral("hyprctl"),
                                       {QStringLiteral("dispatch"), expression}, &ok);
   return ok && output.trimmed() == QStringLiteral("ok");
+}
+
+bool preservePinFrame(const QString &address) {
+  // A theme reload discards runtime window rules. Per-window properties
+  // survive it, so the compositor cannot add a second frame around our card.
+  QStringList commands;
+  for (const auto &property : {
+           qMakePair(QStringLiteral("border_size"), QStringLiteral("0")),
+           qMakePair(QStringLiteral("rounding"), QStringLiteral("0")),
+           qMakePair(QStringLiteral("no_shadow"), QStringLiteral("true")),
+           qMakePair(QStringLiteral("no_blur"), QStringLiteral("true")),
+           qMakePair(QStringLiteral("no_follow_mouse"), QStringLiteral("false"))}) {
+    commands.push_back(
+        QStringLiteral("dispatch hl.dsp.window.set_prop({ prop = \"%1\", "
+                       "value = \"%2\", window = \"address:%3\" })")
+            .arg(property.first, property.second, address));
+  }
+  bool ok = false;
+  const QString output = runForOutput(
+      QStringLiteral("hyprctl"),
+      {QStringLiteral("--batch"), commands.join(QStringLiteral("; "))}, &ok);
+  const QStringList replies = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+  return ok && replies.size() == commands.size() &&
+         std::all_of(replies.cbegin(), replies.cend(), [](const QString &reply) {
+           return reply.trimmed() == QStringLiteral("ok");
+         });
 }
 
 struct CompositorMonitor {
@@ -506,17 +533,7 @@ public:
     // its own instead of first stretching it into a tile.
     setFixedSize(frame);
     setAttribute(Qt::WA_AlwaysShowToolTips, true);
-    // Native tooltips need the same explicit font and dark chrome as the
-    // painted controls; the generic Qt theme otherwise supplies yellow tips.
     QToolTip::setFont(chromeFont(11));
-    setStyleSheet(QStringLiteral(
-        "QToolTip {"
-        " color: #f5f5f7;"
-        " background-color: #121216;"
-        " border: 1px solid #3a3a40;"
-        " border-radius: 4px;"
-        " padding: 0;"
-        "}"));
     setMouseTracking(true);
     connect(&expiry_, &PinExpiry::opacityChanged, this, [this](qreal opacity) {
       opacity_ = opacity;
@@ -771,7 +788,7 @@ protected:
     const QPainterPath card = cardPath();
     painter.save();
     painter.setClipPath(card);
-    painter.fillRect(rect(), QColor(18, 18, 22));
+    painter.fillRect(rect(), chromeTheme().surface);
     if (!image_.isNull()) {
       const qreal scale =
           std::max(static_cast<qreal>(width()) / image_.width(),
@@ -782,11 +799,11 @@ protected:
     }
     painter.restore();
     painter.setBrush(Qt::NoBrush);
-    painter.setPen(QPen(hovered_ ? QColor(140, 179, 209, 210)
-                                : QColor(255, 255, 255, 75), 1.5));
+    painter.setPen(QPen((hovered_ ? chromeTheme().activeBorder
+                                  : chromeTheme().inactiveBorder).brush(rect()), 1.5));
     painter.drawPath(card);
     if (expiry_.kept() && !hovered_)
-      drawControlButton(painter, pinButtonRect(), QStringLiteral("pin"), true);
+      drawControlButton(painter, pinButtonRect(), QStringLiteral("pin"));
     painter.restore();
     if (!toast_.isEmpty())
       paintToast(painter);
@@ -794,26 +811,28 @@ protected:
       return;
 
     drawControlButton(painter, dragButtonRect(), QStringLiteral("drag-handle"));
-    drawControlButton(painter, editButtonRect(), QStringLiteral("edit"), false,
+    drawControlButton(painter, editButtonRect(), QStringLiteral("edit"),
                        QStringLiteral("Edit"));
-    drawControlButton(painter, pinButtonRect(), QStringLiteral("pin"), expiry_.kept());
+    drawControlButton(painter, pinButtonRect(), QStringLiteral("pin"));
     drawControlButton(painter, pathButtonRect(), QStringLiteral("path"));
-    drawControlButton(painter, copyButtonRect(), QStringLiteral("copy"), false,
+    drawControlButton(painter, copyButtonRect(), QStringLiteral("copy"),
                        QStringLiteral("Copy"));
     drawControlButton(painter, closeButtonRect(), QStringLiteral("close"));
   }
 
   void drawControlButton(QPainter &painter, const QRectF &rect,
-                         const QString &action, bool active = false,
+                         const QString &action,
                          const QString &label = {}) const {
     painter.setPen(Qt::NoPen);
     const bool hovered = hovered_ && rect == controlRect(hoveredControl_);
-    painter.setBrush(active ? QColor(37, 58, 75, 235)
-                            : hovered ? QColor(37, 42, 52, 240)
-                                      : QColor(12, 12, 16, 210));
+    painter.setBrush(hovered ? chromeTheme().buttonHover : chromeTheme().button);
     painter.drawRoundedRect(rect, 6, 6);
-    const QColor foreground = active ? QColor(140, 179, 209)
-                                     : QColor(245, 245, 247);
+    // Kept state is independent of hover. Gradient borders use their leading
+    // color for the small pin glyph.
+    const QColor foreground = action == QStringLiteral("pin") && expiry_.kept()
+                                  ? chromeTheme().activeBorder.colors.constFirst()
+                              : hovered ? chromeTheme().buttonHoverText
+                                        : chromeTheme().buttonText;
     if (label.isEmpty()) {
       drawToolbarIcon(painter, rect, action, {}, foreground);
     } else {
@@ -830,9 +849,9 @@ protected:
                       26);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(12, 12, 16, 205));
+    painter.setBrush(chromeTheme().toastBackground);
     painter.drawRoundedRect(pill, 13, 13);
-    painter.setPen(QColor(240, 240, 245));
+    painter.setPen(chromeTheme().toastText);
     painter.drawText(pill, Qt::AlignCenter, toast_);
   }
 
@@ -930,8 +949,7 @@ protected:
       endStackDrag();
       return;
     }
-    if (!dragMoved_ && rect != dragStartRect_)
-      dragMoved_ = true;
+    recordDragMovement(rect);
     if (dragMoved_)
       previewInsertion(rect);
     const bool still = rect == dragPreviousRect_;
@@ -1032,7 +1050,8 @@ protected:
     // One last look at the true final position; the last poll can be a
     // frame behind it.
     const QRect rect = ownCompositorRect();
-    if (!dragMoved_ && rect == dragStartRect_) {
+    recordDragMovement(rect);
+    if (!dragMoved_) {
       endStackDrag();
       return;
     }
@@ -1333,6 +1352,9 @@ protected:
     if (hovered_) {
       if (event->modifiers() == Qt::NoModifier) {
         switch (event->key()) {
+        case Qt::Key_T:
+          toggleKept();
+          return;
         case Qt::Key_A:
         case Qt::Key_E:
           reopenInEditor();
@@ -1424,6 +1446,15 @@ protected:
   }
 
 private:
+  void recordDragMovement(const QRect &rect) {
+    if (dragMoved_ || rect.isEmpty() || rect == dragStartRect_)
+      return;
+    dragMoved_ = true;
+    // Moving a preview expresses intent to keep it, even within the stack.
+    // A click or arming the compositor drag watch alone does not pin it.
+    expiry_.setKept(true);
+  }
+
   void updateExpiryPause() {
     expiry_.setPaused(closing_ || hovered_ || stackInteracting_ || actionPending_ ||
                       fileDragActive_ || dragWatchTimer_.isActive() ||
@@ -1631,6 +1662,8 @@ int runPinnedCapture(const QString &path, PinLifetime lifetime) {
       if (!own->floating && !hyprDispatch(pinFloatDispatch(own->address)))
         return {};
       if (!own->pinned && !hyprDispatch(pinPinDispatch(own->address)))
+        return {};
+      if (!preservePinFrame(own->address))
         return {};
       // A new capture is the front of the idle deck. Keep an already-open
       // fan exposed, and never rearrange pins during somebody else's drag.

@@ -343,8 +343,8 @@ QString pinControlTip(int index, bool kept) {
   case 4:
     return QStringLiteral("Drag this image out");
   case 5:
-    return kept ? QStringLiteral("Unpin · Ctrl+P · fade after 10 seconds")
-                 : QStringLiteral("Keep on screen · Ctrl+P");
+    return kept ? QStringLiteral("Unpin · T / Ctrl+P · fade after 10 seconds")
+                 : QStringLiteral("Keep on screen · T / Ctrl+P");
   default:
     return {};
   }

@@ -9,9 +9,11 @@
 #include "overlay-chrome.hpp"
 #include "cli-path.hpp"
 #include "clipboard-smoke.hpp"
+#include "chrome-theme-smoke.hpp"
 #include "cut-mapping-smoke.hpp"
 #include "cut-smoke.hpp"
 #include "editor.hpp"
+#include "selection-repaint-smoke.hpp"
 #include "overlay-chrome.hpp"
 #include "recent-snaps.hpp"
 #include "instance-lock-smoke.hpp"
@@ -37,6 +39,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QEnterEvent>
 #include <QScopeGuard>
 #include <QStandardPaths>
 #include <QThread>
@@ -44,6 +47,7 @@
 #include <QFileInfo>
 #include <QFontInfo>
 #include <QFontMetricsF>
+#include <QKeyEvent>
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPixmap>
@@ -52,6 +56,7 @@
 #include <QUrl>
 #include <QWheelEvent>
 #include <QWindow>
+#include <Qt>
 #include <QtTest/QTest>
 
 #include <algorithm>
@@ -455,23 +460,42 @@ bool runMeasurementReadoutCheck(QString &error) {
     return false;
   };
 
-  QTest::mouseMove(&editor, QPoint(150, 120), 20);
+  // Wayland supplies the pointer position when the overlay gains pointer
+  // focus, even if the mouse has not moved since the capture shortcut.
+  QEnterEvent enter({150, 120}, {150, 120},
+                    editor.mapToGlobal(QPoint(150, 120)));
+  QApplication::sendEvent(&editor, &enter);
   QApplication::processEvents();
-  if (!expect(QStringLiteral("300, 240"), QStringLiteral("Idle pointer")))
+  if (!expect(QStringLiteral("300, 240"), QStringLiteral("Initial pointer")))
     return false;
+  const QImage initialUi = editor.grab().toImage();
+  const auto pixel = [&](const QPoint &point) {
+    return initialUi.pixelColor(point * initialUi.devicePixelRatio());
+  };
+  if (colorNear(pixel({150, 50}), pixel({155, 50}), 3) ||
+      colorNear(pixel({40, 120}), pixel({40, 125}), 3)) {
+    error = QStringLiteral("Capture crosshair guides waited for mouse movement");
+    return false;
+  }
 
-  {
-    CaptureEditor windowEditor(capture, CaptureEditor::CaptureMode::Window);
+  for (const auto mode : {CaptureEditor::CaptureMode::Window,
+                          CaptureEditor::CaptureMode::Smart,
+                          CaptureEditor::CaptureMode::Scroll}) {
+    CaptureEditor windowEditor(capture, mode);
     windowEditor.setSuppressSnapshots(true);
     windowEditor.resize(800, 600);
     windowEditor.show();
     QApplication::processEvents();
-    QTest::mouseMove(&windowEditor, QPoint(200, 150), 20);
+    QEnterEvent windowEnter({200, 150}, {200, 150},
+                            windowEditor.mapToGlobal(QPoint(200, 150)));
+    QApplication::sendEvent(&windowEditor, &windowEnter);
     QApplication::processEvents();
-    if (windowEditor.measurementText() != QStringLiteral("600 × 440")) {
-      error = QStringLiteral("Hovered window readout was \"%1\", expected "
-                             "\"600 × 440\"")
-                  .arg(windowEditor.measurementText());
+    const QString wanted = mode == CaptureEditor::CaptureMode::Scroll
+                               ? QStringLiteral("400, 300")
+                               : QStringLiteral("600 × 440");
+    if (windowEditor.measurementText() != wanted) {
+      error = QStringLiteral("Pointer entry readout was \"%1\", expected \"%2\"")
+                  .arg(windowEditor.measurementText(), wanted);
       return false;
     }
     windowEditor.close();
@@ -1680,6 +1704,123 @@ bool runPostCaptureChecks(QString &error) {
       return false;
     }
   }
+  // Both picker shortcuts keep every capture kind in the editor without
+  // copying or launching a preview. Holding the key must not toggle it off.
+  for (const Qt::Key key : {Qt::Key_E, Qt::Key_A}) {
+    for (const Mode mode : {Mode::Region, Mode::Smart, Mode::Window,
+                            Mode::Fullscreen, Mode::Scroll}) {
+      const QImage clipboardBefore(clipboard);
+      CaptureEditor editor(capture, mode == Mode::Fullscreen ? Mode::Smart : mode,
+                           QuickOutputMode::CopyAndPreview);
+      editor.setSuppressSnapshots(true);
+      bool launched = false;
+      editor.setProcessLauncherForTest([&](const QString &, const QStringList &) {
+        launched = true;
+        return false;
+      });
+      editor.resize(800, 600);
+      editor.show();
+      QTest::keyClick(&editor, key);
+      QKeyEvent repeat(QEvent::KeyPress, key, Qt::NoModifier, {}, true);
+      QApplication::sendEvent(&editor, &repeat);
+      if (mode == Mode::Region) {
+        QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, {100, 100});
+        QTest::mouseMove(&editor, {400, 300});
+        QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, {400, 300});
+      } else if (mode == Mode::Smart || mode == Mode::Window) {
+        QTest::mouseMove(&editor, {200, 180});
+        QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, {200, 180});
+      } else if (mode == Mode::Fullscreen) {
+        QTest::keyClick(&editor, Qt::Key_A, Qt::ControlModifier);
+      } else {
+        QTest::keyClick(&editor, Qt::Key_S);
+        QTest::keyClick(&editor, Qt::Key_S);
+        QImage stitched(800, 2400, QImage::Format_ARGB32_Premultiplied);
+        stitched.fill(Qt::cyan);
+        editor.adoptStitchedForTest(stitched);
+      }
+      QApplication::processEvents();
+      editor.waitForExport();
+      if (!editor.isVisible() || !editor.editingForTest() ||
+          editor.exportingForTest() || launched ||
+          QImage(clipboard) != clipboardBefore ||
+          editor.armedToolForTest() != CaptureEditor::Tool::Select) {
+        error = QStringLiteral("Annotate shortcut %1 did not keep capture mode %2 editable")
+                    .arg(static_cast<int>(key)).arg(static_cast<int>(mode));
+        return false;
+      }
+      QTest::keyClick(&editor, Qt::Key_A);
+      if (editor.armedToolForTest() != CaptureEditor::Tool::Arrow) {
+        error = QStringLiteral("Picker shortcut replaced the Arrow shortcut in the editor");
+        return false;
+      }
+      QTest::keyClick(&editor, Qt::Key_E);
+      if (editor.armedToolForTest() != CaptureEditor::Tool::Ellipse) {
+        error = QStringLiteral("Picker shortcut replaced the Ellipse shortcut in the editor");
+        return false;
+      }
+    }
+  }
+
+  // The two aliases share one toggle and restore the requested destination,
+  // including explicit copy/save modes that do not create a preview.
+  for (const QuickOutputMode output : {QuickOutputMode::Copy, QuickOutputMode::Save,
+                                      QuickOutputMode::Both,
+                                      QuickOutputMode::CopyAndPreview}) {
+    QTemporaryDir savedDirectory;
+    if (!savedDirectory.isValid())
+      return false;
+    const QByteArray oldOutputDir = qgetenv("OMASNAP_SCREENSHOT_DIR");
+    const auto restoreOutput = qScopeGuard([&] {
+      oldOutputDir.isNull() ? qunsetenv("OMASNAP_SCREENSHOT_DIR")
+                           : qputenv("OMASNAP_SCREENSHOT_DIR", oldOutputDir);
+    });
+    qputenv("OMASNAP_SCREENSHOT_DIR", savedDirectory.path().toUtf8());
+    QImage clipboardBefore(3, 2, QImage::Format_ARGB32_Premultiplied);
+    clipboardBefore.fill(Qt::yellow);
+    if (!clipboardBefore.save(clipboard))
+      return false;
+    CaptureEditor editor(capture, Mode::Region, output);
+    QString pin;
+    editor.setProcessLauncherForTest([&](const QString &, const QStringList &args) {
+      if (args.size() != 2 || args.first() != QStringLiteral("--preview"))
+        return false;
+      pin = args.last();
+      return true;
+    });
+    const auto cleanup = qScopeGuard([&] {
+      if (!pin.isEmpty()) {
+        QFile::remove(pin);
+        QFile::remove(operationLogPath(pin));
+      }
+    });
+    editor.resize(800, 600);
+    editor.show();
+    QTest::keyClick(&editor, Qt::Key_E);
+    QTest::keyClick(&editor, Qt::Key_A);
+    QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, {150, 150});
+    QTest::mouseMove(&editor, {350, 250});
+    QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, {350, 250});
+    const QImage expected = editor.renderCurrentOutput();
+    editor.waitForExport();
+    const QStringList saved = QDir(savedDirectory.path()).entryList(
+        {QStringLiteral("*.png")}, QDir::Files);
+    const bool shouldSave =
+        output == QuickOutputMode::Save || output == QuickOutputMode::Both;
+    const QImage expectedClipboard =
+        output == QuickOutputMode::Save ? clipboardBefore : expected;
+    if (editor.isVisible() || editor.editingForTest() ||
+        pin.isEmpty() != (output != QuickOutputMode::CopyAndPreview) ||
+        saved.size() != (shouldSave ? 1 : 0) ||
+        (shouldSave && QImage(savedDirectory.filePath(saved.first()))
+                           .convertToFormat(expected.format()) != expected) ||
+        QImage(clipboard).convertToFormat(expectedClipboard.format()) != expectedClipboard) {
+      error = QStringLiteral("Disabling annotation changed output destination %1")
+                  .arg(static_cast<int>(output));
+      return false;
+    }
+  }
+
   // Explicit pinning stays on screen, including a text draft committed by
   // Ctrl+P before the renderer takes its snapshot.
   for (const bool textDraft : {false, true}) {
@@ -3220,15 +3361,28 @@ bool runEditorHandoffRoundTrip(QApplication &application, QString &error) {
     return false;
   }
   for (const auto mode : {CaptureEditor::CaptureMode::Fullscreen,
-                          CaptureEditor::CaptureMode::Scroll}) {
-    CaptureEditor automatic(capture, mode, QuickOutputMode::None, {}, nullptr, true);
+                          CaptureEditor::CaptureMode::Scroll,
+                          CaptureEditor::CaptureMode::Smart}) {
+    const bool pickerShortcut = mode == CaptureEditor::CaptureMode::Smart;
+    CaptureEditor automatic(capture, mode,
+                            pickerShortcut ? QuickOutputMode::CopyAndPreview
+                                           : QuickOutputMode::None,
+                            {}, nullptr, true);
     QString automaticPath;
     automatic.setProcessLauncherForTest([&](const QString &, const QStringList &arguments) {
+      if (arguments.size() < 4 || arguments.at(0) != QStringLiteral("--file") ||
+          arguments.at(2) != QStringLiteral("--editor") ||
+          arguments.at(3) != QStringLiteral("window"))
+        return false;
       automaticPath = arguments.at(1);
       return true;
     });
     automatic.resize(800, 600);
     automatic.show();
+    if (pickerShortcut) {
+      QTest::keyClick(&automatic, Qt::Key_E);
+      QTest::keyClick(&automatic, Qt::Key_A, Qt::ControlModifier);
+    }
     if (mode == CaptureEditor::CaptureMode::Scroll) {
       application.processEvents();
       if (!automaticPath.isEmpty()) {
@@ -3240,7 +3394,7 @@ bool runEditorHandoffRoundTrip(QApplication &application, QString &error) {
     for (int attempt = 0; attempt < 500 && automatic.isVisible(); ++attempt)
       QTest::qWait(10);
     if (automatic.isVisible() || automaticPath.isEmpty()) {
-      error = QStringLiteral("Configured window handoff missed fullscreen or stitched scroll");
+      error = QStringLiteral("Configured window handoff missed a capture or annotation shortcut");
       return false;
     }
     QFile::remove(automaticPath);
@@ -4992,6 +5146,171 @@ bool runOpLogCapKeepsLeadingCrop(QApplication &application, QString &error) {
   return true;
 }
 
+/** Crop edges track the pointer without moving or scaling the retained pixels.
+ *  The fitted image only settles back to the center when the drag ends. */
+bool runCropDragKeepsContentStill(QApplication &application, QString &error) {
+  const std::array<QPoint, 8> edges{
+      QPoint(-1, -1), QPoint(0, -1), QPoint(1, -1), QPoint(1, 0),
+      QPoint(1, 1), QPoint(0, 1), QPoint(-1, 1), QPoint(-1, 0)};
+  const auto near = [](const QPointF &actual, const QPointF &expected) {
+    return QLineF(actual, expected).length() < 0.01;
+  };
+  for (const bool windowed : {false, true}) {
+    // The wide scaled fixture leaves every edge inside the viewport, so all
+    // eight handles are available (viewport-clipped edges are not handles).
+    for (const QSize sourceSize : {QSize(400, 300), QSize(1600, 600)}) {
+      CaptureData capture;
+      capture.monitor.scale = 1.0;
+      capture.source = QImage(sourceSize, QImage::Format_ARGB32_Premultiplied);
+      capture.source.fill(QColor(QStringLiteral("#112233")));
+      capture.previewSize = sourceSize;
+      const QPointF landmark(sourceSize.width() * 0.6,
+                             sourceSize.height() * 0.6);
+      const QColor landmarkColor(QStringLiteral("#20d060"));
+      {
+        QPainter painter(&capture.source);
+        painter.fillRect(QRectF(landmark - QPointF(12, 12), QSizeF(24, 24)),
+                         landmarkColor);
+      }
+      for (const QPoint &edge : edges) {
+        CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+        editor.setSuppressSnapshots(true);
+        editor.setWindowedPresentation(windowed);
+        editor.resize(1000, 800);
+        editor.show();
+        application.processEvents();
+        const QRectF original = editor.currentSelection();
+        const QRectF frame = editor.sourceFrameWidgetRectForTest();
+        const qreal scale = editor.editScaleForTest();
+        const int history = editor.operationIndex();
+        const QPointF fixedPixel =
+            editor.annotationPointToWidgetForTest(landmark);
+        const QPointF boundary(
+            edge.x() < 0   ? frame.left()
+            : edge.x() > 0 ? frame.right()
+                           : frame.center().x(),
+            edge.y() < 0   ? frame.top()
+            : edge.y() > 0 ? frame.bottom()
+                           : frame.center().y());
+        const QPoint handle = (boundary + QPointF(edge) * 7).toPoint();
+        QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, handle);
+        QPoint target;
+        // Include a reversal: every sample maps against the press-time frame.
+        for (const int distance : {20, 40, 30}) {
+          target = (boundary - QPointF(edge) * distance).toPoint();
+          QTest::mouseMove(&editor, target, 20);
+          application.processEvents();
+          QRectF expected = frame;
+          if (edge.x() < 0)
+            expected.setLeft(target.x());
+          if (edge.x() > 0)
+            expected.setRight(target.x());
+          if (edge.y() < 0)
+            expected.setTop(target.y());
+          if (edge.y() > 0)
+            expected.setBottom(target.y());
+          const QRectF actual = editor.sourceFrameWidgetRectForTest();
+          const QPointF retained =
+              landmark -
+              (editor.currentSelection().topLeft() - original.topLeft());
+          if (!near(actual.topLeft(), expected.topLeft()) ||
+              !near(actual.bottomRight(), expected.bottomRight()) ||
+              !near(editor.annotationPointToWidgetForTest(retained), fixedPixel) ||
+              std::abs(editor.editScaleForTest() - scale) > 0.0001 ||
+              editor.editImageRectForTest() != actual ||
+              editor.operationIndex() != history ||
+              !colorNear(grabLogicalPixel(editor.grab().toImage(), editor,
+                                         fixedPixel), landmarkColor, 2)) {
+            error = QStringLiteral("Crop drag moved retained pixels or detached "
+                                   "an edge (window %1, source %2, edge %3,%4)")
+                        .arg(windowed)
+                        .arg(sourceSize.width())
+                        .arg(edge.x())
+                        .arg(edge.y());
+            QDebug(&error) << "frame" << frame << "actual" << actual
+                           << "expected" << expected << "scale"
+                           << editor.editScaleForTest() << "was" << scale;
+            return false;
+          }
+        }
+        const QRectF cropped = editor.currentSelection();
+        QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, target);
+        application.processEvents();
+        const QRectF settled = editor.sourceFrameWidgetRectForTest();
+        if (cropped == original || editor.currentSelection() != cropped ||
+            editor.operationIndex() != history + 1 ||
+            QLineF(settled.center(), frame.center()).length() > 1.0) {
+          error = QStringLiteral("Crop release did not commit once and re-center");
+          return false;
+        }
+        QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+        application.processEvents();
+        if (editor.currentSelection() != original ||
+            editor.sourceFrameWidgetRectForTest() != frame) {
+          error = QStringLiteral("Undo did not restore the pre-crop frame");
+          return false;
+        }
+        QTest::keyClick(&editor, Qt::Key_Y, Qt::ControlModifier);
+        application.processEvents();
+        if (editor.currentSelection() != cropped ||
+            editor.sourceFrameWidgetRectForTest() != settled) {
+          error = QStringLiteral("Redo did not restore the centered crop");
+          return false;
+        }
+        // Right-click cancels a second crop without leaving the live mapping.
+        const QPoint nextHandle = (settled.topLeft() - QPointF(7, 7)).toPoint();
+        QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, nextHandle);
+        const QPoint cancelAt = (settled.topLeft() + QPointF(25, 25)).toPoint();
+        QTest::mouseMove(&editor, cancelAt, 20);
+        QTest::mouseClick(&editor, Qt::RightButton, Qt::NoModifier, cancelAt);
+        QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, cancelAt);
+        application.processEvents();
+        if (editor.currentSelection() != cropped ||
+            editor.sourceFrameWidgetRectForTest() != settled ||
+            editor.operationIndex() != history + 1) {
+          error = QStringLiteral("Cancelling a crop left the image displaced");
+          return false;
+        }
+        if (sourceSize.width() == 400 && edge == QPoint(-1, 0)) {
+          for (int step = 0; step < 4; ++step)
+            QTest::keyClick(&editor, Qt::Key_Plus, Qt::ControlModifier);
+          const QPoint panStart =
+              editor.editViewportRectForTest().center().toPoint();
+          QTest::mousePress(&editor, Qt::MiddleButton, Qt::NoModifier, panStart);
+          QTest::mouseMove(&editor, panStart + QPoint(0, 30), 20);
+          QTest::mouseRelease(&editor, Qt::MiddleButton, Qt::NoModifier,
+                              panStart + QPoint(0, 30));
+          const QRectF panned = editor.sourceFrameWidgetRectForTest();
+          const qreal zoomedScale = editor.editScaleForTest();
+          const QPoint zoomHandle(qRound(panned.left() - 7),
+                                   qRound(panned.center().y()));
+          const QPoint zoomTarget = zoomHandle + QPoint(32, 0);
+          QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, zoomHandle);
+          QTest::mouseMove(&editor, zoomTarget, 20);
+          const QRectF live = editor.sourceFrameWidgetRectForTest();
+          if (zoomedScale <= scale ||
+              panned.center().y() - settled.center().y() < 20 ||
+              !near(live.topRight(), panned.topRight()) ||
+              std::abs(live.left() - zoomTarget.x()) > 0.01 ||
+              std::abs(editor.editScaleForTest() - zoomedScale) > 0.0001) {
+            error = QStringLiteral(
+                "Cropping a zoomed, panned image moved its pixels");
+            return false;
+          }
+          QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, zoomTarget);
+          if (QLineF(editor.sourceFrameWidgetRectForTest().center(),
+                     settled.center()).length() > 1.0) {
+            error = QStringLiteral("Crop release retained the previous pan offset");
+            return false;
+          }
+        }
+        editor.close();
+      }
+    }
+  }
+  return true;
+}
+
 /** A recrop moves the frame, never the ink: annotations stay over the
  *  pixels they were drawn on when the top/left crop handles move the
  *  selection origin. */
@@ -5037,6 +5356,13 @@ bool runCropKeepsAnnotationsAnchored(QApplication &application,
   QTest::mouseMove(&editor, handle, 20);
   QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, handle);
   QTest::mouseMove(&editor, inward, 20);
+  application.processEvents();
+  const QPointF linePixel = image.topLeft() + QPointF(150, 100);
+  if (!colorNear(grabLogicalPixel(editor.grab().toImage(), editor, linePixel),
+                 editor.renderCurrentOutput().pixelColor(107, 57), 2)) {
+    error = QStringLiteral("Live top-left crop displaced the annotation on screen");
+    return false;
+  }
   QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, inward);
   application.processEvents();
   if (editor.currentSelection() != QRectF(43, 43, 357, 257)) {
@@ -6105,9 +6431,24 @@ bool runSelectOutsideCanvasSmoke(QApplication &application, QString &error) {
       editor.currentSelection().topLeft() + textAnnotations.constFirst().start;
   QTest::keyClick(&editor, Qt::Key_V);
   const QRectF sourceFrame = editor.sourceFrameWidgetRectForTest();
+  const qreal cropScale = editor.editScaleForTest();
+  const QPointF textOnScreen =
+      editor.annotationPointToWidgetForTest(textAnnotations.constFirst().start);
   const QPoint cropLeft(qRound(sourceFrame.left() - 7),
                         qRound(sourceFrame.center().y()));
-  drag(cropLeft, cropLeft + QPoint(20, 0));
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, cropLeft);
+  QTest::mouseMove(&editor, cropLeft + QPoint(20, 0), 20);
+  application.processEvents();
+  if (std::abs(editor.editScaleForTest() - cropScale) > 0.0001 ||
+      QLineF(editor.annotationPointToWidgetForTest(
+                 editor.currentAnnotationsForTest().constFirst().start),
+             textOnScreen).length() > 0.01 || !canvasIsDerived()) {
+    error = QStringLiteral("Live recrop shifted text on the grown canvas");
+    return false;
+  }
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier,
+                      cropLeft + QPoint(20, 0));
+  application.processEvents();
   const QRectF croppedSelection = editor.currentSelection();
   const QVector<Annotation> croppedAnnotations =
       editor.currentAnnotationsForTest();
@@ -6161,6 +6502,155 @@ bool runSelectOutsideCanvasSmoke(QApplication &application, QString &error) {
   restored.close();
   editor.close();
   QFile::remove(snapshotPath);
+  return true;
+}
+
+/** The displayed mat is a scaled preview of the actual saved pixels. */
+bool runBackdropPreviewMatchesExport(QApplication &application,
+                                      const QString &outputRoot,
+                                      QString &error) {
+  const struct {
+    QSize source;
+    qreal nativeScale;
+    bool windowed;
+    BackgroundStyle background;
+    bool shadow;
+    bool grown;
+    bool zoom;
+  } cases[] = {{{320, 220}, 1.0, false, BackgroundStyle::Aurora, true, false, false},
+               {{1500, 1000}, 1.5, true, BackgroundStyle::Lagoon, true, false, false},
+               {{1400, 900}, 2.0, false, BackgroundStyle::Sunset, false, false, false},
+               {{320, 220}, 2.0, true, BackgroundStyle::Violet, true, false, true},
+               {{1200, 800}, 1.5, true, BackgroundStyle::Aurora, true, true, false},
+               {{320, 220}, 1.0, false, BackgroundStyle::Slate, true, true, true}};
+  int index = 0;
+  for (const auto &fixture : cases) {
+    CaptureData capture;
+    capture.monitor.scale = fixture.nativeScale;
+    capture.previewSize = fixture.source;
+    capture.source = QImage(qRound(fixture.source.width() * fixture.nativeScale),
+                            qRound(fixture.source.height() * fixture.nativeScale),
+                            QImage::Format_ARGB32_Premultiplied);
+    capture.source.fill(QColor(QStringLiteral("#527196")));
+    Operation backdrop;
+    backdrop.type = Operation::Type::Background;
+    backdrop.background = fixture.background;
+    backdrop.imageShadow = fixture.shadow;
+    OperationLog log;
+    log.ops = {backdrop};
+    if (fixture.grown) {
+      Annotation outside;
+      outside.id = 1;
+      outside.kind = Annotation::Kind::Rectangle;
+      outside.start = {-80, -60};
+      outside.end = {-30, -20};
+      outside.color = Qt::red;
+      outside.size = 3;
+      Operation annotate;
+      annotate.type = Operation::Type::Annotate;
+      annotate.annotations = {outside};
+      log.ops.push_back(annotate);
+      log.nextId = 2;
+    }
+    log.index = log.ops.size();
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::File,
+                         QuickOutputMode::None, log);
+    editor.setSuppressSnapshots(true);
+    editor.setWindowedPresentation(fixture.windowed);
+    editor.resize(1000, 850);
+    editor.show();
+    application.processEvents();
+    const QString prefix = outputRoot + QStringLiteral("-backdrop-%1").arg(index++);
+    const QImage exported = editor.renderCurrentOutput();
+    if (!exported.save(prefix + QStringLiteral("-export.png")))
+      return false;
+    const QImage saved(prefix + QStringLiteral("-export.png"));
+    const auto history = editor.operationLog();
+    if (fixture.zoom) {
+      const QPointF center = editor.sourceFrameWidgetRectForTest().center();
+      QWheelEvent zoom(center, editor.mapToGlobal(center.toPoint()), {}, {0, 240},
+                       Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+      QApplication::sendEvent(&editor, &zoom);
+      application.processEvents();
+    }
+    const QRectF source = editor.sourceFrameWidgetRectForTest();
+    const QRectF canvas = editor.currentCanvasForTest();
+    const qreal scaleX = source.width() / capture.source.width();
+    const qreal scaleY = source.height() / capture.source.height();
+    const QPointF sourceOrigin = fixture.grown
+        ? QPointF(std::ceil(-canvas.left() * fixture.nativeScale),
+                   std::ceil(-canvas.top() * fixture.nativeScale))
+        : QPointF((saved.width() - capture.source.width()) / 2.0,
+                   (saved.height() - capture.source.height()) / 2.0);
+    const QRectF frame(source.topLeft() -
+                           QPointF(sourceOrigin.x() * scaleX, sourceOrigin.y() * scaleY),
+                        QSizeF(saved.width() * scaleX, saved.height() * scaleY));
+    const QImage actual = editor.grab().toImage();
+    QImage expected(actual.size(), QImage::Format_ARGB32_Premultiplied);
+    expected.setDevicePixelRatio(actual.devicePixelRatio());
+    expected.fill(Qt::transparent);
+    {
+      QPainter painter(&expected);
+      painter.setRenderHint(QPainter::SmoothPixmapTransform);
+      painter.drawImage(frame, saved);
+    }
+    actual.save(prefix + QStringLiteral("-editor.png"));
+    expected.save(prefix + QStringLiteral("-expected.png"));
+    if (!fixture.zoom &&
+        !editor.editViewportRectForTest().adjusted(-1, -1, 1, 1).contains(frame)) {
+      error = QStringLiteral("Backdrop fixture %1 did not fit the complete export")
+                  .arg(index - 1);
+      return false;
+    }
+    const QRect samples = frame.adjusted(3, 3, -3, -3)
+                              .intersected(editor.editViewportRectForTest())
+                              .toAlignedRect();
+    int count = 0;
+    int different = 0;
+    qreal totalError = 0;
+    for (int y = samples.top(); y <= samples.bottom(); y += 2) {
+      for (int x = samples.left(); x <= samples.right(); x += 2) {
+        // Exclude the source image and its crop controls. Compare the actual
+        // gradient and shadow with the saved PNG at the same presentation size.
+        const QPointF point(x, y);
+        if (source.adjusted(-10, -10, 10, 10).contains(point))
+          continue;
+        const QColor a = grabLogicalPixel(actual, editor, point);
+        const QColor b = grabLogicalPixel(expected, editor, point);
+        const int delta = std::max({std::abs(a.red() - b.red()),
+                                    std::abs(a.green() - b.green()),
+                                    std::abs(a.blue() - b.blue())});
+        totalError += delta;
+        different += delta > 12;
+        ++count;
+      }
+    }
+    // Rasterizing vectors at display resolution differs slightly from scaling
+    // native pixels, particularly along a shadow ring or annotation edge.
+    if (count < 200 || totalError / count > 3 || different > count / 50) {
+      error = QStringLiteral("Backdrop fixture %1 differs from its saved PNG: "
+                             "%2 samples, mean error %3, %4 large differences")
+                  .arg(index - 1).arg(count).arg(count ? totalError / count : 0)
+                  .arg(different);
+      return false;
+    }
+    if (!fixture.grown && source.width() / fixture.source.width() >= 0.9) {
+      // Inside the upper-left corner, away from the external crop handle.
+      // The old 10 px preview radius disagrees with the exported 14 px radius.
+      const QPointF corner = source.topLeft() +
+          QPointF(3, 3) * (source.width() / fixture.source.width());
+      if (!colorNear(grabLogicalPixel(actual, editor, corner),
+                     grabLogicalPixel(expected, editor, corner), 12)) {
+        error = QStringLiteral("The preview corner radius differs from the export");
+        return false;
+      }
+    }
+    if (editor.operationLog() != history || editor.renderCurrentOutput() != exported) {
+      error = QStringLiteral("Preview fitting or zooming changed the document");
+      return false;
+    }
+    editor.close();
+  }
   return true;
 }
 
@@ -8665,6 +9155,155 @@ bool runLineHandleLegendSmoke(QApplication &application, QString &error) {
   return true;
 }
 
+/** A layer grab owns the gesture, even while a different tool is armed. */
+bool runLayerDragSuppressesTool(QApplication &application, QString &error) {
+  using Tool = CaptureEditor::Tool;
+  const struct {
+    Qt::Key key;
+    Tool tool;
+    const char *name;
+  } tools[] = {{Qt::Key_X, Tool::Cut, "Cut"},
+               {Qt::Key_A, Tool::Arrow, "Arrow"},
+               {Qt::Key_L, Tool::Line, "Line"},
+               {Qt::Key_F, Tool::Freehand, "Pen"},
+               {Qt::Key_H, Tool::Highlighter, "Highlighter"},
+               {Qt::Key_S, Tool::Spotlight, "Spotlight"},
+               {Qt::Key_R, Tool::Rectangle, "Rectangle"},
+               {Qt::Key_E, Tool::Ellipse, "Ellipse"},
+               {Qt::Key_D, Tool::Redact, "Redact"},
+               {Qt::Key_T, Tool::Text, "Text"},
+               {Qt::Key_C, Tool::Marker, "Marker"}};
+  CaptureData capture;
+  const QColor background(QStringLiteral("#182030"));
+  capture.monitor.scale = 1.0;
+  capture.source = QImage(500, 320, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(background);
+  capture.previewSize = capture.source.size();
+  for (const auto &armed : tools) {
+    Annotation layer;
+    layer.id = 1;
+    layer.kind = armed.tool == Tool::Marker ? Annotation::Kind::Marker
+                                            : Annotation::Kind::Arrow;
+    layer.start = armed.tool == Tool::Marker ? QPointF(130, 80) : QPointF(80, 80);
+    layer.end = {180, 80};
+    layer.color = QColor(QStringLiteral("#ff375f"));
+    layer.size = 4;
+    layer.number = 1;
+    Operation annotate;
+    annotate.type = Operation::Type::Annotate;
+    annotate.annotations = {layer};
+    OperationLog log;
+    log.ops = {annotate};
+    log.index = 1;
+    log.nextId = 2;
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::File,
+                         QuickOutputMode::None, log);
+    editor.setSuppressSnapshots(true);
+    editor.resize(900, 700);
+    editor.show();
+    application.processEvents();
+    const auto widgetPoint = [&](const QPointF &point) {
+      return editor.annotationPointToWidgetForTest(point).toPoint();
+    };
+    const auto untouchedCanvas = [&] {
+      const QImage ui = editor.grab().toImage();
+      // These points catch both an accidental cut band from the origin and
+      // a drawing preview between the press and the moved pointer.
+      for (const QPointF point : {QPointF(40, 40), QPointF(160, 105),
+                                  QPointF(130, 100)}) {
+        if (!colorNear(grabLogicalPixel(ui, editor, widgetPoint(point)),
+                       background, 2)) {
+          error = QStringLiteral("%1 painted its tool preview during a layer grab")
+                      .arg(QString::fromLatin1(armed.name));
+          return false;
+        }
+      }
+      return true;
+    };
+    const QImage before = editor.renderCurrentOutput();
+    const int history = editor.operationIndex();
+    QTest::keyClick(&editor, armed.key);
+    QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier,
+                       widgetPoint({130, 80}));
+    QTest::mouseMove(&editor, widgetPoint({190, 130}), 20);
+    application.processEvents();
+    if (!untouchedCanvas())
+      return false;
+    QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier,
+                         widgetPoint({190, 130}));
+    application.processEvents();
+    if (!untouchedCanvas())
+      return false;
+    if (editor.currentAnnotationsForTest().size() != 1 ||
+        editor.currentAnnotationsForTest().constFirst().start !=
+            layer.start + QPointF(60, 50) ||
+        editor.captureData().source != capture.source ||
+        editor.operationIndex() != history + 1 ||
+        editor.operationLog().constLast().type != Operation::Type::Patch ||
+        editor.armedToolForTest() != armed.tool) {
+      error = QStringLiteral("%1 did not leave exactly one layer-move operation")
+                  .arg(QString::fromLatin1(armed.name));
+      return false;
+    }
+    const QImage moved = editor.renderCurrentOutput();
+    QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+    if (editor.renderCurrentOutput() != before) {
+      error = QStringLiteral("Undo did not restore the layer moved with %1 armed")
+                  .arg(QString::fromLatin1(armed.name));
+      return false;
+    }
+    QTest::keyClick(&editor, Qt::Key_Y, Qt::ControlModifier);
+    if (editor.renderCurrentOutput() != moved)
+      return false;
+    if (armed.tool != Tool::Marker) {
+      // The selected arrow's end handle must also suppress the armed tool.
+      QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier,
+                         widgetPoint({240, 130}));
+      QTest::mouseMove(&editor, widgetPoint({300, 180}), 20);
+      application.processEvents();
+      if (!untouchedCanvas())
+        return false;
+      QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier,
+                           widgetPoint({300, 180}));
+      application.processEvents();
+      if (!untouchedCanvas())
+        return false;
+      const auto &resized = editor.currentAnnotationsForTest().constFirst();
+      if (editor.annotationCountForTest() != 1 ||
+          resized.start != QPointF(140, 130) || resized.end != QPointF(300, 180) ||
+          editor.operationIndex() != history + 2 ||
+          editor.operationLog().constLast().type != Operation::Type::Patch ||
+          editor.captureData().source != capture.source ||
+          editor.armedToolForTest() != armed.tool) {
+        error = QStringLiteral("%1 interfered with resizing an existing layer")
+                    .arg(QString::fromLatin1(armed.name));
+        return false;
+      }
+    }
+    if (armed.tool == Tool::Cut) {
+      // The tool remains usable: only a subsequent canvas drag removes pixels.
+      const QImage beforeCut = editor.renderCurrentOutput();
+      QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier,
+                         widgetPoint({50, 230}));
+      QTest::mouseMove(&editor, widgetPoint({50, 260}), 20);
+      QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier,
+                           widgetPoint({50, 260}));
+      if (editor.renderCurrentOutput().size() != QSize(500, 290) ||
+          editor.operationLog().constLast().type != Operation::Type::Cut) {
+        error = QStringLiteral("Cut did not resume after moving/resizing a layer");
+        return false;
+      }
+      QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+      if (editor.renderCurrentOutput() != beforeCut) {
+        error = QStringLiteral("Undoing the subsequent cut changed the layer edit");
+        return false;
+      }
+    }
+    editor.close();
+  }
+  return true;
+}
+
 /** Checks that a drawing tool moves the layer under its edge without losing
  *  the tool: adjust what is there, then keep drawing. */
 bool runHoverMoveSmoke(QApplication &application, QString &error) {
@@ -9879,6 +10518,34 @@ bool runArrowStyleSmoke(QApplication &application, QString &error) {
   // Select the Curved arrow at its default on-curve midpoint, then drag that
   // third handle. The committed value is the back-solved Bezier control, not
   // the visible midpoint itself.
+  const auto expectPointChrome = [&](bool visible, const QString &gesture) {
+    if ((editor.cursor().shape() != Qt::BlankCursor) != visible) {
+      error = QStringLiteral("%1 left the cursor %2")
+                  .arg(gesture, visible ? QStringLiteral("hidden")
+                                        : QStringLiteral("visible"));
+      return false;
+    }
+    // Each selected layer is raised to the top by the gesture below.
+    const Annotation &selected = editor.currentAnnotationsForTest().constLast();
+    QVector<QPointF> points{selected.start, selected.end};
+    if (selected.kind == Annotation::Kind::Arrow &&
+        (selected.arrowStyle == ArrowStyle::Curved ||
+         selected.arrowStyle == ArrowStyle::Double))
+      points.push_back(arrowCurveHandlePoint(selected));
+    const QImage ui = editor.grab().toImage();
+    for (const QPointF &point : points) {
+      const QColor pixel = grabLogicalPixel(
+          ui, editor, editor.annotationPointToWidgetForTest(point));
+      if ((pixel == QColor(QStringLiteral("#0a84ff"))) != visible) {
+        error = QStringLiteral("%1 left a point handle %2 at %3,%4 (pixel %5)")
+                    .arg(gesture, visible ? QStringLiteral("hidden")
+                                          : QStringLiteral("visible"))
+                    .arg(point.x()).arg(point.y()).arg(pixel.name());
+        return false;
+      }
+    }
+    return true;
+  };
   QTest::keyClick(&editor, Qt::Key_V);
   QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(400, 290));
   application.processEvents();
@@ -9886,10 +10553,16 @@ bool runArrowStyleSmoke(QApplication &application, QString &error) {
   // Begin 15 screen px off the handle: Curved/Double intentionally double
   // the normal 9 px target radius for all three handles.
   QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(400, 305));
+  if (!expectPointChrome(false, QStringLiteral("Pressing an arrow bend")))
+    return false;
   QTest::mouseMove(&editor, QPoint(420, 250), 20);
+  if (!expectPointChrome(false, QStringLiteral("Dragging an arrow bend")))
+    return false;
   QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier,
                       QPoint(420, 250));
   application.processEvents();
+  if (!expectPointChrome(true, QStringLiteral("Releasing an arrow bend")))
+    return false;
   if (editor.operationIndex() != beforeBend + 1 ||
       editor.operationLog().constLast().type != Operation::Type::Patch ||
       editor.operationLog().constLast().annotations.size() != 1) {
@@ -9917,6 +10590,8 @@ bool runArrowStyleSmoke(QApplication &application, QString &error) {
   const int beforeMove = editor.operationIndex();
   QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(335, 270));
   QTest::mouseMove(&editor, QPoint(345, 280), 20);
+  if (!expectPointChrome(true, QStringLiteral("Moving a whole arrow")))
+    return false;
   QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier,
                       QPoint(345, 280));
   application.processEvents();
@@ -9947,6 +10622,8 @@ bool runArrowStyleSmoke(QApplication &application, QString &error) {
   const int beforeResize = editor.operationIndex();
   QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(250, 355));
   QTest::mouseMove(&editor, QPoint(270, 340), 20);
+  if (!expectPointChrome(false, QStringLiteral("Dragging an arrow tail")))
+    return false;
   QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier,
                       QPoint(270, 340));
   application.processEvents();
@@ -10033,6 +10710,8 @@ bool runArrowStyleSmoke(QApplication &application, QString &error) {
   QTest::mousePress(&editor, Qt::LeftButton, Qt::ShiftModifier,
                     arrowEndScreen.toPoint());
   QTest::mouseMove(&editor, rawArrowEndScreen.toPoint(), 20);
+  if (!expectPointChrome(false, QStringLiteral("Dragging an arrow head")))
+    return false;
   QTest::mouseRelease(&editor, Qt::LeftButton, Qt::ShiftModifier,
                       rawArrowEndScreen.toPoint());
   QTest::keyRelease(&editor, Qt::Key_Shift);
@@ -10085,10 +10764,14 @@ bool runArrowStyleSmoke(QApplication &application, QString &error) {
   QTest::mousePress(&editor, Qt::LeftButton, Qt::ShiftModifier,
                     lineEndScreen.toPoint());
   QTest::mouseMove(&editor, rawLineEndScreen.toPoint(), 20);
+  if (!expectPointChrome(false, QStringLiteral("Dragging a line endpoint")))
+    return false;
   QTest::mouseRelease(&editor, Qt::LeftButton, Qt::ShiftModifier,
                       rawLineEndScreen.toPoint());
   QTest::keyRelease(&editor, Qt::Key_Shift);
   application.processEvents();
+  if (!expectPointChrome(true, QStringLiteral("Releasing a line endpoint")))
+    return false;
   if (editor.operationIndex() != beforeShiftLineResize + 1 ||
       editor.operationLog().constLast().annotations.size() != 1) {
     error = QStringLiteral("Pre-held Shift did not resize the line endpoint");
@@ -10100,6 +10783,33 @@ bool runArrowStyleSmoke(QApplication &application, QString &error) {
       QLineF(snappedLine.end, expectedLineEnd).length() > 1.5) {
     error = QStringLiteral("Pre-held Shift did not snap the line endpoint");
     return false;
+  }
+
+  // Right-click and an empty redo both cancel the in-progress drag. Neither
+  // may strand the hidden cursor or commit the temporary geometry.
+  const QImage beforeCancel = editor.renderCurrentOutput();
+  const int historyBeforeCancel = editor.operationIndex();
+  for (const bool cancelWithRedo : {false, true}) {
+    const QPoint endpoint =
+        editor.annotationPointToWidgetForTest(snappedLine.end).toPoint();
+    const QPoint target = endpoint + QPoint(-30, -35);
+    QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, endpoint);
+    QTest::mouseMove(&editor, target, 20);
+    if (!expectPointChrome(false, QStringLiteral("Dragging before cancellation")))
+      return false;
+    if (cancelWithRedo)
+      QTest::keyClick(&editor, Qt::Key_Y, Qt::ControlModifier);
+    else
+      QTest::mouseClick(&editor, Qt::RightButton, Qt::NoModifier, target);
+    application.processEvents();
+    if (!expectPointChrome(true, QStringLiteral("Cancelling a point drag")) ||
+        editor.renderCurrentOutput() != beforeCancel ||
+        editor.operationIndex() != historyBeforeCancel) {
+      if (error.isEmpty())
+        error = QStringLiteral("Cancelling a point drag changed the document");
+      return false;
+    }
+    QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, target);
   }
 
   QTemporaryDir directory;
@@ -10344,6 +11054,10 @@ int main(int argc, char **argv) {
     qWarning().noquote() << snapshotError;
     return 135;
   }
+  if (!runSelectionRepaintSmoke(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 215;
+  }
   if (!runQuickOutputChecks(snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 73;
@@ -10376,7 +11090,8 @@ int main(int argc, char **argv) {
     qWarning().noquote() << snapshotError;
     return 120;
   }
-  if (!runHoverMoveSmoke(application, snapshotError)) {
+  if (!runLayerDragSuppressesTool(application, snapshotError) ||
+      !runHoverMoveSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 114;
   }
@@ -10746,7 +11461,8 @@ int main(int argc, char **argv) {
     qWarning().noquote() << snapshotError;
     return 84;
   }
-  if (!runCropKeepsAnnotationsAnchored(application, snapshotError)) {
+  if (!runCropDragKeepsContentStill(application, snapshotError) ||
+      !runCropKeepsAnnotationsAnchored(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 125;
   }
@@ -10754,6 +11470,10 @@ int main(int argc, char **argv) {
       argc > 1 ? QString::fromLocal8Bit(argv[1])
                : QDir(QDir::tempPath())
                      .filePath(QStringLiteral("omasnap-native-smoke"));
+  if (!runBackdropPreviewMatchesExport(application, outputRoot, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 214;
+  }
   if (!runCutMappingSmoke(application, outputRoot, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 96;
@@ -11824,6 +12544,10 @@ int main(int argc, char **argv) {
   if (!runInstanceLockSmoke(instanceError)) {
     qWarning().noquote() << instanceError;
     return 85;
+  }
+  if (!runChromeThemeSmoke(outputRoot, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 140;
   }
   return 0;
 }
