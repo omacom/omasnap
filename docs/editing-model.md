@@ -44,17 +44,30 @@ returning edits to an existing pin. Each render runs off the UI thread (see
 [threading.md](threading.md)), and writes the result. Until one of those
 happens, everything remains a log entry you can undo.
 
+Every completed capture also keeps a private source, operation log, and rendered
+thumbnail in the five-entry recents shelf, including untouched timed previews,
+quick output, explicit pins, and editors dismissed with `Esc`. Preview expiry
+only removes the runtime preview. The next overlay can reopen its recent card
+directly for annotation. A capture identity survives preview editing and editor
+handoffs so completing it again updates one entry and retains editable layers.
+Shelf writes, thumbnail rendering, and pruning continue on the completion worker
+after the preview appears and the overlay closes. Immediately reopening a preview
+waits for its pending document on a worker so the original layers remain editable.
+
 Opening a pin for annotation leaves its compositor window in place. A private
 copy retains the pristine source and operation log; `Esc` commits any text draft,
 dismisses the annotator, and updates the pin's rendered preview. Reopening reads
-the source and log, so undo still works. Copying or dragging the pin shares only
-the rendered preview. The pin handoff never overwrites the original user file, and the last
-pin/editor owner removes the private source, log, and preview together.
+the source and log, so undo still works. Copying, dragging, or revealing the pin
+shares only the rendered preview. The pin handoff never overwrites the original user file,
+and the last pin/editor owner removes the private source, log, and preview together.
 
 Scrolling captures retain the monitor's scale when they become editable
 documents. Their native pixels stay intact; only the logical presentation size
 changes. Loaded documents also retain their exact pixel dimensions on export,
 even when the logical size was rounded for a scaled display.
+Flattened pins and previews record the logical size of the entire rendered
+image, including its backdrop and expanded canvas, so reopening them preserves
+their proportions. The editable source's log still uses its original coordinates.
 
 ## The two exceptions, and why they're still safe
 

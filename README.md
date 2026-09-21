@@ -35,11 +35,14 @@ preview keeps it on screen.
   fullscreen workspace around a screenshot, or resize and carry an existing
   layer past its edge, to grow the canvas. Source-based tools (redact, cut,
   OCR, and eyedropper) stay on the screenshot.
-  Framed growth is the default; `G` cycles to tight Overflow growth (only the
+  Framed growth is the default, with 15 px of mat kept beyond any layer that
+  outgrows the normal frame; `G` cycles to tight Overflow growth (only the
   sides needed by annotations, with no frame), then Image (the original canvas
   size, clipping every outside annotation). `Shift+G` cycles backward without
   changing layer geometry. New framed strips start in window gray with the
-  original screenshot's card shadow. `B` cycles through the colorful backdrops,
+  original screenshot's card shadow, and follow a layer live while it is drawn
+  or carried past the edge, or back inside it; a label being typed out there
+  counts from the moment its caret is placed. `B` cycles through the colorful backdrops,
   shadowed and flat window gray, and Off so a background can always be removed.
   Overflow with no backdrop leaves its added pixels transparent. `Shift+B`
   toggles the current shadow directly, and undo/delete can contract grown strips.
@@ -58,6 +61,8 @@ preview keeps it on screen.
   saved image, including when zoomed or fitted to a smaller window.
 - Dragging an arrow head, tail, or bend, or a line endpoint, hides the cursor
   and drag handles for precise placement. They return on release or cancellation.
+- A subtle dotted image boundary stays visible with every tool. Select mode
+  brightens it and shows crop handles when no annotation is selected.
 - Cut tool: drag across a band of the image to remove it and collapse the gap, with a
   live preview and dashed seam marker while dragging; annotations shift to follow.
   Moving or resizing an existing layer suspends the armed tool's action until
@@ -164,7 +169,7 @@ Install the complete build/runtime dependency set:
 ```bash
 sudo pacman -S --needed \
   base-devel cmake ninja pkgconf qt6-base layer-shell-qt \
-  wayland wayland-protocols hyprland wl-clipboard \
+  wayland wayland-protocols hyprland wl-clipboard xdg-utils \
   tesseract tesseract-data-eng
 ```
 
@@ -307,12 +312,15 @@ words after a trailing `--exec`, which the shell runs directly without shell par
 
 ### Recent captures
 
-Every capture finished from the editor (copied, saved, or both) keeps its working
-document, source plus operation log, on a shelf of the five most recent under
+Every completed capture keeps its working document, source plus operation log,
+on a shelf of the five most recent under
 `~/.local/state/omasnap/recent/` (`OMASNAP_RECENT_DIR` overrides). The select
 overlay shows them as a small stack of cards on the right; hovering fans them out
 and clicking one reopens that capture in the editor, undo history intact, in place
-of a new screenshot. Finishing a reopened capture replaces its shelf entry.
+of a new screenshot. No annotation, Copy, Save, or pin action is required: the
+shot remains available after its floating preview expires or closes. Dismissing
+the editor with `Esc` also remembers its current edits. Editing the same shot
+updates its existing entry; cancelling before selecting a capture adds nothing.
 
 ### Theme
 
@@ -398,6 +406,11 @@ Install the corresponding Tesseract language data before adding a language to
 `tha+eng`), then to `eng`.
 
 ## Controls
+
+The capture picker and fullscreen annotator show a readable shortcuts card in
+the lower left. Press `?` or click its **Shortcuts** header to collapse or expand
+it. The card scrolls on shorter screens; `?` still types normally in a text
+annotation. The windowed editor keeps its guide above the toolbar.
 
 ### Capture selection
 
@@ -529,7 +542,8 @@ processes.
 Hover the pin to reveal its controls and use its keyboard shortcuts; the cursor
 becomes a pointing hand over each button. **Edit** and **Copy** sit in the center
 of the image, with text labels and no tooltips. The pin button sits beside **×**
-at the top-right; the drag handle and file-path button sit at the top-left.
+at the top-right; the drag handle, file-path button, and folder button sit at
+the top-left.
 Icon buttons use compact, dark tooltips for their actions and shortcuts.
 Pins follow normal mouse focus while hovered and keep focus with the current
 app when first created.
@@ -550,16 +564,21 @@ Automatic expiry compacts the stack without transferring keyboard focus.
 | Drag the image background, `Super`+left-drag | Move the preview and keep it on screen, including when reordering the stack |
 | Edit button, `A` / `E` while hovered | Annotate the capture while keeping the same pin |
 | Link button, `L` / `F` while hovered | Save the capture if needed and copy its file path |
+| Folder button, `R` while hovered | Save the capture if needed and show it in the default file browser |
 | Copy button, `C` while hovered, `Ctrl+C` | Copy the full-resolution PNG |
 | Top-left six-dot drag handle | Drag the PNG into a file-capable drop target |
 | Wheel | Keep the fixed preview size |
 | Close button, `X` / `Super+W` while focused, `Esc`, middle-click | Close and focus the next pin |
 
 Image and path copying use `wl-copy` rather than `QClipboard`, so clipboard data remains
-available after the pin is closed. Copying a temporary capture's path first saves
-its PNG in the configured screenshots directory. Repeated copies reuse that file;
+available after the pin is closed. Copying a temporary capture's path or showing
+it in its folder first saves its PNG in the configured screenshots directory.
+Both actions reuse that file;
 closing or expiring the preview leaves the saved copy available. A pin opened from
 an existing file copies that file's original path.
+The folder button follows the default `inode/directory` application. It asks
+that application to select the screenshot through `FileManager1.ShowItems` when
+supported, otherwise opens the containing folder with `xdg-open`.
 
 Hyprland placement uses runtime dispatches and
 requires no user window rules. The controls use the annotation toolbar’s vector
@@ -599,7 +618,8 @@ OMASNAP_PROFILE_STARTUP=1 ./build/omasnap 2>startup.log
 ```
 
 The trace also breaks native capture into Wayland registry, buffer allocation, frame wait,
-and pixel handoff stages. It is completely silent by default.
+and pixel handoff stages, and marks output readiness separately from subsequent
+recent-history persistence. It is completely silent by default.
 
 `.github/workflows/build-linux.yml` runs the same `make check` build, interaction smoke,
 and available static-analysis checks in an Arch Linux container, stages the CMake installation, and uploads a versioned Linux

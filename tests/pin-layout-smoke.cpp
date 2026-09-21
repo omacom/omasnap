@@ -100,13 +100,13 @@ bool runPinLayoutSmoke(QString &error) {
   for (const int height : {50, 75, 76, 113, 356, 400}) {
     const QSize frame(200, height);
     const QRectF bounds{QPointF(), QSizeF(frame)};
-    for (int control = 0; control < 6; ++control) {
+    for (int control = 0; control < 7; ++control) {
       const QRectF rect = pinControlRect(frame, control);
       if (rect.isEmpty() || !bounds.contains(rect)) {
         error = QStringLiteral("A pin control fell outside the preview");
         return false;
       }
-      for (int other = control + 1; other < 6; ++other) {
+      for (int other = control + 1; other < 7; ++other) {
         if (rect.intersects(pinControlRect(frame, other))) {
           error = QStringLiteral("Pin controls overlap on a short preview");
           return false;
@@ -117,31 +117,34 @@ bool runPinLayoutSmoke(QString &error) {
     const QRectF copy = pinControlRect(frame, 1);
     const QRectF pin = pinControlRect(frame, 5);
     const QRectF close = pinControlRect(frame, 0);
+    const QRectF path = pinControlRect(frame, 2);
+    const QRectF folder = pinControlRect(frame, 6);
     if (edit.right() >= copy.left() ||
         edit.united(copy).center().x() != frame.width() / 2.0 ||
         (height >= 113 && edit.center().y() != height / 2.0) ||
-        pin.right() >= close.left() || pin.top() != close.top()) {
-      error = QStringLiteral("Pin actions are not centered or pin is not beside close");
+        pin.right() >= close.left() || pin.top() != close.top() ||
+        path.right() >= folder.left() || path.top() != folder.top()) {
+      error = QStringLiteral("Pin controls lost their centered actions or paired icons");
       return false;
     }
   }
   if (!pinControlRect(preview, -1).isEmpty() ||
-      !pinControlRect(preview, 6).isEmpty()) {
+      !pinControlRect(preview, 7).isEmpty()) {
     error = QStringLiteral("An unknown pin control has a click target");
     return false;
   }
 
   // Edit and Copy explain themselves with labels; only icons need hover tips.
   QSet<QString> tips;
-  for (const int control : {0, 2, 4, 5}) {
+  for (const int control : {0, 2, 4, 5, 6}) {
     if (pinControlTip(control).isEmpty()) {
       error = QStringLiteral("A pin control has no tooltip");
       return false;
     }
     tips.insert(pinControlTip(control));
   }
-  if (tips.size() != 4 || !pinControlTip(1).isEmpty() ||
-      !pinControlTip(3).isEmpty() || !pinControlTip(6).isEmpty() ||
+  if (tips.size() != 5 || !pinControlTip(1).isEmpty() ||
+      !pinControlTip(3).isEmpty() || !pinControlTip(7).isEmpty() ||
       !pinControlTip(-1).isEmpty() || pinControlTip(5, true) == pinControlTip(5, false)) {
     error = QStringLiteral("Pin control tooltips repeat or overflow");
     return false;

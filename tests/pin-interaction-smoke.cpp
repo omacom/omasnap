@@ -66,7 +66,165 @@ bool runPinThemeRenderingSmoke(const QString &path, QString &error) {
   return true;
 }
 
+namespace {
+bool runPinRevealSmoke(QString &error) {
+  QTemporaryDir files;
+  if (!files.isValid())
+    return false;
+  const QByteArray oldPath = qgetenv("PATH");
+  const QByteArray oldRuntime = qgetenv("XDG_RUNTIME_DIR");
+  const QByteArray oldScreenshots = qgetenv("OMASNAP_SCREENSHOT_DIR");
+  const auto restore = qScopeGuard([&] {
+    pinPool().waitForDone();
+    QThreadPool::globalInstance()->waitForDone();
+    for (const auto &variable : {qMakePair("PATH", oldPath),
+                                 qMakePair("XDG_RUNTIME_DIR", oldRuntime),
+                                 qMakePair("OMASNAP_SCREENSHOT_DIR", oldScreenshots)}) {
+      if (variable.second.isNull())
+        qunsetenv(variable.first);
+      else
+        qputenv(variable.first, variable.second);
+    }
+  });
+  const auto write = [&](const QString &name, const QByteArray &contents,
+                          bool executable = false) {
+    QFile file(files.filePath(name));
+    return file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+           file.write(contents) == contents.size() &&
+           (!executable || file.setPermissions(QFileDevice::ReadOwner |
+                              QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+  };
+  const auto read = [&](const QString &name) {
+    QFile file(files.filePath(name));
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+  };
+  if (!write(QStringLiteral("xdg-mime"),
+             "#!/bin/sh\n/bin/cat \"${0%/*}/default-app\"\n", true) ||
+      !write(QStringLiteral("busctl"),
+             "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${0%/*}/bus-args\"\n"
+             "test -f \"${0%/*}/bus-ok\"\n", true) ||
+      !write(QStringLiteral("xdg-open"),
+             "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${0%/*}/open-args\"\n", true) ||
+      !write(QStringLiteral("wl-copy"),
+             "#!/bin/sh\n/bin/cat > \"${0%/*}/clipboard\"\n", true) ||
+      !write(QStringLiteral("wl-paste"),
+             "#!/bin/sh\n/bin/cat \"${0%/*}/clipboard\"\n", true) ||
+      !write(QStringLiteral("hyprctl"), "#!/bin/sh\nexit 1\n", true) ||
+      !write(QStringLiteral("default-app"), "org.example.ChosenBrowser.desktop\n") ||
+      !write(QStringLiteral("bus-ok"), "")) {
+    error = QStringLiteral("Could not isolate the reveal commands");
+    return false;
+  }
+  qputenv("PATH", files.path().toUtf8());
+  qputenv("XDG_RUNTIME_DIR", files.path().toUtf8());
+  const QString screenshots = files.filePath(QStringLiteral("shots # ' ü"));
+  qputenv("OMASNAP_SCREENSHOT_DIR", screenshots.toUtf8());
+  const auto drain = [] {
+    for (int pass = 0; pass < 3; ++pass) {
+      pinPool().waitForDone();
+      QThreadPool::globalInstance()->waitForDone();
+      QCoreApplication::sendPostedEvents();
+    }
+  };
+  QImage image(200, 113, QImage::Format_RGB32);
+  image.fill(Qt::cyan);
+  const QString source = pinnedSnapshotPath(1);
+  if (!image.save(source))
+    return false;
+  QString saved;
+  {
+    PinWindow pin(image, source, image.size(), PinLifetime::Timed);
+    pin.show();
+    const QPoint folder = pinControlRect(pin.size(), 6).center().toPoint();
+    QEnterEvent enter(folder, folder, pin.mapToGlobal(folder));
+    QApplication::sendEvent(&pin, &enter);
+    QTest::mouseClick(&pin, Qt::LeftButton, Qt::NoModifier, folder);
+    drain();
+    const QStringList exports = QDir(screenshots).entryList({QStringLiteral("*.png")}, QDir::Files);
+    if (exports.size() != 1) {
+      error = QStringLiteral("Revealing a temporary preview did not save one PNG");
+      return false;
+    }
+    saved = QDir(screenshots).filePath(exports.constFirst());
+    const QString uri = QUrl::fromLocalFile(saved).toString(QUrl::FullyEncoded);
+    const QByteArray expected = QStringList{
+        QStringLiteral("--user"), QStringLiteral("--timeout=3s"), QStringLiteral("--"),
+        QStringLiteral("call"), QStringLiteral("org.example.ChosenBrowser"),
+        QStringLiteral("/org/freedesktop/FileManager1"),
+        QStringLiteral("org.freedesktop.FileManager1"), QStringLiteral("ShowItems"),
+        QStringLiteral("ass"), QStringLiteral("1"), uri, QString(), QString()
+    }.join(QLatin1Char('\n')).toUtf8();
+    if (read(QStringLiteral("bus-args")) != expected ||
+        QFileInfo::exists(files.filePath(QStringLiteral("open-args"))) ||
+        QImage(saved).convertToFormat(image.format()) != image) {
+      error = QStringLiteral("Reveal used the wrong browser, URI, or screenshot pixels");
+      return false;
+    }
+    // A second reveal and Copy path share the saved file, without duplicates.
+    QTest::keyClick(&pin, Qt::Key_R);
+    drain();
+    QTest::keyClick(&pin, Qt::Key_L);
+    drain();
+    if (read(QStringLiteral("clipboard")) != saved.toUtf8() ||
+        QDir(screenshots).entryList({QStringLiteral("*.png")}, QDir::Files) != exports) {
+      error = QStringLiteral("Reveal and Copy path did not reuse the same saved capture");
+      return false;
+    }
+    pin.close();
+    drain();
+  }
+  if (QFileInfo::exists(source) || !QFileInfo::exists(saved)) {
+    error = QStringLiteral("Closing the preview removed its revealed file");
+    return false;
+  }
+  // A changed default is queried afresh. Unsupported ShowItems opens the
+  // folder via xdg-open, never an unrelated generic FileManager1 provider.
+  if (!write(QStringLiteral("default-app"), "org.example.OtherBrowser.desktop\n") ||
+      !QFile::remove(files.filePath(QStringLiteral("bus-ok"))) ||
+      !revealFileInFolder(saved, error) ||
+      !QTest::qWaitFor([&] { return !read(QStringLiteral("open-args")).isEmpty(); }, 2000) ||
+      !read(QStringLiteral("bus-args")).contains("\norg.example.OtherBrowser\n") ||
+      read(QStringLiteral("open-args")) !=
+          (QUrl::fromLocalFile(screenshots).toString(QUrl::FullyEncoded) + QLatin1Char('\n')).toUtf8()) {
+    error = QStringLiteral("Reveal did not honor a changed default or open its containing folder");
+    return false;
+  }
+  if (sharedPinPath(saved, {}, error) != saved ||
+      sharedPinPath(source, saved, error) != saved) {
+    error = QStringLiteral("An existing file or retained export was copied unnecessarily");
+    return false;
+  }
+  // Returned edits use their rendered preview, with a fresh saved copy.
+  const QString edited = pinnedSnapshotPath(2) + QStringLiteral(".preview.png");
+  image.fill(Qt::magenta);
+  if (!image.save(edited))
+    return false;
+  const QString editedCopy = sharedPinPath(edited, {}, error);
+  if (editedCopy.isEmpty() || editedCopy == saved ||
+      QImage(editedCopy).convertToFormat(image.format()) != image) {
+    error = QStringLiteral("Revealing returned edits lost the rendered image");
+    return false;
+  }
+  if (!QFile::remove(files.filePath(QStringLiteral("xdg-open"))))
+    return false;
+  QString launchError;
+  if (revealFileInFolder(saved, launchError) || launchError.isEmpty()) {
+    error = QStringLiteral("A missing file browser launcher did not report failure");
+    return false;
+  }
+  QString missingError;
+  if (!sharedPinPath(files.filePath(QStringLiteral("missing.png")), {}, missingError).isEmpty() ||
+      missingError.isEmpty()) {
+    error = QStringLiteral("A missing screenshot produced a shareable path");
+    return false;
+  }
+  return true;
+}
+} // namespace
+
 bool runPinInteractionSmoke(QString &error) {
+  if (!runPinRevealSmoke(error))
+    return false;
   QTemporaryDir runtime;
   if (!runtime.isValid()) {
     error = QStringLiteral("Could not create the pin interaction fixture");
@@ -146,13 +304,13 @@ bool runPinInteractionSmoke(QString &error) {
   QApplication::sendEvent(&window, &wheel);
   if (!expectTimed(QStringLiteral("Scrolling")))
     return false;
-  for (const int control : {1, 2, 3, 4}) {
+  for (const int control : {1, 2, 3, 4, 6}) {
     QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier,
                        pinControlRect(window.size(), control).center().toPoint());
     if (!expectTimed(QStringLiteral("Using control %1").arg(control)))
       return false;
   }
-  for (const Qt::Key key : {Qt::Key_C, Qt::Key_L, Qt::Key_E}) {
+  for (const Qt::Key key : {Qt::Key_C, Qt::Key_L, Qt::Key_E, Qt::Key_R}) {
     QApplication::sendEvent(&window, &enter);
     QTest::keyClick(&window, key);
     if (!expectTimed(QStringLiteral("Using shortcut %1").arg(static_cast<int>(key))))

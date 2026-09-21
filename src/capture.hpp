@@ -145,6 +145,8 @@ struct OperationLog {
   /// coordinates live in that space, so a source captured on a scaled
   /// monitor reopens at the same scale. Invalid when unknown.
   QSize previewSize;
+  /// Identity shared by a capture's recent entry, preview, and editor handoffs.
+  QString recentId = {};
 
   bool operator==(const OperationLog &) const = default;
 };
@@ -197,6 +199,20 @@ inline constexpr qreal kMinimumTextWrapWidth = 48.0;
                                               qreal canvasWidth = 0.0);
 [[nodiscard]] QRectF annotationTextBounds(const Annotation &annotation,
                                           qreal canvasWidth = 0.0);
+/** Whether a spotlight has an opening inside `bounds`. The first one that
+ *  does dims everything else there, so it changes far more than its own
+ *  rectangle. */
+[[nodiscard]] bool spotlightOpens(const Annotation &annotation,
+                                  const QRectF &bounds);
+/** Width of the pen a layer's outline is stroked with; 0 when it has none. */
+[[nodiscard]] qreal annotationPenWidth(const Annotation &annotation);
+/**
+ * Extent of everything a layer paints, in annotation space, antialiasing
+ * included. Canvas growth and the editor's repaint damage both read it, so a
+ * layer can never paint outside what either of them allows for. Empty for a
+ * redaction, which only ever replaces source pixels.
+ */
+[[nodiscard]] QRectF annotationPaintedBounds(const Annotation &annotation);
 /**
  * Pixel-aligned annotation space selected by `boundaryMode`. Grow contains
  * every painted extent, Frame stops at the normal backdrop frame, and Image
@@ -266,6 +282,10 @@ void describeFileCapture(CaptureData &capture, QImage image,
                                    CanvasBoundaryMode boundaryMode =
                                        CanvasBoundaryMode::Framed,
                                    const QImage &customBackdrop = {});
+/** Logical size of a flattened render, including backdrop and canvas growth,
+ *  using the same pixel scale as renderCapture. */
+[[nodiscard]] QSize renderedCaptureLogicalSize(const CaptureData &capture,
+                                                const QSize &renderedSize);
 /** Lowercase serialization name ("aurora", "custom", ...) for a backdrop
  *  style, used in the operation log and the `[background] default` config
  *  key. */
@@ -280,7 +300,7 @@ void describeFileCapture(CaptureData &capture, QImage image,
 [[nodiscard]] bool copyPngFileToClipboard(const QString &path, QString &error);
 [[nodiscard]] bool copyImageToClipboard(const QImage &image, QString &error);
 [[nodiscard]] bool quickOutput(const QImage &image, QuickOutputMode mode,
-                               QString &error);
+                               QString &error, const QSize &logicalSize = {});
 [[nodiscard]] bool copyTextToClipboard(const QString &text, QString &error);
 /** Paints one annotation. `arrowDisplayScale` affects only the on-screen tail
  *  legibility floor for Standard/Pointy arrows; exports use the default 1.0. */
@@ -298,18 +318,34 @@ void paintAnnotation(QPainter &painter, const Annotation &annotation,
                                       const QPointF &point,
                                       qreal tolerance = 0.0);
 [[nodiscard]] QPainterPath spotlightPath(const Annotation &annotation);
+/**
+ * Pixels of a composed canvas that the spotlights among `annotations`
+ * magnify, when all of that canvas (`sourceRect`) maps onto `targetBounds`.
+ * Lenses read a fraction of their own area, so a caller that composes the
+ * canvas on every paint needs only this much of it. Null when none opens.
+ */
+[[nodiscard]] QRectF spotlightSampleBounds(const QVector<Annotation> &annotations,
+                                           const QRectF &targetBounds,
+                                           const QRectF &sourceRect);
+/** `sourceRect` is the whole composed canvas in source pixels. `source` holds
+ *  all of it, or only the part that starts at `sourceOrigin` within it. */
 void paintSpotlights(QPainter &painter, const QImage &source,
                      const QRectF &targetBounds, const QRectF &sourceRect,
-                     const QVector<Annotation> &annotations);
+                     const QVector<Annotation> &annotations,
+                     const QPoint &sourceOrigin = {});
 /**
  * Paints the default annotation layer (spotlights, then vectors) in selection
  * space. Spotlights sample `redacted`, which must already include the
- * redaction layer so a loupe cannot magnify source pixels.
+ * redaction layer so a loupe cannot magnify source pixels. A null
+ * `sourceRect` means `redacted` is the whole canvas; otherwise the two follow
+ * paintSpotlights().
  */
 void paintDefaultLayer(QPainter &painter, const QImage &redacted,
                        const QRectF &logicalBounds,
                        const QVector<Annotation> &annotations,
-                       qreal arrowDisplayScale = 1.0);
+                       qreal arrowDisplayScale = 1.0,
+                       const QRectF &sourceRect = {},
+                       const QPoint &sourceOrigin = {});
 // Logical image-frame dimensions, shared by the editor and native-pixel export.
 inline constexpr qreal kBackdropMargin = 64.0;
 inline constexpr qreal kCaptureImageRadius = 14.0;
@@ -400,14 +436,16 @@ bool removeEditorHandoff(const QString &path, const QString &token);
 /** Saves a pinned snapshot plus a sidecar log recording the logical size,
  *  so editing the pin later reopens at the captured scale. */
 [[nodiscard]] bool savePinnedSnapshot(const QImage &image, const QString &path,
-                                      const QSize &logicalSize, QString &error);
+                                      const QSize &logicalSize, QString &error,
+                                      const QString &recentId = {});
 /** Saves and launches a private pin, optionally copying the same PNG first.
  *  Call on a worker: encoding, clipboard verification and process launch block.
  *  Returns the owned snapshot path, or removes it on failure. */
 [[nodiscard]] QString launchPinnedCapture(
     const QImage &image, const QSize &logicalSize, bool copy,
     PinLifetime lifetime, QString &error,
-    const std::function<bool(const QString &, const QStringList &)> &launcher = {});
+    const std::function<bool(const QString &, const QStringList &)> &launcher = {},
+    const QString &recentId = {});
 [[nodiscard]] bool saveTemporarySnapshot(const QImage &image, QString path,
                                          QString &error, int quality = -1);
 [[nodiscard]] QString recognizeText(const QImage &image, QString &error);

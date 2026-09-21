@@ -28,12 +28,27 @@ reading its corresponding worker:
 |---|---|
 | `captureWatcher_` | Reads window/monitor pixels via `captureMonitorPixels` |
 | `ocrWatcher_` | Renders the OCR crop and runs `tesseract` |
-| `finishWatcher_` | Renders the export, encodes PNG, does the clipboard round trip, moves the file |
+| `finishWatcher_` | Renders/encodes the export, copies/saves/launches the preview, then records the recent document |
 | `snapshotWatcher_` | Writes the crash-recovery working snapshot + operation log |
-| `pinWatcher_` | Renders the image for a pinned compositor window |
+| `pinWatcher_` | Renders and launches a pinned compositor window, then records the capture |
 | `recentsWatcher_` | Lists and decodes thumbnails for the recents shelf |
 | `backdropWatcher_` | Decodes an optional user-supplied backdrop image |
 | `highlighterProbeWatcher_` | Detects a nearby screenshot text row for highlighter Snap mode |
+
+Editor dismissal also uses a worker, tracked by `dismissFuture_`, to return edits
+to an originating pin and retain the recent document. Output workers publish
+their result through `QPromise` as soon as output is ready: `resultReadyAt` closes
+the overlay before full-monitor history compression. The worker continues saving
+the pristine source/log/thumbnail, and editor destruction drains it after the
+window has closed. `main()` releases the instance lock first, so a rapid second
+capture cannot terminate the pending save or be mistaken for cancelling an overlay.
+
+A per-capture reservation is acquired before launching/updating the preview.
+Immediate Edit and shelf-loading workers wait for it to finish, preserving the
+original layers even while history is being encoded. Different captures encode
+independently; only thumbnail publication and pruning use the shared shelf lock.
+The thumbnail is published last, after its source and log are complete. No
+full-resolution file is moved or PNG-encoded in the completion signal handler.
 
 `src/scroll-capture.cpp` follows the same rule with a plain `QFuture<void>`:
 the capture loop (grab → crop → classify → accumulate) runs on a worker
@@ -83,6 +98,27 @@ through `highlighterProbeWatcher_`, and mouse-down uses the latest completed
 probe rather than scanning in the input handler. Reintroducing a bare
 `update()` in `mouseMoveEvent`, or image analysis from `updatePointerCursor()`,
 turns that bounded path back into a full-display stall.
+
+The other half of that bargain is that damage must cover every pixel
+`paintEdit()` would draw differently, or the backing store keeps a stale patch
+beside fresh ones: a torn outline, a block of backdrop behind a carried layer.
+So damage is derived from what paints rather than modelled beside it.
+`pointerMotionRegion()` reads the same `liveLayers()` that `paintEdit()` draws,
+takes ink extents from `annotationPaintedBounds()` (the bounds that grow the
+canvas), adds the selection chrome around a carried layer, and
+`liveCanvasDamage()` repaints the mat when carrying a layer grows or shrinks
+the canvas being previewed (only the strips that differ for a flat mat, all of
+it for a gradient laid out afresh), or the whole canvas when a spotlight's
+dimming covers it or switches on: that happens on a pointer move, with the
+first pixel of a lens being dragged out, not on the press.
+`QWidget::grab()` repaints everything and so can never see a missed pixel; the
+smoke suite compares it against the backing store in the middle of a drag.
+
+Bounded damage only helps if painting is bounded too. A spotlight magnifies
+the composed canvas (mat, shadow, redacted image), and composing all of that at
+display resolution cost tens of milliseconds on every paint however small the
+damage. `paintEdit()` composes just the patch `spotlightSampleBounds()` says
+the lenses read, which is a fraction of their own area.
 
 ## The one documented exception
 
@@ -155,7 +191,8 @@ it never waits for `hyprctl` during a drag. A runtime lock serializes placement
 across pin processes, with short-lived target reservations covering compositor
 animation latency. The initial monitor query uses the same worker pool; a fallback frame maps
 immediately and adopts the display-shaped size when the query finishes.
-Clipboard actions, saved copies for path sharing, editor launches, and drag
+Clipboard actions, saved copies for path sharing or revealing in a file browser,
+default-browser discovery and launch, editor launches, and drag
 payload preparation also run on workers. Final drag placement reports completion
 and retries a failed move;
 after repeated failures, the remaining stack closes the insertion gap.

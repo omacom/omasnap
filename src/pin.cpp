@@ -92,12 +92,12 @@ QThreadPool &pinPool() {
 }
 
 QString runForOutput(const QString &program, const QStringList &arguments,
-                     bool *ok = nullptr) {
+                     bool *ok = nullptr, int timeoutMs = 500) {
   if (ok)
     *ok = false;
   QProcess process;
   process.start(program, arguments);
-  if (!process.waitForFinished(500)) {
+  if (!process.waitForFinished(timeoutMs)) {
     process.kill();
     process.waitForFinished(500);
     return {};
@@ -107,6 +107,59 @@ QString runForOutput(const QString &program, const QStringList &arguments,
   if (ok)
     *ok = true;
   return QString::fromUtf8(process.readAllStandardOutput());
+}
+
+QString sharedPinPath(const QString &path, const QString &shared,
+                      QString &error) {
+  if (!shared.isEmpty() && QFileInfo::exists(shared))
+    return shared;
+  const QFileInfo source(path);
+  if (!source.isFile()) {
+    error = QStringLiteral("Screenshot file is no longer available");
+    return {};
+  }
+  // Runtime previews disappear when closed. Path sharing and revealing use
+  // one durable copy of the current rendered PNG, including returned edits.
+  return source.absolutePath() == secureRuntimeDirectory()
+             ? copySnapshotToScreenshots(path, error) : source.absoluteFilePath();
+}
+
+bool revealFileInFolder(const QString &path, QString &error) {
+  const QFileInfo file(path);
+  if (!file.isFile()) {
+    error = QStringLiteral("Screenshot file is no longer available");
+    return false;
+  }
+  // The generic FileManager1 service can belong to a different application
+  // than the user's folder default. Ask the configured application itself;
+  // D-Bus-activatable desktop IDs name their service without ".desktop".
+  QString application = runForOutput(
+      QStringLiteral("xdg-mime"), {QStringLiteral("query"),
+                                    QStringLiteral("default"),
+                                    QStringLiteral("inode/directory")}).trimmed();
+  if (application.endsWith(QLatin1StringView(".desktop"))) {
+    application.chop(8);
+    bool revealed = false;
+    static_cast<void>(runForOutput(
+        QStringLiteral("busctl"),
+        {QStringLiteral("--user"), QStringLiteral("--timeout=3s"),
+         QStringLiteral("--"), QStringLiteral("call"), application,
+         QStringLiteral("/org/freedesktop/FileManager1"),
+         QStringLiteral("org.freedesktop.FileManager1"), QStringLiteral("ShowItems"),
+         QStringLiteral("ass"), QStringLiteral("1"),
+         QUrl::fromLocalFile(file.absoluteFilePath()).toString(QUrl::FullyEncoded),
+         QString()}, &revealed, 4000));
+    if (revealed)
+      return true;
+  }
+  // File managers without ShowItems still open their containing folder via
+  // the user's association. Detach: the chosen browser may stay in this process.
+  if (QProcess::startDetached(
+          QStringLiteral("xdg-open"),
+          {QUrl::fromLocalFile(file.absolutePath()).toString(QUrl::FullyEncoded)}))
+    return true;
+  error = QStringLiteral("Could not open the file browser");
+  return false;
 }
 
 bool hyprDispatch(const QString &expression) {
@@ -815,6 +868,7 @@ protected:
                        QStringLiteral("Edit"));
     drawControlButton(painter, pinButtonRect(), QStringLiteral("pin"));
     drawControlButton(painter, pathButtonRect(), QStringLiteral("path"));
+    drawControlButton(painter, revealButtonRect(), QStringLiteral("folder"));
     drawControlButton(painter, copyButtonRect(), QStringLiteral("copy"),
                        QStringLiteral("Copy"));
     drawControlButton(painter, closeButtonRect(), QStringLiteral("close"));
@@ -880,6 +934,10 @@ protected:
       }
       if (pathButtonRect().contains(position)) {
         copyPath();
+        return;
+      }
+      if (revealButtonRect().contains(position)) {
+        revealFile();
         return;
       }
       if (editButtonRect().contains(position)) {
@@ -1180,7 +1238,7 @@ protected:
       watcher->deleteLater();
       actionPending_ = false;
       updateExpiryPause();
-      // Reuse a successful save even if the following clipboard write failed.
+      // Reuse a successful save even if copying or revealing it failed.
       if (!result.sharedPath.isEmpty())
         sharedPath_ = result.sharedPath;
       if (result.document && !pinDocument_) {
@@ -1206,20 +1264,23 @@ protected:
   }
 
   void copyPath() {
-    runAction([path = path_, shared = sharedPath_]() mutable {
+    runAction([path = path_, shared = sharedPath_] {
       QString error;
-      if (shared.isEmpty() || !QFileInfo::exists(shared)) {
-        // Runtime captures disappear with their previews. Copy the encoded
-        // PNG once so a shared path remains useful after expiry or closing.
-        // An existing file opened with --pin already has its own lifetime.
-        const QFileInfo source(path);
-        shared = source.absolutePath() == secureRuntimeDirectory()
-                     ? copySnapshotToScreenshots(path, error) : source.absoluteFilePath();
-      }
-      if (!shared.isEmpty())
-        static_cast<void>(copyTextToClipboard(shared, error));
-      return ActionResult{error, shared, {}};
+      const QString saved = sharedPinPath(path, shared, error);
+      if (!saved.isEmpty())
+        static_cast<void>(copyTextToClipboard(saved, error));
+      return ActionResult{error, saved, {}};
     }, QStringLiteral("Copied path"));
+  }
+
+  void revealFile() {
+    runAction([path = path_, shared = sharedPath_] {
+      QString error;
+      const QString saved = sharedPinPath(path, shared, error);
+      if (!saved.isEmpty())
+        static_cast<void>(revealFileInFolder(saved, error));
+      return ActionResult{error, saved, {}};
+    }, {});
   }
 
   void reopenInEditor() {
@@ -1365,6 +1426,9 @@ protected:
         case Qt::Key_L:
         case Qt::Key_F:
           copyPath();
+          return;
+        case Qt::Key_R:
+          revealFile();
           return;
         default:
           break;
@@ -1543,12 +1607,14 @@ private:
 
   [[nodiscard]] QRectF pinButtonRect() const { return controlRect(5); }
 
+  [[nodiscard]] QRectF revealButtonRect() const { return controlRect(6); }
+
   [[nodiscard]] QRectF controlRect(int index) const {
     return pinControlRect(size(), index);
   }
 
   [[nodiscard]] int controlRectAt(const QPointF &position) const {
-    for (int index = 0; index < 6; ++index) {
+    for (int index = 0; index < 7; ++index) {
       if (controlRect(index).contains(position))
         return index;
     }
