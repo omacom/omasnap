@@ -32,6 +32,12 @@ flatten or repaint the full capture. **Nothing is baked into the working
 image as you draw.** Add a rectangle, change your mind, delete it — the
 source pixels underneath were never touched.
 
+Freeform regions capture on mouse release. A region drawn with a fixed aspect
+ratio stays in the picker until Enter confirms it. Moving and resizing this
+box are tentative capture adjustments; Escape restores an in-progress adjustment
+or clears the pending region. Confirmation creates the initial crop, then
+follows the normal output or annotation path.
+
 Completing a fresh capture copies it and shows a timed preview by default. The
 preview fades after 10 seconds of idle time; its pin button, Ctrl+P, or moving the
 preview keeps it, including a drag that only reorders the stack.

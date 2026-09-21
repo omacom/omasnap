@@ -530,6 +530,231 @@ bool runMeasurementReadoutCheck(QString &error) {
 }
 
 /** Smart selection infers a click target but keeps a real drag freeform. */
+bool runRegionAdjustmentSmoke(QApplication &application, QString &error) {
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("ADJUST-TEST");
+  capture.monitor.geometry = QRect(0, 0, 800, 600);
+  capture.monitor.pixelSize = QSize(800, 600);
+  capture.monitor.scale = 1.0;
+  capture.previewSize = QSize(800, 600);
+  capture.source = QImage(capture.previewSize, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(Qt::darkGray);
+  for (const auto mode : {CaptureEditor::CaptureMode::Smart,
+                          CaptureEditor::CaptureMode::Region}) {
+    for (const int ratioIndex : {1, 2}) {
+      CaptureEditor editor(capture, mode);
+      prepareSelectEditor(editor, capture.previewSize);
+      for (int i = 0; i < ratioIndex; ++i)
+        QTest::keyClick(&editor, Qt::Key_F);
+      const auto drag = [&editor](QPoint from, QPoint to) {
+        QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, from);
+        QTest::mouseMove(&editor, to, 1);
+        QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, to);
+      };
+      drag({300, 100}, {620, 280});
+      const QRectF drawn = editor.currentSelection();
+      if (!editor.selectingForTest() || !editor.operationLog().isEmpty()) {
+        error = QStringLiteral("Region release captured before confirmation");
+        return false;
+      }
+      drag(drawn.center().toPoint(), drawn.center().toPoint() + QPoint(60, 40));
+      if (editor.currentSelection() != drawn.translated(60, 40) ||
+          !editor.selectingForTest()) {
+        error = QStringLiteral("Moving a pending region changed its size or captured it");
+        return false;
+      }
+      const QRectF moved = editor.currentSelection();
+      QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, moved.center().toPoint());
+      QTest::mouseMove(&editor, moved.center().toPoint() + QPoint(-40, 40), 1);
+      QTest::keyClick(&editor, Qt::Key_Escape);
+      QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, moved.center().toPoint());
+      if (editor.currentSelection() != moved || !editor.selectingForTest()) {
+        error = QStringLiteral("Esc did not undo an in-progress region move");
+        return false;
+      }
+      drag(moved.bottomRight().toPoint(), moved.bottomRight().toPoint() + QPoint(60, 40));
+      const QRectF resized = editor.currentSelection();
+      if (resized.topLeft() != moved.topLeft() || resized.width() <= moved.width() ||
+          std::abs(resized.width() / resized.height() -
+                   (ratioIndex == 1 ? 1.0 : 16.0 / 9.0)) > 0.001) {
+        error = QStringLiteral("Region handle lost its anchor or locked aspect ratio");
+        return false;
+      }
+      drag(resized.center().toPoint(), {790, 10});
+      const QRectF final = editor.currentSelection();
+      if (final.size() != resized.size() || final.right() > 800 || final.top() < 0) {
+        error = QStringLiteral("Region move was not clamped to the monitor");
+        return false;
+      }
+      QTest::keyClick(&editor, Qt::Key_Return);
+      application.processEvents();
+      if (!editor.editingForTest() || editor.currentSelection() != final) {
+        error = QStringLiteral("Enter did not capture the adjusted region");
+        return false;
+      }
+      editor.close();
+    }
+  }
+  // Free draws finish on release, including when reset from a fixed ratio
+  // during the drag. No synthetic Enter is sent by these tests.
+  for (const auto mode : {CaptureEditor::CaptureMode::Smart,
+                          CaptureEditor::CaptureMode::Region}) {
+    for (const bool resetDuringDrag : {false, true}) {
+      CaptureEditor editor(capture, mode);
+      prepareSelectEditor(editor, capture.previewSize);
+      if (resetDuringDrag)
+        QTest::keyClick(&editor, Qt::Key_F);
+      QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, {300, 100});
+      QTest::mouseMove(&editor, {620, 280}, 1);
+      if (resetDuringDrag)
+        QTest::keyClick(&editor, Qt::Key_F, Qt::ControlModifier);
+      QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, {620, 280});
+      if (!editor.editingForTest() || editor.currentSelection() != QRectF(300, 100, 320, 180)) {
+        error = QStringLiteral("Free region required confirmation after release");
+        return false;
+      }
+      editor.close();
+    }
+  }
+  CaptureEditor quick(capture, CaptureEditor::CaptureMode::Smart,
+                      QuickOutputMode::CopyAndPreview);
+  prepareSelectEditor(quick, capture.previewSize);
+  QTest::keyClick(&quick, Qt::Key_F);
+  QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, {300, 100});
+  QTest::mouseMove(&quick, {620, 280}, 1);
+  QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, {620, 280});
+  application.processEvents();
+  if (!quick.selectingForTest() || !quick.isVisible()) {
+    error = QStringLiteral("Quick output ran before region confirmation");
+    return false;
+  }
+  QTest::keyClick(&quick, Qt::Key_Escape);
+  if (!quick.selectingForTest() || !quick.currentSelection().isEmpty()) {
+    error = QStringLiteral("Esc did not cancel the pending region");
+    return false;
+  }
+  quick.close();
+  return true;
+}
+
+bool runCaptureAspectRatioSmoke(QApplication &application, QString &error) {
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("ASPECT-TEST");
+  capture.monitor.geometry = QRect(0, 0, 800, 600);
+  capture.monitor.pixelSize = QSize(1600, 1200);
+  capture.monitor.scale = 2.0;
+  capture.source = QImage(1600, 1200, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(Qt::darkGray);
+  capture.previewSize = QSize(800, 600);
+  const std::array<qreal, 9> ratios{
+      1.0, 16.0 / 9.0, 1.6, 4.0 / 3.0, 1.5,
+      9.0 / 16.0, 0.625, 0.75, 2.0 / 3.0};
+  for (const auto mode : {CaptureEditor::CaptureMode::Region,
+                          CaptureEditor::CaptureMode::Smart}) {
+    for (int direction = 0; direction < 4; ++direction) {
+      CaptureEditor editor(capture, mode);
+      editor.setSuppressSnapshots(true);
+      editor.resize(800, 600);
+      editor.show();
+      application.processEvents();
+      const QPoint start(400, 300);
+      const QPoint end(direction & 1 ? 790 : 10, direction & 2 ? 590 : 10);
+      QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, start);
+      QTest::mouseMove(&editor, end);
+      for (const qreal ratio : ratios) {
+        QTest::keyClick(&editor, Qt::Key_F);
+        const int signX = direction & 1 ? 1 : -1;
+        const int signY = direction & 2 ? 1 : -1;
+        const QPoint firstMove = start + QPoint(signX * 160, signY * 120);
+        for (const QPoint &point : {firstMove,
+                                    start + QPoint(signX * 280, signY * 180),
+                                    end}) {
+          QTest::mouseMove(&editor, point);
+          const QRectF rect = editor.currentSelection();
+          const qreal nativeRatio = rect.width() / rect.height();
+          const QPointF anchor(direction & 1 ? rect.left() : rect.right(),
+                                direction & 2 ? rect.top() : rect.bottom());
+          if (std::abs(nativeRatio - ratio) > 0.00001 ||
+              !QRectF(editor.rect()).adjusted(-0.001, -0.001, 0.001, 0.001)
+                   .contains(rect) ||
+              QLineF(anchor, start).length() > 0.00001) {
+            error = QStringLiteral("Capture resizing lost ratio, fixed press point, or bounds");
+            return false;
+          }
+          if (editor.cursor().shape() != Qt::CrossCursor ||
+              !editor.pointerMotionRegionForTest(point).contains(point)) {
+            error = QStringLiteral("Aspect-ratio capture hid the real pointer or lost its badge damage");
+            return false;
+          }
+          // The square fits inside the raw drag instead of extending past
+          // either axis, including as an axis approaches or crosses zero.
+          if (ratio == 1.0 && point == firstMove &&
+              rect.size() != QSizeF(120, 120)) {
+            error = QStringLiteral("Constrained corner extended beyond the raw drag");
+            return false;
+          }
+        }
+        // Cross each anchor axis and reverse over it again without releasing.
+        // Testing separate quadrant drags misses a sign flip at nonzero size.
+        for (const bool horizontal : {false, true}) {
+          for (const int side : {-1, 1}) {
+            QPointF previousCorner;
+            bool havePrevious = false;
+            for (const int offset : {-3, -2, -1, 0, 1, 2, 3, 2, 1, 0, -1, -2, -3}) {
+              const QPoint delta = horizontal ? QPoint(offset, side * 180)
+                                               : QPoint(side * 180, offset);
+              const QPoint point = start + delta;
+              QTest::mouseMove(&editor, point, 1);
+              const QRectF selection = editor.currentSelection();
+              const QPointF corner(delta.x() < 0 ? selection.left() : selection.right(),
+                                    delta.y() < 0 ? selection.top() : selection.bottom());
+              const QPointF anchor(delta.x() < 0 ? selection.right() : selection.left(),
+                                    delta.y() < 0 ? selection.bottom() : selection.top());
+              const qreal maxCornerStep = std::hypot(ratio, 1.0) *
+                                          std::max(1.0, 1.0 / ratio);
+              if (QLineF(anchor, start).length() > 0.00001 ||
+                  std::abs(selection.width() - selection.height() * ratio) > 0.00001 ||
+                  (offset == 0 && (selection.size() != QSizeF(0, 0) || corner != start)) ||
+                  (havePrevious && QLineF(previousCorner, corner).length() >
+                                       maxCornerStep + 0.00001)) {
+                error = QStringLiteral("Constrained drag jumped when reversing across an anchor axis");
+                return false;
+              }
+              previousCorner = corner;
+              havePrevious = true;
+            }
+          }
+        }
+        QTest::mouseMove(&editor, end, 1);
+      }
+      QTest::keyClick(&editor, Qt::Key_F);
+      if (editor.currentSelection() != QRectF(start, end).normalized()) {
+        error = QStringLiteral("Cycling capture aspect did not restore free drawing");
+        return false;
+      }
+      QTest::keyClick(&editor, Qt::Key_F, Qt::ShiftModifier);
+      QTest::keyClick(&editor, Qt::Key_F, Qt::ControlModifier);
+      if (editor.currentSelection() != QRectF(start, end).normalized() ||
+          editor.cursor().shape() != Qt::CrossCursor) {
+        error = QStringLiteral("Ctrl+F did not immediately restore free drawing and cursor");
+        return false;
+      }
+      QTest::keyClick(&editor, Qt::Key_F);
+      const QRectF beforeRelease = editor.currentSelection();
+      QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, end);
+      QTest::keyClick(&editor, Qt::Key_Return);
+      application.processEvents();
+      if (!editor.editingForTest() || editor.currentSelection() != beforeRelease ||
+          editor.cursor().shape() == Qt::BlankCursor) {
+        error = QStringLiteral("Capture release did not preserve the region and restore the cursor");
+        return false;
+      }
+      editor.close();
+    }
+  }
+  return true;
+}
+
 bool runSmartSelectionSmoke(QApplication &application, QString &error) {
   CaptureData capture;
   capture.monitor.name = QStringLiteral("TEST");
@@ -12116,6 +12341,14 @@ int main(int argc, char **argv) {
   if (!runMeasurementReadoutCheck(snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 95;
+  }
+  if (!runRegionAdjustmentSmoke(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 217;
+  }
+  if (!runCaptureAspectRatioSmoke(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 216;
   }
   if (!runSmartSelectionSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;

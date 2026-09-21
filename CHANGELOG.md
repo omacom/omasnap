@@ -7,6 +7,12 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Added
 
+- Capture regions in common square, landscape, and portrait aspect ratios.
+  Cycle with `F` / `Shift+F` and reset to Free with `Ctrl+F`. Fixed-ratio
+  regions can be moved and resized before Enter confirms the capture;
+  freeform regions still capture on release. Restored regions can also be
+  adjusted before capture.
+
 - A folder button beside each preview or pin's link-copy button, plus `R` while
   hovered, to save the shot if needed and reveal it in the default file browser.
 - A readable shortcuts card above the capture/editor canvas. Press `?` or click

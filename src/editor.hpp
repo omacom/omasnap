@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <QWidget>
 
+#include <array>
 #include <optional>
 #include <memory>
 
@@ -572,6 +573,11 @@ private:
   /// `kind` records which coordinate space produced it.
   void adoptImage(QImage image, OperationLog log, CaptureMode kind,
                   const QString &status);
+  /// Tentative capture adjustments before committing the selected region.
+  [[nodiscard]] std::array<QPointF, 4> selectionCorners() const;
+  [[nodiscard]] int selectionHandleAt(const QPointF &point) const;
+  void adjustPendingSelection(const QPointF &point);
+  void confirmRegionSelection();
   /// Leaves the select phase with a drawn region: edit it, or scroll it.
   void commitRegion(const QRectF &region, const QString &editStatus);
   /// Whether there is a live screen behind this capture to re-select from
@@ -747,6 +753,10 @@ private:
   qreal recentsFanFrom_ = 0.0;
   QElapsedTimer recentsAnimClock_;
   QTimer recentsAnimTimer_;
+  bool selectionReady_ = false;
+  int selectionDragHandle_ = -1; // -1 draws, -2 moves; 0..3 resize corners.
+  QPointF selectionPress_;
+  int captureAspectIndex_ = 0; // Free by default; applies only to region drawing.
   QRectF selection_;
   // Annotation coordinates stay anchored to the source frame at 0,0. This
   // derived rect expands around them without translating either the source or
@@ -947,6 +957,7 @@ private:
   QColor textColor_;
   QFutureWatcher<OcrResult> ocrWatcher_;
   QFutureWatcher<FinishResult> finishWatcher_;
+  QFuture<void> regionMemoryFuture_;
   QFuture<QString> dismissFuture_;
   QFutureWatcher<ReopenResult> reopenWatcher_;
   QFutureWatcher<QImage> backdropWatcher_;
