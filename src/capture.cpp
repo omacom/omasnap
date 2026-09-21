@@ -2,6 +2,7 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include "capture.hpp"
+#include "output-image.hpp"
 #include "pin-file.hpp"
 #include "recent-snaps.hpp"
 #include "stroke-smoothing.hpp"
@@ -1665,7 +1666,7 @@ bool copyImageToClipboard(const QImage &image, QString &error) {
 }
 
 bool quickOutput(const QImage &image, QuickOutputMode mode, QString &error,
-                 const QSize &logicalSize) {
+                 const QSize &logicalSize, qreal outputScale) {
   if (image.isNull() || mode == QuickOutputMode::None ||
       mode == QuickOutputMode::CopyAndPreview) {
     error = QStringLiteral("Could not prepare screenshot snapshot");
@@ -1673,17 +1674,19 @@ bool quickOutput(const QImage &image, QuickOutputMode mode, QString &error,
   }
   OperationLog log;
   log.previewSize = logicalSize.isEmpty() ? image.size() : logicalSize;
+  log.outputScale = outputScale;
   QString recentError;
   if (!recordRecentSnap(image, log, image, recentError))
     qWarning().noquote() << recentError;
+  const QImage output = prepareOutputImage(image, outputScale);
   if (mode == QuickOutputMode::Copy) {
-    if (!copyImageToClipboard(image, error))
+    if (!copyImageToClipboard(output, error))
       return false;
     sendCaptureNotification(QStringLiteral("Screenshot copied to clipboard"));
     return true;
   }
   const QString path = temporarySnapshotPath();
-  if (path.isEmpty() || !saveTemporarySnapshot(image, path, error))
+  if (path.isEmpty() || !saveTemporarySnapshot(output, path, error))
     return false;
 
   if (mode == QuickOutputMode::Copy || mode == QuickOutputMode::Both) {
@@ -1898,7 +1901,7 @@ QSize editorWindowSize(const QSize &preview, const QSize &available,
 
 bool savePinnedSnapshot(const QImage &image, const QString &path,
                         const QSize &logicalSize, QString &error,
-                        const QString &recentId) {
+                        const QString &recentId, qreal outputScale) {
   if (!saveTemporarySnapshot(image, path, error))
     return false;
   // The snapshot holds device pixels; the sidecar records the logical size
@@ -1907,6 +1910,7 @@ bool savePinnedSnapshot(const QImage &image, const QString &path,
   // image blown up.
   OperationLog sidecar;
   sidecar.previewSize = logicalSize;
+  sidecar.outputScale = outputScale;
   sidecar.recentId = recentId;
   if (!logicalSize.isEmpty() &&
       !saveOperationLog(operationLogPath(path), sidecar, error)) {
@@ -1920,14 +1924,14 @@ QString launchPinnedCapture(
     const QImage &image, const QSize &logicalSize, bool copy,
     PinLifetime lifetime, QString &error,
     const std::function<bool(const QString &, const QStringList &)> &launcher,
-    const QString &recentId) {
+    const QString &recentId, qreal outputScale) {
   prunePinnedSnapshots();
   const QString path = pinnedSnapshotPath(1);
   if (path.isEmpty()) {
     error = QStringLiteral("Could not create private runtime directory");
     return {};
   }
-  if (!savePinnedSnapshot(image, path, logicalSize, error, recentId))
+  if (!savePinnedSnapshot(image, path, logicalSize, error, recentId, outputScale))
     return {};
   const auto cleanup = [&] {
     QFile::remove(path);
@@ -2462,6 +2466,8 @@ bool saveOperationLog(const QString &path, const OperationLog &log,
   root.insert(QStringLiteral("index"), log.index);
   root.insert(QStringLiteral("nextId"), QString::number(log.nextId));
   root.insert(QStringLiteral("nextMarker"), log.nextMarker);
+  if (std::isfinite(log.outputScale) && log.outputScale > 0.0)
+    root.insert(QStringLiteral("outputScale"), log.outputScale);
   if (!log.recentId.isEmpty())
     root.insert(QStringLiteral("recentId"), log.recentId);
   if (log.previewSize.isValid()) {
@@ -2510,6 +2516,9 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error) {
   loaded.index = root.value(QStringLiteral("index")).toInt();
   loaded.nextId = root.value(QStringLiteral("nextId")).toString().toULongLong();
   loaded.nextMarker = root.value(QStringLiteral("nextMarker")).toInt(1);
+  const qreal outputScale = root.value(QStringLiteral("outputScale")).toDouble();
+  if (std::isfinite(outputScale) && outputScale > 0.0)
+    loaded.outputScale = outputScale;
   loaded.recentId = root.value(QStringLiteral("recentId")).toString();
   loaded.previewSize =
       QSize(root.value(QStringLiteral("previewWidth")).toInt(),
@@ -2607,6 +2616,7 @@ void describeFileCapture(CaptureData &capture, QImage image,
   capture = CaptureData();
   capture.previewSize = image.size();
   capture.monitor.scale = 1.0;
+  capture.outputScale = log.outputScale;
   if (log.previewSize.isValid() && !log.previewSize.isEmpty() &&
       log.previewSize.width() <= image.width() &&
       log.previewSize.height() <= image.height()) {

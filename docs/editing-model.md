@@ -44,6 +44,13 @@ snapshot or returning edits to an existing pin. Each render runs off the UI thre
 [threading.md](threading.md)), and writes the result. Until one of those
 happens, everything remains a log entry you can undo.
 
+Copy/Save can optionally downscale this completed raster to logical size
+(`output/logical_size`). Resizing runs after rendering, including redaction,
+on the output worker. It never changes the working source, operation log,
+OCR input, or pinned image; native-resolution exports remain the default.
+Working documents retain the original export scale in the log, so rounding
+their logical presentation size does not change output size after reopening.
+
 Every completed capture also keeps a private source, operation log, and rendered
 thumbnail in the five-entry recents shelf, including untouched timed previews,
 quick output, explicit pins, and editors dismissed with `Esc`. Preview expiry

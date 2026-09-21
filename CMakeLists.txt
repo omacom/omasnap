@@ -58,6 +58,8 @@ add_library(omasnap-core STATIC
   src/recent-snaps.hpp
   src/output-config.cpp
   src/output-config.hpp
+  src/output-image.cpp
+  src/output-image.hpp
   src/pin-expiry.cpp
   src/pin-expiry.hpp
   src/overlay-chrome.cpp
@@ -166,6 +168,8 @@ qt_add_executable(omasnap-smoke
   tests/cut-mapping-smoke.hpp
   tests/palette-config-smoke.cpp
   tests/palette-config-smoke.hpp
+  tests/output-image-smoke.cpp
+  tests/output-image-smoke.hpp
   tests/stroke-smoothing-smoke.cpp
   tests/stroke-smoothing-smoke.hpp
   src/cli-path.cpp

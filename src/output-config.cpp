@@ -21,6 +21,9 @@ OutputConfig loadOutputConfig(const QString &filePath) {
       settings.value(QStringLiteral("output/filename")).toString().trimmed();
   if (!filename.isEmpty())
     config.filename = filename;
+  config.logicalSize =
+      settings.value(QStringLiteral("output/logical_size")).toString()
+          .trimmed().compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0;
   return config;
 }
 

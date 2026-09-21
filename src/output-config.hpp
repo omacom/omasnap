@@ -11,9 +11,11 @@ struct OutputConfig {
   /** Filename pattern without extension. Tokens: `{date}` (yyyy-MM-dd),
    *  `{time}` (HH-mm-ss), `{app}` (slug of the app under the selection). */
   QString filename = QStringLiteral("screenshot-{date}_{time}-{app}");
+  /** Copy/Save at logical size on scaled monitors; native pixels by default. */
+  bool logicalSize = false;
 };
 
-/** Reads [output] directory and [output] filename. A missing file or key
+/** Reads [output] directory, filename, and logical_size. A missing file or key
  *  leaves the default untouched; `~` in directory expands to $HOME. */
 [[nodiscard]] OutputConfig loadOutputConfig(const QString &filePath);
 

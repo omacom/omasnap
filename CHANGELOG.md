@@ -7,6 +7,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Added
 
+- Optional logical-size Copy/Save output on scaled monitors with
+  `[output] logical_size = true`; editable sources and previews retain native pixels.
 - A folder button beside each preview or pin's link-copy button, plus `R` while
   hovered, to save the shot if needed and reveal it in the default file browser.
 - A readable shortcuts card above the capture/editor canvas. Press `?` or click

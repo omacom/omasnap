@@ -5,6 +5,7 @@
 #include "capture.hpp"
 #include "scroll-focus-smoke.hpp"
 #include "output-config.hpp"
+#include "output-image-smoke.hpp"
 #include "overlay-chrome.hpp"
 #include "cli-path.hpp"
 #include "clipboard-smoke.hpp"
@@ -13629,6 +13630,10 @@ int main(int argc, char **argv) {
   }
 
   QString instanceError;
+  if (!runOutputImageSmoke(application, instanceError)) {
+    qWarning().noquote() << instanceError;
+    return EXIT_FAILURE;
+  }
   if (!runInstanceLockSmoke(instanceError)) {
     qWarning().noquote() << instanceError;
     return 85;

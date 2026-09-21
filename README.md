@@ -360,6 +360,8 @@ directory = ~/Pictures/Captures
 # Filename pattern, without extension (.png is appended).
 # Default: screenshot-{date}_{time}-{app}
 filename = screenshot-{date}_{time}-{app}
+# Optional: Copy/Save at logical size on scaled monitors. Default: false.
+logical_size = false
 
 [colors]
 # Up to eight preset colors for the palette, and the initial custom color.
@@ -377,6 +379,15 @@ image = ~/Pictures/backdrops/desk.jpg
 # effect once `image` above loads successfully.
 default = custom
 ```
+
+Set `[output] logical_size = true` to downscale Copy/Save output by the
+capture's monitor scale. For example, a 600-pixel-wide capture at 2x becomes
+300 pixels wide. Fractional results round to the nearest pixel, with a minimum
+of one pixel per dimension. The complete rendered image, including annotations
+and backdrops, is resized once at export. This also applies to quick output, the initial clipboard copy accompanying
+a preview, and scrolling captures; native-resolution output remains the default. Editing,
+OCR, pins, and the recents shelf retain their original resolution. Ordinary
+image files without stored capture scale are not resized.
 
 Filename tokens:
 

@@ -10,6 +10,7 @@
 #include "icons.hpp"
 #include "eyedropper.hpp"
 #include "output-config.hpp"
+#include "output-image.hpp"
 #include "overlay-chrome.hpp"
 #include "palette-config.hpp"
 #include "recent-snaps.hpp"
@@ -2856,6 +2857,8 @@ QString CaptureEditor::workingLogPath() const {
 OperationLog CaptureEditor::currentOperationLog() const {
   OperationLog log{ops_, opIndex_, nextAnnotationId_, nextMarker_,
                    pristineLogicalSize_, recentId_};
+  log.outputScale = capture_.outputScale > 0.0
+                        ? capture_.outputScale : capture_.monitor.scale;
   // Quick capture skips enterEdit(), where the initial crop is normally
   // committed. Retain that selection so the shelf reopens the captured area.
   if (phase_ == Phase::Export && !selection_.isEmpty() &&
@@ -2881,6 +2884,7 @@ bool CaptureEditor::restoreOperationLog(const QString &path, QString &error) {
   nextAnnotationId_ = std::max<quint64>(log.nextId, 1);
   nextMarker_ = std::max(log.nextMarker, 1);
   replayLog();
+  capture_.outputScale = log.outputScale;
   phase_ = Phase::Edit;
   scheduleSnapshot();
   return true;
@@ -3435,7 +3439,8 @@ void CaptureEditor::pinSnapshot() {
                           imageShadow, canvasBoundary, backdrop);
         result.path = launchPinnedCapture(
             image, renderedCaptureLogicalSize(captureCopy, image.size()),
-            false, PinLifetime::Persistent, result.error, launcher, log.recentId);
+            false, PinLifetime::Persistent, result.error, launcher, log.recentId,
+            log.outputScale);
         completion.addResult(result);
         rememberCapture(recent, source, log, image, previous);
       }));
@@ -3628,7 +3633,7 @@ void CaptureEditor::dismissEditor(bool remember) {
     // the preview and the editable document are ready to read.
     if (document && savePinnedSnapshot(image, document->previewPath(),
                             renderedCaptureLogicalSize(capture, image.size()),
-                            error, log.recentId))
+                            error, log.recentId, log.outputScale))
       static_cast<void>(saveOperationLog(operationLogPath(document->path()), log, error));
     completion.addResult(error);
     if (recent)
@@ -4099,20 +4104,28 @@ void CaptureEditor::finish(OutputMode mode) {
       if (!workingSource.isEmpty())
         QFile::remove(workingSource);
     };
-    const QImage image = renderCapture(captureCopy, selection, annotations,
+    const QImage nativeImage = renderCapture(captureCopy, selection, annotations,
                                        background, imageShadow,
                                        canvasBoundary, backdrop);
+    const QImage image = prepareOutputImage(nativeImage, log.outputScale);
     const auto retainAfterOutput = qScopeGuard([&] {
       startupTimingMark("capture output ready");
       completion.addResult(result);
-      rememberCapture(recent, source, log, image, previous);
+      rememberCapture(recent, source, log, nativeImage, previous);
       if (result.error.isEmpty())
         cleanWorkingDocument();
     });
     if (mode == OutputMode::CopyAndPreview) {
-      static_cast<void>(launchPinnedCapture(
-          image, renderedCaptureLogicalSize(captureCopy, image.size()),
-          true, PinLifetime::Timed, result.error, launcher, log.recentId));
+      // Only the clipboard is resized. The preview and recent document retain
+      // native pixels and their shared identity for subsequent editing.
+      const bool resized = image.size() != nativeImage.size();
+      if (resized && !copyImageToClipboard(image, result.error))
+        return;
+      if (launchPinnedCapture(
+              nativeImage, renderedCaptureLogicalSize(captureCopy, nativeImage.size()),
+              !resized, PinLifetime::Timed, result.error, launcher, log.recentId,
+              log.outputScale).isEmpty() && resized)
+        result.error.prepend(QStringLiteral("Screenshot copied, but "));
       return;
     }
     const QString exportPath = temporaryExportPath();
@@ -6665,9 +6678,10 @@ void CaptureEditor::adoptStitched(const QImage &image) {
   }
   const bool veryLong = image.width() > stitch::kWidelyOpenableEdge ||
                         image.height() > stitch::kWidelyOpenableEdge;
-  // Stitching produces native pixels; retain the monitor's logical size
-  // through the same document metadata used when reopening a pinned capture.
+  // Retain both the rounded logical presentation and the original export
+  // scale; odd native dimensions must still export identically after reopening.
   OperationLog log;
+  log.outputScale = liveMonitor_.scale;
   log.previewSize = (QSizeF(image.size()) / std::max<qreal>(1.0, liveMonitor_.scale)).toSize();
   adoptImage(image, std::move(log), CaptureMode::Scroll,
              veryLong
