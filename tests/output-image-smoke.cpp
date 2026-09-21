@@ -143,6 +143,29 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
   qputenv("PATH", directory.path().toUtf8() + ':' + qgetenv("PATH"));
   const QString clipboard = directory.filePath(QStringLiteral("clipboard.png"));
   qputenv("OMASNAP_TEST_OUTPUT_PNG", clipboard.toUtf8());
+  // Quick output must resize the shared PNG without downsampling the new
+  // upstream recent document or losing its original fractional export scale.
+  for (const qreal scale : {1.5, 2.0}) {
+    const QString savedDir = directory.filePath(QStringLiteral("quick-%1").arg(scale));
+    qputenv("OMASNAP_SCREENSHOT_DIR", savedDir.toUtf8());
+    qputenv("OMASNAP_RECENT_DIR", (savedDir + QStringLiteral("/recents")).toUtf8());
+    const QSize logical(qRound(image.width() / scale), qRound(image.height() / scale));
+    if (!quickOutput(image, QuickOutputMode::Both, error, logical, scale))
+      return false;
+    const auto files = QDir(savedDir).entryList({QStringLiteral("*.png")}, QDir::Files);
+    const auto recents = listRecentSnaps();
+    OperationLog log;
+    if (files.size() != 1 || QImage(clipboard).size() != logical ||
+        QImage(QDir(savedDir).filePath(files.first())) != QImage(clipboard) ||
+        recents.size() != 1 ||
+        !loadOperationLog(recents.first().logPath, log, error) ||
+        log.outputScale != scale || log.previewSize != logical || log.recentId.isEmpty() ||
+        QImage(recents.first().sourcePath).convertToFormat(QImage::Format_ARGB32) !=
+            image.convertToFormat(QImage::Format_ARGB32)) {
+      error = QStringLiteral("Logical quick output changed its native recent document");
+      return false;
+    }
+  }
   for (const qreal scale : {1.0, 1.5, 2.0}) {
     const QString savedDir = directory.filePath(QString::number(scale));
     qputenv("OMASNAP_SCREENSHOT_DIR", savedDir.toUtf8());
@@ -190,6 +213,8 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
   // Fresh captures downsize only the initial clipboard output. Their preview
   // keeps native pixels and exact export scale for a later edit.
   for (const bool scrolling : {false, true}) {
+    qputenv("OMASNAP_RECENT_DIR", directory.filePath(
+        QStringLiteral("preview-recents-%1").arg(scrolling)).toUtf8());
     CaptureData capture;
     capture.monitor.name = QStringLiteral("TEST");
     capture.monitor.scale = 2.0;
@@ -227,6 +252,15 @@ bool runOutputImageSmoke(QApplication &application, QString &error) {
                                         qRound(native.height() / 2.0)) ||
         !loadOperationLog(operationLogPath(preview), log, error) || log.outputScale != 2.0) {
       error = QStringLiteral("Logical clipboard output changed the native preview or lost its scale");
+      return false;
+    }
+    const auto recents = listRecentSnaps();
+    OperationLog recentLog;
+    if (recents.size() != 1 || log.recentId.isEmpty() ||
+        !loadOperationLog(recents.first().logPath, recentLog, error) ||
+        recentLog.recentId != log.recentId || recentLog.outputScale != 2.0 ||
+        QImage(recents.first().sourcePath).size() != native.size()) {
+      error = QStringLiteral("Logical preview lost its native recent document or identity");
       return false;
     }
   }

@@ -64,6 +64,8 @@ add_library(omasnap-core STATIC
   src/pin-expiry.hpp
   src/overlay-chrome.cpp
   src/overlay-chrome.hpp
+  src/shortcut-guide.cpp
+  src/shortcut-guide.hpp
   src/chrome-theme.cpp
   src/chrome-theme.hpp
   src/eyedropper.cpp

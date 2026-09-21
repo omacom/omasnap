@@ -124,7 +124,7 @@ Always run `make check` after behavioral changes. CI
 push and PR.
 
 Dependencies (Arch): `base-devel cmake ninja pkgconf qt6-base layer-shell-qt
-wayland wayland-protocols wl-clipboard tesseract tesseract-data-eng`. See
+wayland wayland-protocols wl-clipboard xdg-utils tesseract tesseract-data-eng`. See
 [docs/dependencies.md](docs/dependencies.md) before adding to this list.
 
 ## Release process

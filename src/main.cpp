@@ -7,7 +7,6 @@
 #include "instance-lock.hpp"
 #include "output-config.hpp"
 #include "overlay-chrome.hpp"
-#include "output-image.hpp"
 #include "overlay-dismissal.hpp"
 #include "pin.hpp"
 #include "pin-file.hpp"
@@ -403,8 +402,8 @@ int main(int argc, char **argv) {
                               : renderCapture(capture,
                                               QRectF(QPointF(), capture.previewSize), {},
                                               BackgroundStyle::None);
-    if (!quickOutput(prepareOutputImage(output, capture.monitor.scale),
-                     quickOutputMode, outputError)) {
+    if (!quickOutput(output, quickOutputMode, outputError, capture.previewSize,
+                     capture.monitor.scale)) {
       qCritical().noquote() << outputError;
       return 1;
     }
@@ -533,7 +532,12 @@ int main(int argc, char **argv) {
                      QStringLiteral("hl.window_rule({ name = \"omasnap-editor-opaque\", "
                                     "match = { title = \"^omasnap( .+)?$\" }, opacity = 1 })")});
     }));
-    return application.exec();
+    const int result = application.exec();
+    // The closed editor may still be retaining its recent document. A fresh
+    // capture must not mistake that background save for an active overlay.
+    editor.hide();
+    instanceLock.unlock();
+    return result;
   }
   editor.setGeometry(targetScreen->geometry());
   editor.winId();
@@ -563,5 +567,8 @@ int main(int argc, char **argv) {
   editor.setFocus(Qt::ActiveWindowFocusReason);
   startupTimingMark("show requested; entering event loop");
 
-  return application.exec();
+  const int result = application.exec();
+  editor.hide();
+  instanceLock.unlock();
+  return result;
 }
