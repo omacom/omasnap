@@ -18,8 +18,9 @@ From `CMakeLists.txt`, this is the entire list:
 That's it. No JSON library (Qt's `QJsonDocument` handles `hyprctl -j`
 output), no image codec beyond what Qt's own PNG support provides, no HTTP,
 no logging framework, no CLI-parsing library beyond `QCommandLineParser`,
-no config-file parser beyond `QSettings` (used for the one optional INI
-file — see below).
+no general config-file parser beyond `QSettings` (used for the one optional INI
+file — see below). The theme adapter reads a bounded scalar subset of Omarchy's
+TOML color files with Qt; it adds no parser library.
 
 ## Runtime: external processes, not libraries
 
@@ -59,6 +60,14 @@ are pinned by `chromeFont()`, `chromeMonoFont()`, and `chromeDefaultFont()`
 depend on an external desktop theme, `QStyle`- or palette-derived chrome, or
 icon-theme lookup: each is a startup cost with nothing in this codebase to
 spend it on.
+
+Chrome colors do follow Omarchy. `src/chrome-theme.cpp` reads `colors.toml` and
+the optional `shell.toml` from `~/.local/state/omarchy/current/theme` on a worker.
+It resolves palette references, control fills, tooltip colors, and solid or
+gradient borders into explicit paint values. Missing or malformed data has
+readable defaults. A filesystem watcher reloads the palette after file or
+directory replacement and repaints open windows. This does not use Qt's desktop
+palette, alter annotation/export colors, or change the pinned fonts.
 
 ## The one config file
 

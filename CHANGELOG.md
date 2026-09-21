@@ -9,15 +9,39 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 - `--delay SECONDS` captures after a cancellable wait without taking focus,
   allowing menus and tooltips to be arranged before the screen is sampled.
+- Press `E` (edit) or `A` (annotate) in the capture picker to toggle keeping
+  the annotator open after capture, including scrolling captures.
+- Press `T` ("tack") while hovering a preview to pin or unpin it, alongside
+  the pin button and `Ctrl+P`. The editor keeps `T` for Text.
+
+### Changed
+
+- Keep a preview pinned once it is dragged, whether reordering the stack or
+  moving it elsewhere on screen, including Super+left-drag.
+- Use the active window-border color for the pin icon while a preview is pinned.
+- Match pins, editor controls, tooltips, window-selection highlights, and crop
+  outlines to Omarchy's theme files, with live updates when the theme changes.
+- Hide the cursor and drag handles while placing arrow heads, tails, bends, and
+  line endpoints; restore them on release or cancellation.
 
 ### Fixed
 
 - Delayed captures observe cancellation received as the countdown event loop
   exits, before synchronous fullscreen output can begin.
-
+- Show capture crosshair guides and the correct hovered window on pointer entry,
+  without waiting for the first mouse movement.
+- Keep dashed selection outlines stable during partial repaints, including
+  narrow rounded rectangles and scaled displays.
+- Match the editor's background padding, image corners, and scaled shadows to
+  saved captures, and fit the complete background frame in the preview.
+- Keep previews and pins frameless at the compositor level across theme changes,
+  preventing a second outline around the frame Omasnap draws.
+- Suppress the armed tool while moving or resizing an annotation, including
+  the cut-band preview, and keep that tool ready for the next canvas gesture.
+- Keep screenshot content anchored while dragging crop handles, then re-center
+  the image on release.
 - Preserve the editor's keyboard focus when late pointer events arrive from a
   dismissed scrolling panel.
-
 - Keep the scrolling overlay eligible for keyboard focus after releasing its
   exclusive grab, so Escape remains available when the overlay has focus.
 

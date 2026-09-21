@@ -39,8 +39,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-constexpr qreal kBackdropMargin = 64.0;
-
 bool loadCaptureFonts() {
   static const std::array<int, 3> fontIds{
       QFontDatabase::addApplicationFont(QStringLiteral(":/fonts/Neucha.ttf")),
@@ -1462,7 +1460,8 @@ QImage renderCapture(const CaptureData &capture, const QRectF &selection,
     if (imageShadow)
       paintCaptureImageShadow(painter, imageRect, scaleX, scaleY);
     QPainterPath clip;
-    clip.addRoundedRect(imageRect, 14 * scaleX, 14 * scaleY);
+    clip.addRoundedRect(imageRect, kCaptureImageRadius * scaleX,
+                        kCaptureImageRadius * scaleY);
     painter.save();
     painter.setClipPath(clip);
     painter.drawImage(imageRect.topLeft(), cropped);
