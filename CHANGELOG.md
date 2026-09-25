@@ -59,6 +59,7 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- `omasnap --help`, `--version`, and unknown options no longer crash on exit.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.
