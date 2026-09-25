@@ -49,6 +49,7 @@
 #include <QStandardPaths>
 #include <QThread>
 #include <QFile>
+#include <QSaveFile>
 #include <QFileInfo>
 #include <QFontInfo>
 #include <QFontMetricsF>
@@ -12194,8 +12195,17 @@ bool runArrowStyleSmoke(QApplication &application, QString &error) {
 
 
 int main(int argc, char **argv) {
-  if (qEnvironmentVariableIsSet(kPinSmokeEditorChild))
-    return 0;
+  if (qEnvironmentVariableIsSet(kPinSmokeEditorChild)) {
+    QSaveFile arguments(qEnvironmentVariable(kPinSmokeEditorChild));
+    if (!arguments.open(QIODevice::WriteOnly))
+      return 1;
+    for (int i = 1; i < argc; ++i) {
+      const QByteArray argument = QByteArray(argv[i]) + '\0';
+      if (arguments.write(argument) != argument.size())
+        return 1;
+    }
+    return arguments.commit() ? 0 : 1;
+  }
   // Re-executed by the instance-lock checks as the process holding the lock.
   const QString heldLockPath =
       qEnvironmentVariable(kInstanceLockHolderVariable);
