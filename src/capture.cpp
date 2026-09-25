@@ -41,6 +41,7 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <utility>
 
 /// Mat a Framed canvas keeps beyond a layer that outgrew the normal frame.
 constexpr qreal kFramedLayerMargin = 15.0;
@@ -402,8 +403,38 @@ QString screenshotTargetPath(QString &error, const QString &appSlug) {
   return path;
 }
 
-bool parseMonitor(const QByteArray &json, MonitorInfo &monitor,
-                  QString &error) {
+namespace {
+/** One `hyprctl monitors -j` entry, in logical coordinates. */
+MonitorInfo monitorFromJson(const QJsonObject &object) {
+  const qreal scale = object.value(QStringLiteral("scale")).toDouble(1.0);
+  const int rawWidth = object.value(QStringLiteral("width")).toInt();
+  const int rawHeight = object.value(QStringLiteral("height")).toInt();
+  const int transform = object.value(QStringLiteral("transform")).toInt();
+  int logicalWidth = qRound(rawWidth / std::max<qreal>(scale, 0.01));
+  int logicalHeight = qRound(rawHeight / std::max<qreal>(scale, 0.01));
+  if (transform == 1 || transform == 3 || transform == 5 || transform == 7)
+    std::swap(logicalWidth, logicalHeight);
+
+  MonitorInfo monitor;
+  monitor.name = object.value(QStringLiteral("name")).toString();
+  monitor.geometry = {object.value(QStringLiteral("x")).toInt(),
+                      object.value(QStringLiteral("y")).toInt(), logicalWidth,
+                      logicalHeight};
+  monitor.pixelSize = {rawWidth, rawHeight};
+  monitor.scale = scale;
+  monitor.workspaceId = object.value(QStringLiteral("activeWorkspace"))
+                            .toObject()
+                            .value(QStringLiteral("id"))
+                            .toInt();
+  return monitor;
+}
+
+bool usableMonitor(const MonitorInfo &monitor) {
+  return !monitor.name.isEmpty() && !monitor.geometry.size().isEmpty();
+}
+
+bool parseMonitorArray(const QByteArray &json, QJsonArray &monitors,
+                       QString &error) {
   QJsonParseError parseError;
   const QJsonDocument document = QJsonDocument::fromJson(json, &parseError);
   if (parseError.error != QJsonParseError::NoError || !document.isArray()) {
@@ -411,32 +442,35 @@ bool parseMonitor(const QByteArray &json, MonitorInfo &monitor,
                 .arg(parseError.errorString());
     return false;
   }
+  monitors = document.array();
+  return true;
+}
 
-  for (const QJsonValue value : document.array()) {
+QVector<MonitorInfo> parseMonitors(const QByteArray &json, QString &error) {
+  QJsonArray monitors;
+  QVector<MonitorInfo> result;
+  if (!parseMonitorArray(json, monitors, error))
+    return result;
+  for (const QJsonValue value : monitors) {
+    MonitorInfo monitor = monitorFromJson(value.toObject());
+    if (usableMonitor(monitor))
+      result.push_back(std::move(monitor));
+  }
+  return result;
+}
+} // namespace
+
+bool parseMonitor(const QByteArray &json, MonitorInfo &monitor,
+                  QString &error) {
+  QJsonArray monitors;
+  if (!parseMonitorArray(json, monitors, error))
+    return false;
+  for (const QJsonValue value : monitors) {
     const QJsonObject object = value.toObject();
     if (!object.value(QStringLiteral("focused")).toBool())
       continue;
-
-    const qreal scale = object.value(QStringLiteral("scale")).toDouble(1.0);
-    const int rawWidth = object.value(QStringLiteral("width")).toInt();
-    const int rawHeight = object.value(QStringLiteral("height")).toInt();
-    const int transform = object.value(QStringLiteral("transform")).toInt();
-    int logicalWidth = qRound(rawWidth / std::max<qreal>(scale, 0.01));
-    int logicalHeight = qRound(rawHeight / std::max<qreal>(scale, 0.01));
-    if (transform == 1 || transform == 3 || transform == 5 || transform == 7)
-      std::swap(logicalWidth, logicalHeight);
-
-    monitor.name = object.value(QStringLiteral("name")).toString();
-    monitor.geometry = {object.value(QStringLiteral("x")).toInt(),
-                        object.value(QStringLiteral("y")).toInt(), logicalWidth,
-                        logicalHeight};
-    monitor.pixelSize = {rawWidth, rawHeight};
-    monitor.scale = scale;
-    monitor.workspaceId = object.value(QStringLiteral("activeWorkspace"))
-                              .toObject()
-                              .value(QStringLiteral("id"))
-                              .toInt();
-    return !monitor.name.isEmpty() && logicalWidth > 0 && logicalHeight > 0;
+    monitor = monitorFromJson(object);
+    return usableMonitor(monitor);
   }
 
   error = QStringLiteral("Hyprland did not report a focused monitor");
@@ -1323,6 +1357,17 @@ bool probeFocusedMonitor(MonitorInfo &monitor, QString &error) {
     return false;
   }
   return true;
+}
+
+QVector<MonitorInfo> probeMonitors(QString &error) {
+  const ProcessResult monitors =
+      runProcess(QStringLiteral("hyprctl"),
+                 {QStringLiteral("monitors"), QStringLiteral("-j")});
+  if (!monitors.finished || monitors.exitCode != 0) {
+    error = QString::fromUtf8(monitors.error).trimmed();
+    return {};
+  }
+  return parseMonitors(monitors.output, error);
 }
 
 bool captureMonitorPixels(const MonitorInfo &monitor, CaptureData &capture,

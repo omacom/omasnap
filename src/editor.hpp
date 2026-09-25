@@ -33,6 +33,7 @@ class QWheelEvent;
 class QPainter;
 
 class InlineTextEdit;
+class MonitorVeil;
 class ShortcutGuide;
 class ScrollCapturePanel;
 class PinSnapshotFile;
@@ -330,6 +331,15 @@ public:
   }
   /// Starts a new selection without invoking live scrolling capture.
   void returnToSelectForTest() { returnToSelect(); }
+  /// Moves the select overlay to another monitor's frozen frame, as the
+  /// pointer arriving on that monitor's veil does. Test hook.
+  void moveToMonitorForTest(CaptureData capture) {
+    moveToMonitor(std::move(capture));
+  }
+  /// Monitor the frozen frame being selected from belongs to. Test accessor.
+  [[nodiscard]] QString monitorNameForTest() const {
+    return capture_.monitor.name;
+  }
   /// Simulates a configured custom backdrop still decoding on a worker.
   void setBackdropFutureForTest(const QFuture<QImage> &future) {
     configuredCustomDefaultPending_ = true;
@@ -576,6 +586,21 @@ private:
   void chooseWindow(int index);
   void setScrollMode(bool enabled);
   void selectFullscreen();
+  /// Takes a freshly captured monitor as the live screen being selected from.
+  void adoptScreen(CaptureData capture);
+  /// Freezes every other monitor behind a veil on a worker once the overlay
+  /// is up, so a selection can start on whichever screen the pointer is on.
+  void offerOtherMonitors();
+  void presentMonitorVeil(CaptureData capture);
+  [[nodiscard]] const MonitorVeil *monitorVeil(const QString &name) const;
+  /// The veil whose monitor holds `point`, in this overlay's coordinates.
+  [[nodiscard]] const MonitorVeil *monitorVeilAt(const QPointF &point) const;
+  /// The pointer reached monitor `name`: move the overlay there, once the
+  /// monitor being left shows its own veil.
+  void followPointerTo(const QString &name);
+  void moveToMonitor(CaptureData capture);
+  /// Selection is over: every other monitor goes live again.
+  void releaseMonitorVeils();
   /// Back from the editor to the select phase: the op log is dropped and the
   /// frozen screen is offered again for a new region or window.
   void returnToSelect();
@@ -918,6 +943,13 @@ private:
   bool captureStarted_ = false;
   bool firstPaintReported_ = false;
   CaptureMode pendingMode_ = CaptureMode::Region;
+  /// Frozen captures of the monitors the overlay is not on, one per veil.
+  QFutureWatcher<CaptureData> monitorsWatcher_;
+  QVector<MonitorVeil *> veils_;
+  bool monitorsOffered_ = false;
+  bool veilsReleased_ = false;
+  /// Monitor the pointer went to while the one being left had no veil yet.
+  QString pendingMonitor_;
   // Background render for --pin.
   /// Path on success, empty + error set on failure. The render and the PNG
   /// write and process launch happen in the worker; the GUI only handles

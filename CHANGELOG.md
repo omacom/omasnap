@@ -59,6 +59,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Select on any monitor: every monitor freezes when the capture starts, and the
+  picker follows the pointer onto whichever one it moves to.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.
