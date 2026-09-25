@@ -12213,6 +12213,19 @@ int main(int argc, char **argv) {
   if (!smokeShelf.isValid())
     return 18;
   qputenv("OMASNAP_RECENT_DIR", smokeShelf.path().toUtf8());
+  // Outputs notify through omarchy-notification-send. Answer those with a
+  // no-op so a run on a desktop does not post notifications for temporary
+  // PNGs that are gone before the daemon loads them.
+  QTemporaryDir quietCommands;
+  QFile notifier(QDir(quietCommands.path())
+                     .filePath(QStringLiteral("omarchy-notification-send")));
+  if (!quietCommands.isValid() || !notifier.open(QIODevice::WriteOnly) ||
+      notifier.write("#!/bin/sh\n") < 0 ||
+      !notifier.setPermissions(QFileDevice::ReadOwner |
+                               QFileDevice::ExeOwner))
+    return 226;
+  notifier.close();
+  qputenv("PATH", quietCommands.path().toUtf8() + ':' + qgetenv("PATH"));
 
   // Live output capture against a real compositor (the smoke's own Wayland
   // connection; Qt's platform does not matter): open a session on the named
