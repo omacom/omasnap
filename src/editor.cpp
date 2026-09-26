@@ -91,7 +91,23 @@ public:
     }
   }
   using QPlainTextEdit::cursorRect;
+  using QPlainTextEdit::inputMethodQuery;
   using QPlainTextEdit::setViewportMargins;
+
+  // The zero cursorWidth that hides the native caret also gives input methods
+  // a zero-width cursor rectangle. QInputMethod only maps a valid rectangle
+  // into window coordinates, so fcitx5's Qt plugin, which places its own
+  // candidate window, opened it at the editor's top-left corner instead of
+  // under the caret.
+  QVariant inputMethodQuery(Qt::InputMethodQuery query) const override {
+    QVariant value = QPlainTextEdit::inputMethodQuery(query);
+    if (query == Qt::ImCursorRectangle) {
+      QRectF caret = value.toRectF();
+      caret.setWidth(std::max<qreal>(caret.width(), 1.0));
+      value = caret;
+    }
+    return value;
+  }
 
   void setLogicalWrap(Annotation annotation, qreal canvasWidth) {
     logicalText_ = std::move(annotation);
