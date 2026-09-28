@@ -2230,9 +2230,24 @@ QRectF CaptureEditor::baseImageRect() const {
                            ? kBackdropMargin
                            : 0.0;
   const QSizeF framedSize = canvasRect_.size() + QSizeF(2 * margin, 2 * margin);
+  // Never enlarge the capture past the pixels it actually carries. The screen
+  // is denser than the document whenever its device ratio exceeds the
+  // document's own density: a fractional-scale monitor whose surface ratio Qt
+  // still reports rounded up (1.5x reported as 2x until the compositor's
+  // scale arrives), or a capture taken on a coarser monitor and edited on a
+  // finer one. Fitting to the screen then stretches the source into invented
+  // pixels and reads as soft, while the exported PNG keeps every native one.
+  // One document pixel per device pixel is the floor: the frame stops
+  // growing and the chrome keeps its own size.
+  const QSizeF density = sourcePixelDensity(capture_);
+  const qreal deviceRatio = devicePixelRatioF();
+  const qreal nativeLimit =
+      deviceRatio > 0.0
+          ? std::min(density.width(), density.height()) / deviceRatio
+          : 1.0;
   const qreal scale =
       std::min<qreal>({1.0, available.width() / framedSize.width(),
-                       available.height() / framedSize.height()});
+                       available.height() / framedSize.height(), nativeLimit});
   const QSizeF shown = canvasRect_.size() * scale;
   // Snapped to the pixel grid: centering can land the origin on a half
   // pixel, which is needless blur at scale 1 (the common case, an

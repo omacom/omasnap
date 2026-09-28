@@ -324,6 +324,12 @@ preserving every native pixel. This also covers cropped, framed, and scrolling
 captures. Images without this metadata use their pixel dimensions; print DPI
 alone is not treated as a screenshot's display scale.
 
+The annotator never enlarges a capture past the pixels it carries: on a screen
+denser than the document — a fractional monitor whose surface ratio Qt still
+reports rounded up, or a capture taken on a coarser monitor and edited on a
+finer one — the image stays at its own size instead of being stretched into a
+soft preview, and Copy/Save still export every captured pixel.
+
 To open the image currently on the Wayland clipboard:
 
 ```bash

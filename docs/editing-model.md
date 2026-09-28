@@ -84,6 +84,12 @@ own, cut short or newer. Untagged images retain
 their pixel dimensions: print DPI does not establish screenshot display scale.
 A tag or log whose logical size would mean a scale outside 1 to 4 on either
 axis is ignored, so a hand-made value cannot blow up the frame or the view.
+The annotator shows a document at one device pixel per pixel it carries, never
+denser. A screen whose device ratio exceeds the document's own density — a
+fractional-scale monitor whose surface ratio Qt still reports rounded up, or a
+capture taken on a coarser monitor and edited on a finer one — leaves the
+frame at the document's native size instead of stretching the selection, so
+what is on screen keeps the pixels the export will carry.
 
 ## The two exceptions, and why they're still safe
 

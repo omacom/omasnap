@@ -5,6 +5,16 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Fixed
+
+- Keep the annotation editor from enlarging a capture past the pixels it
+  carries. A screen whose device ratio is higher than the document's own
+  density — a fractional-scale monitor whose surface ratio Qt still reports
+  rounded up, or a capture taken on a coarser monitor and edited on a finer
+  one — used to stretch the selection into a soft, low-resolution-looking
+  preview while Copy/Save kept every native pixel. The frame now stops at one
+  device pixel per document pixel and exports are unchanged.
+
 ## 1.25.0
 
 ### Added
