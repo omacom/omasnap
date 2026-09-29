@@ -59,6 +59,13 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Stroke size XS–XXL chips stay visible under the toolbar while a stroke tool
+  is armed. Click a chip or use the canvas mouse wheel to thicken the
+  just-placed or selected shape immediately; the tool default stays in sync
+  for the next draw. Wheel during an in-progress drag only updates the tool
+  default (preview), not the previous layer. Rapid wheel size tweaks coalesce
+  into one undo step so spam cannot erase the shape.
+
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.

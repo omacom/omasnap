@@ -145,16 +145,33 @@ private:
 namespace {
 constexpr std::array<qreal, 3> kTextSizes{2.0, 5.0, 9.0};
 constexpr std::array<const char *, 3> kTextSizeNames{"S", "M", "L"};
-constexpr qreal kToolbarWidth = 840;
+/// Discrete stops on the stroke-size slider (tool default range 2–12).
+constexpr std::array<qreal, 6> kStrokeSizeStops{2.0, 4.0, 6.0, 8.0, 10.0, 12.0};
+constexpr std::array<const char *, 6> kStrokeSizeNames{"XS", "S", "M",
+                                                       "L", "XL", "XXL"};
+
+bool sharesStrokeAnnotationSize(Annotation::Kind kind) {
+  switch (kind) {
+  case Annotation::Kind::Arrow:
+  case Annotation::Kind::Line:
+  case Annotation::Kind::Freehand:
+  case Annotation::Kind::Highlighter:
+  case Annotation::Kind::Marker:
+  case Annotation::Kind::Rectangle:
+  case Annotation::Kind::Ellipse:
+    return true;
+  default:
+    return false;
+  }
+}
+constexpr qreal kToolbarWidth = 879; // includes size control beside palette
+constexpr qreal kToolbarFitWidth = 840; // canvas fit; keep stable for smokes
 // Toolbar row to the top of the image below it.
 constexpr qreal kToolbarImageGap = 18.0;
 // Preserve the editor's established top inset without capture-mode chrome.
 constexpr qreal kToolbarTop = 39.0;
 /// Extra spacing between toolbar groups (history / style / tools / actions),
-/// so the row reads as clusters rather than one flat strip. Ordinary gaps are
-/// tightened from 4px to 2.5px; across the 20 gaps that exactly pays for these
-/// three 10px additions, keeping the existing 840px toolbar envelope and,
-/// crucially, the canvas fit geometry derived from its scale.
+/// so the row reads as clusters rather than one flat strip.
 constexpr qreal kToolbarGroupGap = 10;
 constexpr qreal kMinimumRedactionExtent = 5.0;
 constexpr int kBackdropDim = 143;
@@ -288,7 +305,7 @@ qreal toolbarScale(qreal availableWidth) {
   constexpr qreal sideMargins = 16.0;
   return std::min<qreal>(
       1.0,
-      std::max<qreal>(0.1, (availableWidth - sideMargins) / kToolbarWidth));
+      std::max<qreal>(0.1, (availableWidth - sideMargins) / kToolbarFitWidth));
 }
 // A spotlight at 1x is not a failed zoom, it is a plain highlight: the dimming
 // still isolates the region. Name that state so it reads as somewhere to stop
@@ -1828,10 +1845,14 @@ void CaptureEditor::adjustSelectedAnnotation(int step) {
   case Annotation::Kind::Marker:
     // A counter has no stroke to weigh: its size is the counter itself.
     annotation.size = weigh(annotation.size, 2.0, 30.0);
+    // Keep the armed tool's default in sync (same idea as the color keys):
+    // weighing a selected counter must also set the size the next one lands
+    // at, or the size control appears stuck after the first placement.
+    annotationSize_ = std::clamp(annotation.size, 2.0, 12.0);
     setStatus(QStringLiteral("Counter %1 · size %2 · wheel resizes")
                   .arg(annotation.number)
                   .arg(qRound(annotation.size)));
-    commitPatch({selectedAnnotation_});
+    commitOrReplaceSizePatch(selectedAnnotation_);
     return;
   case Annotation::Kind::Text:
     // Type has no stroke either; its weight is its size.
@@ -1888,10 +1909,14 @@ void CaptureEditor::adjustSelectedAnnotation(int step) {
     commitPatch({selectedAnnotation_});
     return;
   }
-  annotation.size = weigh(annotation.size, 2.0, 30.0);
+  annotation.size = weigh(annotation.size, 2.0, 12.0);
+  // Stroke tools share annotationSize_ for the next shape. Selection owns the
+  // wheel (see wheelEvent), so without this sync a weighed rectangle leaves
+  // the tool default unchanged and every later rectangle keeps the old border.
+  annotationSize_ = annotation.size;
   setStatus(QStringLiteral("Selected layer · thickness %1 · handle resizes")
                 .arg(qRound(annotation.size)));
-  commitPatch({selectedAnnotation_});
+  commitOrReplaceSizePatch(selectedAnnotation_);
 }
 
 QLineF CaptureEditor::creationSpan(const QPointF &rawEnd) const {
@@ -2057,6 +2082,144 @@ QRectF CaptureEditor::shapeMenuRect() const {
 QRectF CaptureEditor::textSizePanelRect() const {
   const QRectF anchor = toolbarButtonRect(QStringLiteral("tool-text"));
   return {anchor.center().x() - 51, anchor.bottom() + 6, 102, 34};
+}
+
+QRectF CaptureEditor::strokeSizePanelRect() const {
+  const QRectF anchor = toolbarButtonRect(QStringLiteral("size"));
+  // Six XS–XXL chips under the size control while a stroke tool is armed.
+  constexpr qreal panelWidth = 8.0 + 6.0 * 34.0;
+  QRectF panel(anchor.center().x() - panelWidth / 2.0, anchor.bottom() + 6,
+               panelWidth, 34);
+  if (panel.left() < 8)
+    panel.moveLeft(8);
+  if (panel.right() > width() - 8)
+    panel.moveRight(width() - 8);
+  return panel;
+}
+
+void CaptureEditor::noteLastStrokeAnnotation(const Annotation &annotation) {
+  if (sharesStrokeAnnotationSize(annotation.kind) &&
+      !(annotation.filled &&
+        (annotation.kind == Annotation::Kind::Rectangle ||
+         annotation.kind == Annotation::Kind::Ellipse)) &&
+      annotation.id != 0)
+    lastStrokeAnnotationId_ = annotation.id;
+}
+
+int CaptureEditor::strokeSizeTargetIndex(bool thickenLastIfUnselected) const {
+  const auto compatibleStroke = [&](const Annotation &annotation) {
+    return sharesStrokeAnnotationSize(annotation.kind) &&
+           !(annotation.filled &&
+             (annotation.kind == Annotation::Kind::Rectangle ||
+              annotation.kind == Annotation::Kind::Ellipse));
+  };
+  if (selectedAnnotation_ >= 0 && selectedAnnotation_ < annotations_.size() &&
+      compatibleStroke(annotations_.at(selectedAnnotation_)))
+    return selectedAnnotation_;
+  if (!thickenLastIfUnselected)
+    return -1;
+  if (lastStrokeAnnotationId_ != 0) {
+    for (int index = 0; index < annotations_.size(); ++index) {
+      if (annotations_.at(index).id == lastStrokeAnnotationId_ &&
+          compatibleStroke(annotations_.at(index)))
+        return index;
+    }
+  }
+  for (int index = static_cast<int>(annotations_.size()) - 1; index >= 0;
+       --index) {
+    if (compatibleStroke(annotations_.at(index)))
+      return index;
+  }
+  return -1;
+}
+
+void CaptureEditor::commitOrReplaceSizePatch(int index) {
+  if (index < 0 || index >= annotations_.size())
+    return;
+  Annotation annotation = annotations_.at(index);
+  if (annotation.id == 0)
+    annotation.id = nextAnnotationId_++;
+  annotations_[index].id = annotation.id;
+  if (opIndex_ < ops_.size())
+    ops_.resize(opIndex_);
+  // Collapse consecutive size tweaks on the same layer into one undo step so
+  // a long wheel run cannot push Crop/Annotate out of the 100-op window.
+  if (!ops_.isEmpty()) {
+    Operation &last = ops_.last();
+    if (last.type == Operation::Type::Patch && last.annotations.size() == 1 &&
+        last.annotations.constFirst().id == annotation.id) {
+      last.annotations[0] = std::move(annotation);
+      opIndex_ = ops_.size();
+      scheduleSnapshot();
+      return;
+    }
+  }
+  Operation op;
+  op.type = Operation::Type::Patch;
+  op.annotations = {std::move(annotation)};
+  commitOp(std::move(op));
+}
+
+void CaptureEditor::setStrokeAnnotationSize(qreal size,
+                                             bool thickenLastIfUnselected) {
+  annotationSize_ = std::clamp(size, 2.0, 12.0);
+  const int target = strokeSizeTargetIndex(thickenLastIfUnselected);
+  if (target >= 0) {
+    Annotation &annotation = annotations_[target];
+    beginSelectionAdjust();
+    const qreal nextSize = annotation.kind == Annotation::Kind::Marker
+                               ? std::clamp(annotationSize_, 2.0, 30.0)
+                               : annotationSize_;
+    // Live paint reads annotations_ directly. Mutate first so the stroke
+    // thickens on this frame even before the op-log replay finishes.
+    annotation.size = nextSize;
+    lastStrokeAnnotationId_ = annotation.id;
+    setStatus(QStringLiteral("Layer thickness %1 · wheel / size chips")
+                  .arg(qRound(annotation.size)));
+    commitOrReplaceSizePatch(target);
+    update();
+    return;
+  }
+  setStatus(QStringLiteral("Size %1 · wheel / size chips")
+                .arg(qRound(annotationSize_)));
+  update();
+}
+
+bool CaptureEditor::strokeSizePanelRelevant() const {
+  // Only while a stroke *drawing* tool is armed. Showing chips during Select
+  // (e.g. while carrying a layer) would paint outside the carry damage region
+  // and break narrow-repaint smokes; Select can still use the size button /
+  // wheel on a selection.
+  if (phase_ != Phase::Edit)
+    return false;
+  switch (tool_) {
+  case Tool::Arrow:
+  case Tool::Line:
+  case Tool::Freehand:
+  case Tool::Highlighter:
+  case Tool::Marker:
+  case Tool::Rectangle:
+  case Tool::Ellipse:
+    return true;
+  default:
+    return false;
+  }
+}
+
+
+
+void CaptureEditor::applyStrokeSizeStopAt(const QPointF &position) {
+  const QRectF panel = strokeSizePanelRect();
+  if (!panel.contains(position) || kStrokeSizeStops.empty())
+    return;
+  const qreal cell = panel.width() / static_cast<qreal>(kStrokeSizeStops.size());
+  if (cell <= 0)
+    return;
+  const int index = std::clamp(
+      static_cast<int>((position.x() - panel.left()) / cell), 0,
+      static_cast<int>(kStrokeSizeStops.size()) - 1);
+  setStrokeAnnotationSize(kStrokeSizeStops[static_cast<std::size_t>(index)],
+                          /*thickenLastIfUnselected=*/true);
 }
 
 void CaptureEditor::applyCustomColor(const QPointF &position) {
@@ -2267,7 +2430,8 @@ bool CaptureEditor::canStartAnnotationAt(const QPointF &position) const {
   if ((colorPaletteOpen_ && colorPaletteRect().contains(position)) ||
       (customColorPickerOpen_ && customColorPanelRect().contains(position)) ||
       (shapeMenuOpen_ && shapeMenuRect().contains(position)) ||
-      (textSizeMenuOpen_ && textSizePanelRect().contains(position)))
+      (textSizeMenuOpen_ && textSizePanelRect().contains(position)) ||
+      (strokeSizeMenuOpen_ && strokeSizePanelRect().contains(position)))
     return false;
   if (requiresSourcePixels(tool_))
     return sourceFrameWidgetRect().contains(position);
@@ -2687,6 +2851,8 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
       QStringLiteral("Cycle backdrop · B"));
   add(36, QStringLiteral("palette"), {}, QStringLiteral("Annotation color"),
       annotationColor());
+  add(36, QStringLiteral("size"), QString::number(qRound(annotationSize_)),
+      QStringLiteral("Stroke size · chips below · mouse wheel"));
   endGroup();
 
   // Tools: everything that acts on the image via the cursor.
@@ -4355,7 +4521,10 @@ void CaptureEditor::handleToolbar(const QString &action) {
   }
   else if (action == QStringLiteral("palette"))
     colorPaletteOpen_ = true;
-  else if (action.startsWith(QStringLiteral("color-"))) {
+  else if (action == QStringLiteral("size")) {
+    setStatus(QStringLiteral("Size %1 · wheel / size chips")
+                  .arg(qRound(annotationSize_)));
+  } else if (action.startsWith(QStringLiteral("color-"))) {
     colorIndex_ = std::clamp(action.sliced(6).toInt(), 0,
                              static_cast<int>(paletteConfig_.palette.size()) - 1);
     usingCustomColor_ = false;
@@ -5618,6 +5787,7 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
     textSizeMenuOpen_ = overTextAnchor || overTextSizes || approachingTextSizes;
     if (!textSizeMenuOpen_)
       textSizeIntentOrigin_ = {};
+    strokeSizeMenuOpen_ = strokeSizePanelRelevant();
     colorPaletteOpen_ = overPaletteAnchor || overPalette || overCustom ||
                         overCustomAnchor || approachingPalette ||
                         approachingCustom;
@@ -5742,6 +5912,11 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
       update();
       return;
     }
+  }
+  if (strokeSizePanelRelevant() && strokeSizePanelRect().contains(cursor_) &&
+      !colorPaletteOpen_ && !customColorPickerOpen_ && !textSizeMenuOpen_) {
+    applyStrokeSizeStopAt(cursor_);
+    return;
   }
   if (textSizeMenuOpen_ && !colorPaletteOpen_ && !customColorPickerOpen_ &&
       textSizePanelRect().contains(cursor_)) {
@@ -6001,9 +6176,11 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
     annotation.color = annotationColor();
     annotation.size = annotationSize_;
     selectedAnnotation_ = -1;
-    setStatus(QStringLiteral("Marker %1 added · V for select mode")
+    setStatus(QStringLiteral("Marker %1 added · wheel / size chips adjust it")
                   .arg(annotation.number));
     commitAnnotate(std::move(annotation));
+    if (!annotations_.isEmpty())
+      noteLastStrokeAnnotation(annotations_.constLast());
     updatePointerCursor();
   } else if (tool_ == Tool::Text) {
     // A click places a one-line label; a drag draws a box whose height says
@@ -6257,11 +6434,13 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
       setStatus(
           highlighter
               ? highlighterStatus()
-              : QStringLiteral("Stroke added · smoothing %1/%2 · V for "
-                               "select mode")
+              : QStringLiteral("Stroke added · smoothing %1/%2 · size chips "
+                               "adjusts it")
                     .arg(annotation.smoothingLevel)
                     .arg(stroke::maximumSmoothingLevel));
       commitAnnotate(std::move(annotation));
+      if (!annotations_.isEmpty())
+        noteLastStrokeAnnotation(annotations_.constLast());
     }
     freehandPoints_.clear();
     highlighterLock_.reset();
@@ -6330,11 +6509,17 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
         tool_ == Tool::Spotlight ? spotlightBorder_ : annotationSize_;
     selectedAnnotation_ = -1;
     const bool redacted = tool_ == Tool::Redact;
+    const bool stroked = sharesStrokeAnnotationSize(annotation.kind);
     setStatus(redacted
                   ? QStringLiteral("%1 redaction added · V for select mode")
                         .arg(redactionStyleName(redactionStyle_))
-                  : QStringLiteral("Layer added · V for select mode"));
+                  : stroked
+                        ? QStringLiteral(
+                              "Layer added · wheel / size chips adjust thickness")
+                        : QStringLiteral("Layer added · V for select mode"));
     commitAnnotate(std::move(annotation));
+    if (stroked && !annotations_.isEmpty())
+      noteLastStrokeAnnotation(annotations_.constLast());
     updatePointerCursor();
   } else if (tool_ == Tool::Redact) {
     setStatus(QStringLiteral(
@@ -6385,6 +6570,11 @@ void CaptureEditor::wheelEvent(QWheelEvent *event) {
   // which deliberately follows the spotlight under the pointer.
   const bool layerSelected = selectedAnnotation_ >= 0 &&
                              selectedAnnotation_ < annotations_.size();
+  // Selection owns the wheel (including while a drawing tool is armed). When
+  // a stroke layer is weighed, adjustSelectedAnnotation also syncs
+  // annotationSize_, so an in-progress preview and the next shape follow.
+  // Do not gate this on dragging_/interaction_: a stuck or mid-gesture drag
+  // flag would skip the selection update and only move the tool default.
   const bool overLayer = layerSelected && tool_ != Tool::Spotlight &&
                          !modifiers.testFlag(Qt::AltModifier);
   const auto showZoom = [&] {
@@ -6512,11 +6702,20 @@ void CaptureEditor::wheelEvent(QWheelEvent *event) {
              tool_ == Tool::Freehand || tool_ == Tool::Highlighter ||
              tool_ == Tool::Marker || tool_ == Tool::Rectangle ||
              tool_ == Tool::Ellipse) {
-    annotationSize_ = std::clamp(annotationSize_ + step, 2.0, 12.0);
-    setStatus(tool_ == Tool::Highlighter
-                  ? highlighterStatus()
-                  : QStringLiteral("Size %1 · mouse wheel changes size")
-                        .arg(qRound(annotationSize_)));
+    // Step the shared tool size and thicken the selected or just-placed
+    // stroke (same contract as the XS–XXL chips). While a new shape is mid-
+    // drag, only the tool default moves so the in-progress preview follows
+    // without rewriting the previous layer.
+    const bool creatingShape =
+        dragging_ && interaction_ == Interaction::None;
+    setStrokeAnnotationSize(annotationSize_ + step,
+                            /*thickenLastIfUnselected=*/!creatingShape);
+    if (tool_ == Tool::Highlighter &&
+        (selectedAnnotation_ < 0 ||
+         selectedAnnotation_ >= annotations_.size() ||
+         annotations_.at(selectedAnnotation_).kind !=
+             Annotation::Kind::Highlighter))
+      setStatus(highlighterStatus());
   } else {
     QWidget::wheelEvent(event);
     return;
@@ -6574,6 +6773,12 @@ void CaptureEditor::updatePointerCursor() {
   }
   if (textSizeMenuOpen_ && !colorPaletteOpen_ && !customColorPickerOpen_ &&
       textSizePanelRect().contains(cursor_)) {
+    clearHighlighterPreview();
+    applyCursor(Qt::PointingHandCursor);
+    return;
+  }
+  if (strokeSizeMenuOpen_ && !colorPaletteOpen_ && !customColorPickerOpen_ &&
+      !textSizeMenuOpen_ && strokeSizePanelRect().contains(cursor_)) {
     clearHighlighterPreview();
     applyCursor(Qt::PointingHandCursor);
     return;
@@ -6869,6 +7074,7 @@ void CaptureEditor::returnToSelect() {
   customColorPickerOpen_ = false;
   shapeMenuOpen_ = false;
   textSizeMenuOpen_ = false;
+  strokeSizeMenuOpen_ = false;
   dismissOcrOverlay();
   // Everything edited derives from the op log; an empty log is the untouched
   // screen again.
@@ -7820,6 +8026,7 @@ void CaptureEditor::paintEdit(QPainter &painter) {
         (button.action == QStringLiteral("shape-fill") && fillShapes_) ||
         (button.action == QStringLiteral("background") && hasBackground) ||
         (button.action == QStringLiteral("palette") && colorPaletteOpen_) ||
+        (button.action == QStringLiteral("size") && strokeSizePanelRelevant()) ||
         (button.action == QStringLiteral("custom-color") &&
          usingCustomColor_) ||
         (!usingCustomColor_ &&
@@ -7877,6 +8084,28 @@ void CaptureEditor::paintEdit(QPainter &painter) {
       painter.drawText(item, Qt::AlignCenter,
                        QString::fromLatin1(
                            kTextSizeNames.at(static_cast<std::size_t>(index))));
+    }
+  }
+  if (strokeSizePanelRelevant() && !colorPaletteOpen_ &&
+      !customColorPickerOpen_ && !textSizeMenuOpen_) {
+    const QRectF panel = strokeSizePanelRect();
+    painter.setPen(QPen(chromeTheme().panelBorder.brush(panel), 1));
+    painter.setBrush(chromeTheme().surface);
+    painter.drawRoundedRect(panel, 9, 9);
+    painter.setFont(chromeFont(11, true));
+    for (std::size_t index = 0; index < kStrokeSizeStops.size(); ++index) {
+      const QRectF item(panel.left() + 4 + index * 34, panel.top() + 3, 30, 28);
+      const bool active =
+          std::abs(annotationSize_ - kStrokeSizeStops[index]) < 0.51;
+      if (active) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(chromeTheme().accent);
+        painter.drawRoundedRect(item.adjusted(3, 3, -3, -3), 7, 7);
+      }
+      painter.setPen(active ? chromeTheme().accentText
+                            : chromeTheme().foreground);
+      painter.drawText(item, Qt::AlignCenter,
+                       QString::fromLatin1(kStrokeSizeNames[index]));
     }
   }
   if (const QRectF pill = scrollPillRect(); !pill.isNull()) {
