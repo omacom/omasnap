@@ -2174,13 +2174,13 @@ void CaptureEditor::setStrokeAnnotationSize(qreal size,
     // thickens on this frame even before the op-log replay finishes.
     annotation.size = nextSize;
     lastStrokeAnnotationId_ = annotation.id;
-    setStatus(QStringLiteral("Layer thickness %1 · wheel / size chips")
+    setStatus(QStringLiteral("Layer thickness %1")
                   .arg(qRound(annotation.size)));
     commitOrReplaceSizePatch(target);
     update();
     return;
   }
-  setStatus(QStringLiteral("Size %1 · wheel / size chips")
+  setStatus(QStringLiteral("Size %1")
                 .arg(qRound(annotationSize_)));
   update();
 }
@@ -2852,7 +2852,7 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
   add(36, QStringLiteral("palette"), {}, QStringLiteral("Annotation color"),
       annotationColor());
   add(36, QStringLiteral("size"), QString::number(qRound(annotationSize_)),
-      QStringLiteral("Stroke size · chips below · mouse wheel"));
+      QStringLiteral("Stroke size · XS–XXL below"));
   endGroup();
 
   // Tools: everything that acts on the image via the cursor.
@@ -4522,7 +4522,7 @@ void CaptureEditor::handleToolbar(const QString &action) {
   else if (action == QStringLiteral("palette"))
     colorPaletteOpen_ = true;
   else if (action == QStringLiteral("size")) {
-    setStatus(QStringLiteral("Size %1 · wheel / size chips")
+    setStatus(QStringLiteral("Size %1")
                   .arg(qRound(annotationSize_)));
   } else if (action.startsWith(QStringLiteral("color-"))) {
     colorIndex_ = std::clamp(action.sliced(6).toInt(), 0,
@@ -6176,7 +6176,7 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
     annotation.color = annotationColor();
     annotation.size = annotationSize_;
     selectedAnnotation_ = -1;
-    setStatus(QStringLiteral("Marker %1 added · wheel / size chips adjust it")
+    setStatus(QStringLiteral("Marker %1 added")
                   .arg(annotation.number));
     commitAnnotate(std::move(annotation));
     if (!annotations_.isEmpty())
@@ -6515,7 +6515,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
                         .arg(redactionStyleName(redactionStyle_))
                   : stroked
                         ? QStringLiteral(
-                              "Layer added · wheel / size chips adjust thickness")
+                              "Layer added")
                         : QStringLiteral("Layer added · V for select mode"));
     commitAnnotate(std::move(annotation));
     if (stroked && !annotations_.isEmpty())
