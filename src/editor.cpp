@@ -2852,7 +2852,7 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
   add(36, QStringLiteral("palette"), {}, QStringLiteral("Annotation color"),
       annotationColor());
   add(36, QStringLiteral("size"), QString::number(qRound(annotationSize_)),
-      QStringLiteral("Stroke size · XS–XXL below"));
+      QStringLiteral("Stroke size"));
   endGroup();
 
   // Tools: everything that acts on the image via the cursor.
@@ -6176,7 +6176,7 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
     annotation.color = annotationColor();
     annotation.size = annotationSize_;
     selectedAnnotation_ = -1;
-    setStatus(QStringLiteral("Marker %1 added")
+    setStatus(QStringLiteral("Marker %1 added · V for select mode")
                   .arg(annotation.number));
     commitAnnotate(std::move(annotation));
     if (!annotations_.isEmpty())
@@ -6434,8 +6434,8 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
       setStatus(
           highlighter
               ? highlighterStatus()
-              : QStringLiteral("Stroke added · smoothing %1/%2 · size chips "
-                               "adjusts it")
+              : QStringLiteral("Stroke added · smoothing %1/%2 · V for "
+                               "select mode")
                     .arg(annotation.smoothingLevel)
                     .arg(stroke::maximumSmoothingLevel));
       commitAnnotate(std::move(annotation));
@@ -6513,10 +6513,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
     setStatus(redacted
                   ? QStringLiteral("%1 redaction added · V for select mode")
                         .arg(redactionStyleName(redactionStyle_))
-                  : stroked
-                        ? QStringLiteral(
-                              "Layer added")
-                        : QStringLiteral("Layer added · V for select mode"));
+                  : QStringLiteral("Layer added · V for select mode"));
     commitAnnotate(std::move(annotation));
     if (stroked && !annotations_.isEmpty())
       noteLastStrokeAnnotation(annotations_.constLast());
