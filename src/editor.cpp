@@ -2443,9 +2443,31 @@ QRectF CaptureEditor::sourceFrameWidgetRect() const {
   if (canvas.isEmpty() || canvasRect_.isEmpty())
     return {};
   const qreal scale = std::max<qreal>(editScale(), 0.001);
+  // At one device pixel per source pixel the frame shows exactly the pixels the
+  // export carries. A selection that lands between source pixels rounds
+  // outward to whole ones in pixelSelection, so the native crop is up to a
+  // pixel wider than the selection itself — and a fractional selection is the
+  // normal case, not an edge one: Wayland pointer coordinates are fixed point.
+  // Drawing that fractional frame resamples the whole capture through a
+  // sub-pixel scale, which reads soft on screen while the export keeps every
+  // native pixel. Snap the frame to the grid the export crops on; the document
+  // keeps its own coordinates, and layers still map through editScale.
+  const QSizeF density = sourcePixelDensity(capture_);
+  const qreal deviceRatio = devicePixelRatioF();
+  const auto nativeAxis = [&](qreal origin, qreal length, qreal axisDensity) {
+    if (axisDensity <= 0.0 || deviceRatio <= 0.0 ||
+        !qFuzzyCompare(scale * deviceRatio, axisDensity))
+      return length * scale;
+    const qreal pixels = std::ceil((origin + length) * axisDensity) -
+                         std::floor(origin * axisDensity);
+    return pixels / axisDensity * scale;
+  };
+  const QSizeF shown(
+      nativeAxis(selection_.left(), selection_.width(), density.width()),
+      nativeAxis(selection_.top(), selection_.height(), density.height()));
   return {canvas.left() - canvasRect_.left() * scale,
-          canvas.top() - canvasRect_.top() * scale,
-          selection_.width() * scale, selection_.height() * scale};
+          canvas.top() - canvasRect_.top() * scale, shown.width(),
+          shown.height()};
 }
 
 QPointF CaptureEditor::toAnnotationPoint(const QPointF &position) const {

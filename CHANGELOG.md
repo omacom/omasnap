@@ -7,6 +7,13 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Keep a region whose edges land between pixels from being resampled in the
+  editor. Wayland reports pointer coordinates as fixed point, so a dragged
+  area is normally fractional while Copy/Save round it outward to whole source
+  pixels; drawing that fractional frame resampled the whole preview through a
+  sub-pixel scale, which read as a slightly soft, low-resolution annotator
+  image next to the sharp PNG. At one device pixel per source pixel the frame
+  now covers exactly the pixels the export keeps.
 - Keep the annotation editor from enlarging a capture past the pixels it
   carries. A screen whose device ratio is higher than the document's own
   density — a fractional-scale monitor whose surface ratio Qt still reports

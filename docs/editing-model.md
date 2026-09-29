@@ -89,7 +89,13 @@ denser. A screen whose device ratio exceeds the document's own density — a
 fractional-scale monitor whose surface ratio Qt still reports rounded up, or a
 capture taken on a coarser monitor and edited on a finer one — leaves the
 frame at the document's native size instead of stretching the selection, so
-what is on screen keeps the pixels the export will carry.
+what is on screen keeps the pixels the export will carry. Where the screen and
+the document are at that density, the frame covers exactly those pixels: a
+selection edge that lands between source pixels, which is the normal case
+because Wayland reports pointer coordinates as fixed point, is rounded outward
+to the whole pixels the export keeps, and the frame follows that same grid. A
+fractional frame would draw the entire capture through a sub-pixel resample —
+soft on screen while Copy/Save still produced the native image.
 
 ## The two exceptions, and why they're still safe
 
