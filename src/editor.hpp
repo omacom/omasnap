@@ -162,6 +162,7 @@ protected:
   void paintEvent(QPaintEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
   void wheelEvent(QWheelEvent *event) override;
+  bool event(QEvent *event) override;
 
 public:
   enum class Tool {
@@ -532,6 +533,7 @@ private:
   /// point) over the same image pixel; then re-clamp the pan.
   void setViewZoom(qreal zoom, const QPointF &focus);
   void panView(const QPointF &delta);
+  void showWheelZoomStatus();
   void resetView();
   void clampViewOffset();
   [[nodiscard]] QPointF toAnnotationPoint(const QPointF &position) const;
@@ -973,6 +975,9 @@ private:
   /// `viewOffset_` pans in widget pixels. Reset on entering edit.
   qreal viewZoom_ = 1.0;
   QPointF viewOffset_;
+  /// Wheel travel, in angle units (120 per notch), not yet spent on a
+  /// discrete step. A touchpad swipe arrives as many fractional increments.
+  int wheelStepRemainder_ = 0;
   bool panning_ = false;
   QPointF panAnchor_;
   QColor textColor_;
