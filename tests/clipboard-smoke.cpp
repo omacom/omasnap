@@ -2,12 +2,14 @@
 #include "clipboard-smoke.hpp"
 
 #include "capture.hpp"
+#include "clipboard-image.hpp"
 
 #include <QDir>
 #include <QFile>
 #include <QImage>
 #include <QScopeGuard>
 #include <QTemporaryDir>
+#include <QUrl>
 
 namespace {
 /** Writes an executable fake command. */
@@ -62,6 +64,39 @@ bool runReadFailureCheck(QString &error) {
     error = QStringLiteral("Clipboard transfer failure lost its cause");
     return false;
   }
+  return true;
+}
+
+/** The exported bytes and usable path survive removal of the temporary image. */
+bool runBackingFileCheck(const QString &imagePath, QString &error) {
+  QFile source(imagePath);
+  if (!source.open(QIODevice::ReadOnly)) return false;
+  const QByteArray png = source.readAll();
+  source.close();
+  const QString retained = retainClipboardImage(png, error);
+  if (retained.isEmpty()) return false;
+  if (retainClipboardImage(png, error) != retained || !QFile::remove(imagePath)) {
+    error = QStringLiteral("Could not reuse backing file and remove temporary export");
+    return false;
+  }
+  QFile backing(retained);
+  if (!backing.open(QIODevice::ReadOnly) || backing.readAll() != png) {
+    error = QStringLiteral("Clipboard image did not survive temporary export removal");
+    return false;
+  }
+
+  const QString unusualPath = QDir::tempPath() + QStringLiteral("/shot # ' ü.png");
+  const auto payloads = clipboardImagePayloads(unusualPath, png);
+  if (payloads.value("image/png") != png ||
+      payloads.value("text/plain") != unusualPath.toUtf8() ||
+      payloads.value("text/plain;charset=utf-8") != unusualPath.toUtf8() ||
+      !payloads.value("text/uri-list").contains("%23") ||
+      !payloads.value("text/uri-list").endsWith("\r\n") ||
+      QUrl::fromEncoded(payloads.value("text/uri-list").trimmed()).toLocalFile() != unusualPath) {
+    error = QStringLiteral("Image, path and escaped URI do not describe the same export");
+    return false;
+  }
+
   return true;
 }
 } // namespace
@@ -141,5 +176,5 @@ bool runClipboardSmoke(QString &error) {
   qunsetenv("OMASNAP_TEST_CLIPBOARD_READ_FAILURE");
 
   return runImageCheck(error) && runTextOnlyCheck(error) &&
-         runReadFailureCheck(error);
+         runReadFailureCheck(error) && runBackingFileCheck(imagePath, error);
 }

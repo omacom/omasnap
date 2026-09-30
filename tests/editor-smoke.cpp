@@ -12194,6 +12194,21 @@ bool runArrowStyleSmoke(QApplication &application, QString &error) {
 
 
 int main(int argc, char **argv) {
+  // Re-executed by image output. Headless tests exercise the real retained file
+  // and process boundary, then use their existing fake wl-copy as the sink.
+  // This substitutes the sink, not the real binary's Wayland protocol owner.
+  if (argc == 3 && QString::fromLocal8Bit(argv[1]) == QStringLiteral("--clipboard-owner")) {
+    QCoreApplication application(argc, argv);
+    QFile image(QString::fromLocal8Bit(argv[2]));
+    if (!image.open(QIODevice::ReadOnly)) return 1;
+    QProcess sink;
+    sink.setProcessChannelMode(QProcess::ForwardedErrorChannel);
+    sink.start(QStringLiteral("wl-copy"), {QStringLiteral("--type"), QStringLiteral("image/png")});
+    if (!sink.waitForStarted(2000)) return 1;
+    sink.write(image.readAll());
+    sink.closeWriteChannel();
+    return sink.waitForFinished(5000) ? sink.exitCode() : 1;
+  }
   if (qEnvironmentVariableIsSet(kPinSmokeEditorChild))
     return 0;
   // Re-executed by the instance-lock checks as the process holding the lock.
@@ -12213,6 +12228,7 @@ int main(int argc, char **argv) {
   if (!smokeShelf.isValid())
     return 18;
   qputenv("OMASNAP_RECENT_DIR", smokeShelf.path().toUtf8());
+  qputenv("XDG_STATE_HOME", smokeShelf.filePath(QStringLiteral("state")).toUtf8());
 
   // Live output capture against a real compositor (the smoke's own Wayland
   // connection; Qt's platform does not matter): open a session on the named

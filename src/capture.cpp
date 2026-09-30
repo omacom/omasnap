@@ -2,6 +2,7 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include "capture.hpp"
+#include "clipboard-image.hpp"
 #include "pin-file.hpp"
 #include "pin-layout.hpp"
 #include "png.hpp"
@@ -335,11 +336,17 @@ ProcessResult runProcess(const QString &program, const QStringList &arguments,
 
 bool copyToWaylandClipboard(const QString &mimeType, const QByteArray &payload,
                             QString &error) {
+  const bool image = mimeType == QStringLiteral("image/png");
+  const QString path = image ? retainClipboardImage(payload, error) : QString();
+  if (image && path.isEmpty()) return false;
+  const QString program = image ? QCoreApplication::applicationFilePath() : QStringLiteral("wl-copy");
+  const QStringList arguments = image
+      ? QStringList{QStringLiteral("--clipboard-owner"), path}
+      : QStringList{QStringLiteral("--type"), mimeType};
   QByteArray lastError;
   for (int attempt = 0; attempt < 2; ++attempt) {
     const ProcessResult copied =
-        runProcess(QStringLiteral("wl-copy"),
-                   {QStringLiteral("--type"), mimeType}, payload, 5000);
+        runProcess(program, arguments, image ? QByteArray() : payload, 5000);
     if (!copied.finished || copied.exitCode != 0) {
       lastError = copied.error;
       continue;
