@@ -59,12 +59,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
-- Stroke size XS–XXL chips stay visible under the toolbar while a stroke tool
-  is armed. Click a chip or use the canvas mouse wheel to thicken the
-  just-placed or selected shape immediately; the tool default stays in sync
-  for the next draw. Wheel during an in-progress drag only updates the tool
-  default (preview), not the previous layer. Rapid wheel size tweaks coalesce
-  into one undo step so spam cannot erase the shape.
+- Canvas mouse wheel live-thickens the selected or just-placed stroke and
+  keeps the tool default in sync for the next draw. Wheel during an in-progress
+  drag only updates the tool default (preview), not the previous layer. Rapid
+  wheel size tweaks coalesce into one undo step so spam cannot erase the shape.
 - Alt+wheel with the rectangle tool armed rounds the just-placed (deselected)
   rectangle live and syncs the tool default for the next draw. Mid-drag only
   updates the preview default. Rapid Alt+wheel corner tweaks coalesce into one

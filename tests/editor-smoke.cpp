@@ -11369,8 +11369,8 @@ bool runRectangleStrokeSizeSyncSmoke(QApplication &application, QString &error) 
     error = QStringLiteral("First rectangle did not land at default size 4");
     return false;
   }
-  // Tim's flow: always-visible XS–XXL chips thicken the just-placed stroke
-  // via lastStrokeAnnotationId_ without selecting it (A cycling stays intact).
+  // Tim's flow: canvas wheel thickens the just-placed stroke via
+  // lastStrokeAnnotationId_ without selecting it (A cycling stays intact).
   if (editor.selectedCountForTest() != 0) {
     error = QStringLiteral("Placed rectangle unexpectedly stayed selected");
     return false;
@@ -11379,11 +11379,7 @@ bool runRectangleStrokeSizeSyncSmoke(QApplication &application, QString &error) 
     error = QStringLiteral("Placed rectangle was not recorded as last stroke");
     return false;
   }
-  if (!editor.strokeSizePanelRelevantForTest()) {
-    error = QStringLiteral("Stroke size panel not relevant with rectangle armed");
-    return false;
-  }
-  // Canvas wheel after place (Tim's ask): thicken last stroke + tool default.
+  // Canvas wheel after place: thicken last stroke + tool default.
   wheel(2); // 4 -> 6
   if (editor.currentAnnotationsForTest().constFirst().size != 6.0 ||
       editor.annotationSizeForTest() != 6.0) {
@@ -11420,33 +11416,6 @@ bool runRectangleStrokeSizeSyncSmoke(QApplication &application, QString &error) 
       editor.annotationSizeForTest() != 7.0) {
     error = QStringLiteral(
         "Post-place size API did not thicken the just-placed rectangle");
-    return false;
-  }
-  const QRectF panel = editor.strokeSizePanelRectForTest();
-  if (panel.isEmpty()) {
-    error = QStringLiteral("Stroke size panel rect was empty");
-    return false;
-  }
-  const QPointF xxlChip(panel.left() + 4 + 5 * 34 + 15, panel.center().y());
-  editor.applyStrokeSizeStopAtForTest(xxlChip);
-  application.processEvents();
-  if (editor.currentAnnotationsForTest().constFirst().size != 12.0 ||
-      editor.annotationSizeForTest() != 12.0) {
-    error = QStringLiteral(
-        "XXL chip did not thicken the just-placed rectangle "
-        "(got layer %1 tool %2)")
-                .arg(editor.currentAnnotationsForTest().constFirst().size)
-                .arg(editor.annotationSizeForTest());
-    return false;
-  }
-  editor.setStrokeAnnotationSizeForTest(4.0);
-  application.processEvents();
-  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, xxlChip.toPoint());
-  application.processEvents();
-  if (editor.currentAnnotationsForTest().constFirst().size != 12.0) {
-    error = QStringLiteral(
-        "Mouse click on XXL chip did not thicken the placed rectangle (got %1)")
-                .arg(editor.currentAnnotationsForTest().constFirst().size);
     return false;
   }
   editor.setStrokeAnnotationSizeForTest(4.0);

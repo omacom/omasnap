@@ -30,7 +30,7 @@ preview keeps it on screen.
   appear without requiring an initial mouse movement.
 - Window capture is a crop of the focused-monitor frame. Overlapping windows stay
   visible; there is no second clean-window recapture.
-- Select/move/resize layers, mouse-wheel scaling, XS–XXL stroke-size chips beside the color palette, and eight external recropping handles.
+- Select/move/resize layers, mouse-wheel scaling (live-thicken selected/just-placed strokes), and eight external recropping handles.
 - Start arrows, shapes, strokes, markers, spotlights, or text in the unused
   fullscreen workspace around a screenshot, or resize and carry an existing
   layer past its edge, to grow the canvas. Source-based tools (redact, cut,
@@ -494,7 +494,7 @@ region after changing the display layout.
 | `G` / `Shift+G` | Cycle canvas boundaries forward/backward: Framed, Overflow, Image. Framed auto-grows with the normal frame; Overflow grows only the sides needed by annotations with no frame; Image clips at the original screenshot edge |
 | `W` | Re-present the editor as a normal compositor window, or back as the fullscreen overlay; selection, layers, and undo history carry over |
 | `1`–`8` | Set annotation color; `7` is black and `8` is white |
-| Wheel | Scale selected layer, magnify the spotlight under the cursor, or change active tool size (`Alt`+wheel: selected pen smoothing from 0–6, the next pen's smoothing when none is selected, rectangle corner radius, or spotlight border); with a stroke tool, wheel or the XS–XXL chips under the size control thicken the selected/just-placed stroke and sync the tool default; while just viewing a zoomed capture, scroll it like a document |
+| Wheel | Scale selected layer, magnify the spotlight under the cursor, or change active tool size (`Alt`+wheel: selected pen smoothing from 0–6, the next pen's smoothing when none is selected, rectangle corner radius, or spotlight border); with a stroke tool, wheel thickens the selected/just-placed stroke and syncs the tool default; while just viewing a zoomed capture, scroll it like a document |
 | `Shift`+wheel | Scroll a zoomed capture sideways (a wide stitch); never changes the zoom |
 | `Ctrl`+wheel · middle-drag | Zoom about the cursor · pan by dragging |
 | `+` / `-` / `0` (also with `Ctrl`) | Zoom in / out / fit |

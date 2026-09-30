@@ -451,24 +451,12 @@ public:
   [[nodiscard]] QRectF textSizePanelRectForTest() const {
     return textSizePanelRect();
   }
-  [[nodiscard]] QRectF strokeSizePanelRectForTest() const {
-    return strokeSizePanelRect();
-  }
-  [[nodiscard]] bool strokeSizeMenuOpenForTest() const {
-    return strokeSizeMenuOpen_;
-  }
   /// Sets the shared stroke tool size and, when a stroke layer is selected,
   /// thickens that layer too (same contract as the color swatches).
   void setStrokeAnnotationSizeForTest(qreal size) { setStrokeAnnotationSize(size); }
   [[nodiscard]] qreal annotationSizeForTest() const { return annotationSize_; }
   [[nodiscard]] quint64 lastStrokeAnnotationIdForTest() const {
     return lastStrokeAnnotationId_;
-  }
-  [[nodiscard]] bool strokeSizePanelRelevantForTest() const {
-    return strokeSizePanelRelevant();
-  }
-  void applyStrokeSizeStopAtForTest(const QPointF &position) {
-    applyStrokeSizeStopAt(position);
   }
   /// Whether the overlay is still in the select phase. Test accessor.
   [[nodiscard]] bool selectingForTest() const { return phase_ == Phase::Select; }
@@ -510,20 +498,17 @@ private:
   [[nodiscard]] QRectF customColorPanelRect() const;
   [[nodiscard]] QRectF shapeMenuRect() const;
   [[nodiscard]] QRectF textSizePanelRect() const;
-  [[nodiscard]] QRectF strokeSizePanelRect() const;
   /// Sets the shared stroke tool size and thickens the selected stroke when
   /// present. When nothing is selected and `thickenLastIfUnselected` is true,
-  /// also thickens the newest compatible stroke (chips / canvas wheel after
-  /// place). Pass false while a new shape is mid-drag so only the tool
-  /// default / preview moves.
+  /// also thickens the newest compatible stroke (canvas wheel after place via
+  /// lastStrokeAnnotationId_). Pass false while a new shape is mid-drag so
+  /// only the tool default / preview moves.
   void setStrokeAnnotationSize(qreal size, bool thickenLastIfUnselected = true);
   /// Size-patch write that replaces the last Patch of the same layer id when
   /// possible, so wheel spam cannot orphan the Annotate past maximumOps.
   void commitOrReplaceSizePatch(int index);
   void noteLastStrokeAnnotation(const Annotation &annotation);
   [[nodiscard]] int strokeSizeTargetIndex(bool thickenLastIfUnselected) const;
-  [[nodiscard]] bool strokeSizePanelRelevant() const;
-  void applyStrokeSizeStopAt(const QPointF &position);
   [[nodiscard]] QVector<QRectF> cropHandleRects() const;
   [[nodiscard]] int cropHandleAt(const QPointF &point) const;
   /// Fit-to-window rect for the selection (unaffected by the view zoom/pan).
@@ -896,7 +881,6 @@ private:
   bool customColorPickerOpen_ = false;
   bool shapeMenuOpen_ = false;
   bool textSizeMenuOpen_ = false;
-  bool strokeSizeMenuOpen_ = false;
   QPointF paletteIntentOrigin_;
   QPointF customColorIntentOrigin_;
   QPointF shapeIntentOrigin_;
@@ -909,8 +893,8 @@ private:
   qreal customHue_ = 0.98;
   int nextMarker_ = 1;
   qreal annotationSize_ = 4.0;
-  /// Id of the most recently committed stroked layer; size chips / wheel
-  /// thickens this when nothing is selected (without auto-selecting it).
+  /// Id of the most recently committed stroked layer; canvas wheel thickens
+  /// this when nothing is selected (without auto-selecting it).
   quint64 lastStrokeAnnotationId_ = 0;
   ArrowStyle arrowStyle_ = ArrowStyle::Standard;
   int freehandSmoothingLevel_ = stroke::defaultSmoothingLevel;
