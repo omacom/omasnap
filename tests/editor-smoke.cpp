@@ -8797,22 +8797,97 @@ bool runShapeFillToolSmoke(QApplication &application, QString &error) {
     return false;
   }
 
-  // Alt+wheel rounds the corners of new rectangles (2 px per notch, 0–24);
-  // the plain wheel keeps meaning stroke size, as for every other tool.
+  // Alt+wheel with R armed and nothing selected rounds the just-placed
+  // rectangle live and syncs the tool default (2 px per notch, 0–24); the
+  // plain wheel keeps meaning stroke size, as for every other tool.
   wheel(6, Qt::AltModifier);
+  Annotation filledLive = filled;
+  filledLive.cornerRadius = 12;
+  if (!snapshotMatches(expected({hollowAfterWheel, filledLive}))) {
+    error = QStringLiteral(
+        "Alt+wheel after place did not round the just-placed rectangle");
+    return false;
+  }
+  if (editor.cornerRadiusForTest() != 12.0) {
+    error = QStringLiteral(
+        "Alt+wheel after place did not sync the rectangle tool default");
+    return false;
+  }
+  if (editor.lastRectangleAnnotationIdForTest() == 0) {
+    error = QStringLiteral("Placing a rectangle did not record its layer id");
+    return false;
+  }
+  // One undo restores the layer; the armed default stays for the next draw.
+  QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+  application.processEvents();
+  if (!snapshotMatches(expected({hollowAfterWheel, filled}))) {
+    error = QStringLiteral(
+        "Undo did not restore the rectangle rounded by Alt+wheel after place");
+    return false;
+  }
+  if (editor.cornerRadiusForTest() != 12.0) {
+    error = QStringLiteral(
+        "Undo of live corner rounding cleared the rectangle tool default");
+    return false;
+  }
   drag(QPoint(450, 212), QPoint(650, 312));
   const Annotation rounded =
       shape(Annotation::Kind::Rectangle, {350, 95}, {550, 195}, true, 12);
   if (!snapshotMatches(expected({hollowAfterWheel, filled, rounded}))) {
-    error = QStringLiteral("Alt+wheel did not round the next rectangle");
+    error = QStringLiteral("Next rectangle did not inherit the corner radius");
     return false;
   }
+
+  // Mid-drag Alt+wheel only moves the tool default / preview, not the last
+  // placed rectangle.
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(450, 362));
+  QTest::mouseMove(&editor, QPoint(550, 412), 20);
+  application.processEvents();
   wheel(-20, Qt::AltModifier);
-  drag(QPoint(450, 362), QPoint(650, 462));
+  if (editor.cornerRadiusForTest() != 0.0 ||
+      !snapshotMatches(expected({hollowAfterWheel, filled, rounded}))) {
+    error = QStringLiteral(
+        "Alt+wheel mid-drag changed the last rectangle or failed to clamp");
+    return false;
+  }
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(650, 462));
+  application.processEvents();
   const Annotation squareAgain =
       shape(Annotation::Kind::Rectangle, {350, 245}, {550, 345}, true, 0);
   if (!snapshotMatches(expected({hollowAfterWheel, filled, rounded, squareAgain}))) {
     error = QStringLiteral("Alt+wheel did not clamp the corner radius to 0");
+    return false;
+  }
+
+  // Rapid Alt+wheel after place coalesces into one undo step so wheel spam
+  // cannot push Annotate out of the op window.
+  wheel(5, Qt::AltModifier);
+  Annotation squareCoalesced = squareAgain;
+  squareCoalesced.cornerRadius = 10;
+  if (!snapshotMatches(
+          expected({hollowAfterWheel, filled, rounded, squareCoalesced}))) {
+    error = QStringLiteral(
+        "Alt+wheel after place did not round the newest rectangle");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+  application.processEvents();
+  if (!snapshotMatches(expected({hollowAfterWheel, filled, rounded, squareAgain}))) {
+    error = QStringLiteral(
+        "Rapid Alt+wheel corner tweaks did not coalesce into one undo");
+    return false;
+  }
+  // Clamp the armed default without rewriting the last layer (mid-drag no-op
+  // place) so later draws stay sharp-cornered.
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(680, 492));
+  application.processEvents();
+  wheel(-20, Qt::AltModifier);
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(680, 492));
+  application.processEvents();
+  if (editor.cornerRadiusForTest() != 0.0 ||
+      !snapshotMatches(expected({hollowAfterWheel, filled, rounded, squareAgain}))) {
+    error = QStringLiteral(
+        "Clamping the tool default mid-press rewrote an existing rectangle");
     return false;
   }
 
@@ -8822,11 +8897,17 @@ bool runShapeFillToolSmoke(QApplication &application, QString &error) {
   application.processEvents();
   QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier,
                     editor.toScreenPointForTest(QPointF(450, 145)).toPoint());
+  const qreal defaultBeforeSelectWheel = editor.cornerRadiusForTest();
   wheel(1, Qt::AltModifier);
   Annotation roundedMore = rounded;
   roundedMore.cornerRadius = 14;
   if (!snapshotMatches(expected({hollowAfterWheel, filled, roundedMore, squareAgain}))) {
     error = QStringLiteral("Alt+wheel did not round the selected rectangle");
+    return false;
+  }
+  if (editor.cornerRadiusForTest() != defaultBeforeSelectWheel) {
+    error = QStringLiteral(
+        "Alt+wheel on a selected rectangle changed the tool default");
     return false;
   }
   QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);

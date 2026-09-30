@@ -1779,7 +1779,7 @@ bool CaptureEditor::adjustSelectedAnnotationRing(int step) {
                    kMaximumCornerRadius);
     setStatus(QStringLiteral("Rectangle · %1 · Alt+wheel adjusts")
                   .arg(cornerName(annotation.cornerRadius)));
-    commitPatch({selectedAnnotation_});
+    commitOrReplacePatch(selectedAnnotation_);
     return true;
   }
   if (annotation.kind == Annotation::Kind::Spotlight) {
@@ -3151,6 +3151,72 @@ void CaptureEditor::commitPatch(const QVector<int> &indices) {
   if (op.annotations.isEmpty())
     return;
   commitOp(std::move(op));
+}
+
+void CaptureEditor::commitOrReplacePatch(int index) {
+  if (index < 0 || index >= annotations_.size())
+    return;
+  Annotation annotation = annotations_.at(index);
+  if (annotation.id == 0)
+    annotation.id = nextAnnotationId_++;
+  annotations_[index].id = annotation.id;
+  if (opIndex_ < ops_.size())
+    ops_.resize(opIndex_);
+  // Collapse consecutive patches on the same layer into one undo step so a
+  // long Alt+wheel run cannot push Annotate out of the 100-op window.
+  if (!ops_.isEmpty()) {
+    Operation &last = ops_.last();
+    if (last.type == Operation::Type::Patch && last.annotations.size() == 1 &&
+        last.annotations.constFirst().id == annotation.id) {
+      last.annotations[0] = std::move(annotation);
+      opIndex_ = ops_.size();
+      scheduleSnapshot();
+      return;
+    }
+  }
+  Operation op;
+  op.type = Operation::Type::Patch;
+  op.annotations = {std::move(annotation)};
+  commitOp(std::move(op));
+}
+
+void CaptureEditor::noteLastRectangleAnnotation(const Annotation &annotation) {
+  if (annotation.kind == Annotation::Kind::Rectangle && annotation.id != 0)
+    lastRectangleAnnotationId_ = annotation.id;
+}
+
+int CaptureEditor::lastRectangleAnnotationIndex() const {
+  if (lastRectangleAnnotationId_ != 0) {
+    for (int index = 0; index < annotations_.size(); ++index) {
+      if (annotations_.at(index).id == lastRectangleAnnotationId_ &&
+          annotations_.at(index).kind == Annotation::Kind::Rectangle)
+        return index;
+    }
+  }
+  for (int index = static_cast<int>(annotations_.size()) - 1; index >= 0;
+       --index) {
+    if (annotations_.at(index).kind == Annotation::Kind::Rectangle)
+      return index;
+  }
+  return -1;
+}
+
+void CaptureEditor::adjustUnselectedRectangleCornerRadius(
+    int step, bool updateLastIfUnselected) {
+  cornerRadius_ = std::clamp(cornerRadius_ + step * kCornerRadiusStep, 0.0,
+                             kMaximumCornerRadius);
+  setStatus(QStringLiteral("Rectangle · %1 · Alt+wheel adjusts")
+                .arg(cornerName(cornerRadius_)));
+  if (!updateLastIfUnselected)
+    return;
+  const int target = lastRectangleAnnotationIndex();
+  if (target < 0)
+    return;
+  Annotation &annotation = annotations_[target];
+  // Live paint reads annotations_ directly.
+  annotation.cornerRadius = cornerRadius_;
+  lastRectangleAnnotationId_ = annotation.id;
+  commitOrReplacePatch(target);
 }
 
 void CaptureEditor::commitDelete(const QVector<int> &indices) {
@@ -6517,6 +6583,8 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
     commitAnnotate(std::move(annotation));
     if (stroked && !annotations_.isEmpty())
       noteLastStrokeAnnotation(annotations_.constLast());
+    if (!annotations_.isEmpty())
+      noteLastRectangleAnnotation(annotations_.constLast());
     updatePointerCursor();
   } else if (tool_ == Tool::Redact) {
     setStatus(QStringLiteral(
@@ -6690,11 +6758,14 @@ void CaptureEditor::wheelEvent(QWheelEvent *event) {
     }
   } else if (tool_ == Tool::Rectangle &&
              event->modifiers().testFlag(Qt::AltModifier)) {
-    // Alt+wheel is the rectangle's secondary control: corner rounding.
-    cornerRadius_ = std::clamp(cornerRadius_ + step * kCornerRadiusStep, 0.0,
-                               kMaximumCornerRadius);
-    setStatus(QStringLiteral("Rectangle · %1 · Alt+wheel adjusts")
-                  .arg(cornerName(cornerRadius_)));
+    // Alt+wheel rounds corners. With nothing selected, also update the just-
+    // placed rectangle and sync the tool default (same contract as live stroke
+    // size). Mid-drag creation only moves the tool default / preview.
+    const bool creatingShape =
+        dragging_ && interaction_ == Interaction::None;
+    adjustUnselectedRectangleCornerRadius(step,
+                                          /*updateLastIfUnselected=*/
+                                          !creatingShape);
   } else if (tool_ == Tool::Arrow || tool_ == Tool::Line ||
              tool_ == Tool::Freehand || tool_ == Tool::Highlighter ||
              tool_ == Tool::Marker || tool_ == Tool::Rectangle ||

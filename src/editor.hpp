@@ -373,6 +373,10 @@ public:
   }
   /// Current status line. Test accessor.
   [[nodiscard]] QString statusForTest() const { return status_; }
+  [[nodiscard]] qreal cornerRadiusForTest() const { return cornerRadius_; }
+  [[nodiscard]] quint64 lastRectangleAnnotationIdForTest() const {
+    return lastRectangleAnnotationId_;
+  }
   /// Text-height I-beam in annotation coordinates, or an empty rect when the
   /// Snap highlighter has no text row near the pointer. Test accessor.
   [[nodiscard]] QRectF highlighterPreviewRectForTest() const;
@@ -677,6 +681,16 @@ private:
   void commitOp(Operation op);
   void commitAnnotate(Annotation annotation);
   void commitPatch(const QVector<int> &indices);
+  /// Size/corner patch write that replaces the last Patch of the same layer
+  /// id when possible, so wheel spam cannot orphan Annotate past maximumOps.
+  void commitOrReplacePatch(int index);
+  void noteLastRectangleAnnotation(const Annotation &annotation);
+  [[nodiscard]] int lastRectangleAnnotationIndex() const;
+  /// Steps the tool corner-radius default. When `updateLastIfUnselected` is
+  /// true and nothing is selected, also updates the most recently placed
+  /// rectangle (Alt+wheel after place).
+  void adjustUnselectedRectangleCornerRadius(int step,
+                                             bool updateLastIfUnselected);
   void commitDelete(const QVector<int> &indices);
   void commitCrop(const QRectF &crop);
   void commitCut(CutOp cut);
@@ -902,6 +916,9 @@ private:
   int freehandSmoothingLevel_ = stroke::defaultSmoothingLevel;
   bool fillShapes_ = false;
   qreal cornerRadius_ = 0.0;
+  /// Most recently committed rectangle; Alt+wheel with R armed and nothing
+  /// selected rounds it live and syncs cornerRadius_.
+  quint64 lastRectangleAnnotationId_ = 0;
   /// True while a wheel adjustment is in flight; the selection chrome draws
   /// faintly until it settles.
   bool adjustingSelection_ = false;
