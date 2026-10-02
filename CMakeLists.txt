@@ -203,6 +203,8 @@ qt_add_executable(omasnap-smoke
   tests/scroll-startup-smoke.hpp
   tests/save-as-smoke.cpp
   tests/save-as-smoke.hpp
+  tests/output-resolution-smoke.cpp
+  tests/output-resolution-smoke.hpp
 )
 target_include_directories(omasnap-smoke PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"

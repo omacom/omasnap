@@ -3490,9 +3490,11 @@ void CaptureEditor::pinSnapshot() {
        imageShadow, canvasBoundary, backdrop, launcher](QPromise<PinResult> &completion) {
         PinResult result;
         RecentSnapWriter recent(log.recentId);
-        const QImage image =
+        const QImage image = matchOutputToLogicalSize(
+            captureCopy,
             renderCapture(captureCopy, selection, annotations, background,
-                          imageShadow, canvasBoundary, backdrop);
+                         imageShadow, canvasBoundary, backdrop),
+            loadOutputConfig(defaultConfigPath()).matchLogicalSize);
         result.path = launchPinnedCapture(
             image, renderedCaptureLogicalSize(captureCopy, image.size()),
             false, PinLifetime::Persistent, result.error, launcher, log.recentId);
@@ -3682,8 +3684,11 @@ void CaptureEditor::dismissEditor(bool remember) {
     std::optional<RecentSnapWriter> recent;
     if (remember)
       recent.emplace(log.recentId);
-    const QImage image = renderCapture(capture, selection, annotations, background,
-                                       shadow, boundary, backdrop);
+    const QImage image = matchOutputToLogicalSize(
+        capture,
+        renderCapture(capture, selection, annotations, background, shadow,
+                     boundary, backdrop),
+        loadOutputConfig(defaultConfigPath()).matchLogicalSize);
     // Commit the log last: its atomic replacement tells the pin that both
     // the preview and the editable document are ready to read.
     if (document && savePinnedSnapshot(image, document->previewPath(),
@@ -4172,9 +4177,12 @@ void CaptureEditor::finish(OutputMode mode) {
       if (!workingSource.isEmpty())
         QFile::remove(workingSource);
     };
-    const QImage image = renderCapture(captureCopy, selection, annotations,
-                                       background, imageShadow,
-                                       canvasBoundary, backdrop);
+    const OutputConfig outputConfig = loadOutputConfig(defaultConfigPath());
+    const QImage image = matchOutputToLogicalSize(
+        captureCopy,
+        renderCapture(captureCopy, selection, annotations, background,
+                     imageShadow, canvasBoundary, backdrop),
+        outputConfig.matchLogicalSize);
     const auto retainAfterOutput = qScopeGuard([&] {
       startupTimingMark("capture output ready");
       completion.addResult(result);
@@ -4191,8 +4199,7 @@ void CaptureEditor::finish(OutputMode mode) {
           qWarning().noquote() << recoveryError;
       }
     });
-    const bool autosave = mode == OutputMode::CopyAndPreview &&
-                          loadOutputConfig(defaultConfigPath()).autosave;
+    const bool autosave = mode == OutputMode::CopyAndPreview && outputConfig.autosave;
     if (mode == OutputMode::CopyAndPreview && !autosave) {
       static_cast<void>(launchPinnedCapture(
           image, renderedCaptureLogicalSize(captureCopy, image.size()),

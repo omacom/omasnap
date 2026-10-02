@@ -1,6 +1,7 @@
 /** @fileoverview Nonblocking Save As for overlay and windowed editors. */
 #include "editor.hpp"
 #include "capture.hpp"
+#include "output-config.hpp"
 #include "overlay-chrome.hpp"
 #include "pin.hpp"
 #include "recent-snaps.hpp"
@@ -198,8 +199,11 @@ void CaptureEditor::saveAsToPath(const QString &path) {
        previous = editingRecent_, document = pinDocument_,
        launcher = processLauncher_, path](QPromise<QString> &completion) {
     RecentSnapWriter recent(log.recentId);
-    const QImage image = renderCapture(capture, selection, annotations,
-                                       background, shadow, boundary, backdrop);
+    const QImage image = matchOutputToLogicalSize(
+        capture,
+        renderCapture(capture, selection, annotations, background, shadow,
+                     boundary, backdrop),
+        loadOutputConfig(defaultConfigPath()).matchLogicalSize);
     QString error;
     if (savePngFile(image, path, error)) {
       const QString preview = launchPinnedCapture(

@@ -288,6 +288,18 @@ void describeFileCapture(CaptureData &capture, QImage image,
  *  using the same pixel scale as renderCapture. */
 [[nodiscard]] QSize renderedCaptureLogicalSize(const CaptureData &capture,
                                                 const QSize &renderedSize);
+/** Applies the `[output] match_logical_size` policy to a finished render:
+ *  when `matchLogicalSize` is set, a scaled monitor's export is shrunk from
+ *  its oversampled native pixel count down to the logical size the
+ *  selection was shown at (undoing `renderCapture`'s 1:1 native-pixel
+ *  output), via a single smooth downsample. A loaded document
+ *  (`preserveSourceResolution`) is returned unchanged regardless: its pixels
+ *  are already the file's final resolution. Call this once on an export's
+ *  finished `image`, never on the live editing canvas or an OCR crop, both
+ *  of which want every native pixel available. */
+[[nodiscard]] QImage matchOutputToLogicalSize(const CaptureData &capture,
+                                              QImage image,
+                                              bool matchLogicalSize);
 /** Lowercase serialization name ("aurora", "custom", ...) for a backdrop
  *  style, used in the operation log and the `[background] default` config
  *  key. */

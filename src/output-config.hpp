@@ -8,6 +8,13 @@
 struct OutputConfig {
   /** Save fresh captures while retaining clipboard copy and timed preview. */
   bool autosave = true;
+  /** A scaled monitor's export keeps its oversampled native pixel count
+   *  (e.g. 600px for a 300-logical-px selection at 2x) by default, tagged
+   *  with its logical size for reopening. Set true to instead shrink the
+   *  exported pixels down to the logical size the selection was shown at,
+   *  matching what was visually selected. Loaded documents and OCR crops
+   *  are never affected. */
+  bool matchLogicalSize = false;
   /** Screenshot directory; empty means `~/Pictures/Screenshots`. */
   QString directory;
   /** Filename pattern without extension. Tokens: `{date}` (yyyy-MM-dd),
@@ -15,8 +22,9 @@ struct OutputConfig {
   QString filename = QStringLiteral("screenshot-{date}_{time}-{app}");
 };
 
-/** Reads [output] autosave, directory, and filename. A missing file or key
- *  leaves the default untouched; `~` in directory expands to $HOME. */
+/** Reads [output] autosave, match_logical_size, directory, and filename. A
+ *  missing file or key leaves the default untouched; `~` in directory
+ *  expands to $HOME. */
 [[nodiscard]] OutputConfig loadOutputConfig(const QString &filePath);
 
 /** Expands `pattern` for `when` and `appSlug` into a safe `.png` filename.

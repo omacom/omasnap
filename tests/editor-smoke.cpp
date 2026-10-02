@@ -24,6 +24,7 @@
 #include "stitch-smoke.hpp"
 #include "scroll-startup-smoke.hpp"
 #include "save-as-smoke.hpp"
+#include "output-resolution-smoke.hpp"
 #include "stitch.hpp"
 #include "stroke-smoothing-smoke.hpp"
 #include "pin-lifecycle-smoke.hpp"
@@ -3243,23 +3244,26 @@ bool runScreenshotFilenameChecks(QString &error) {
     configFile.close();
     const OutputConfig loaded = loadOutputConfig(configPath);
     if (loaded.directory != QDir::homePath() + QStringLiteral("/Captures") ||
-        loaded.filename != QStringLiteral("{date} {app}") || !loaded.autosave) {
+        loaded.filename != QStringLiteral("{date} {app}") || !loaded.autosave ||
+        loaded.matchLogicalSize) {
       error = QStringLiteral("loadOutputConfig read %1 / %2")
                   .arg(loaded.directory, loaded.filename);
       return false;
     }
     if (!configFile.open(QIODevice::WriteOnly | QIODevice::Truncate) ||
-        configFile.write("[output]\nautosave = false\n") < 0)
+        configFile.write("[output]\nautosave = false\nmatch_logical_size = true\n") < 0)
       return false;
     configFile.close();
     if (loadOutputConfig(configPath).autosave ||
+        !loadOutputConfig(configPath).matchLogicalSize ||
         !loadOutputConfig(directory.filePath(QStringLiteral("missing.conf"))).autosave) {
-      error = QStringLiteral("Autosave config did not override the built-in default");
+      error = QStringLiteral("Autosave or match_logical_size config did not override the built-in default");
       return false;
     }
     const OutputConfig defaults = loadOutputConfig(
         QDir(directory.path()).filePath(QStringLiteral("missing.conf")));
-    if (!defaults.autosave || !defaults.directory.isEmpty() ||
+    if (!defaults.autosave || defaults.matchLogicalSize ||
+        !defaults.directory.isEmpty() ||
         defaults.filename != QStringLiteral("screenshot-{date}_{time}-{app}")) {
       error = QStringLiteral("loadOutputConfig changed defaults for a missing file");
       return false;
@@ -13836,6 +13840,12 @@ int main(int argc, char **argv) {
   QString pngError;
   if (!runPngSmoke(pngError)) {
     qWarning().noquote() << pngError;
+    return EXIT_FAILURE;
+  }
+
+  QString outputResolutionError;
+  if (!runOutputResolutionSmoke(outputResolutionError)) {
+    qWarning().noquote() << outputResolutionError;
     return EXIT_FAILURE;
   }
 
