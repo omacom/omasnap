@@ -12,7 +12,17 @@ background, annotation list, cuts) by replaying the log from empty up to
 `opIndex_`, every time. There is no separate "current annotations" model
 that the log merely mirrors — the log **is** the model.
 
-This is why undo is exact and unlimited within a session, why the crash
+Undo is exact for the recent steps; the log holds at most 100 operations.
+Past that, `commitOp()` folds the
+oldest steps into a short *base* (`foldOldestOperations()`): a crop, the
+cuts, the backdrop and one op holding every older layer, all rebuilding the
+same state. Undo stops at the base, so old steps can no longer be taken back
+one by one, but nothing they made is ever dropped (dropping the oldest step
+used to delete the first layer, a redaction included). The fold is checked by
+replaying both logs at every remaining undo step; if any differ, the log is
+left long instead. The base length is saved as `base` in the JSON log.
+
+This is also why the crash
 recovery snapshot (`snapshotWatcher_`) can save just the source image plus
 the JSON-serialized log and reconstruct everything on reopen (see
 `recent-snaps.hpp`), and why new annotation kinds or edit actions must be

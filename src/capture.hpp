@@ -150,6 +150,9 @@ struct OperationLog {
   /// Durable PNG represented by a rendered preview. A returned pin document
   /// sets this only after its replacement saved preview has been launched.
   QString savedPath = {};
+  /// Leading ops that hold folded history (one state, not undo steps). Old
+  /// steps fold instead of being dropped when the log passes its cap.
+  int base = 0;
 
   bool operator==(const OperationLog &) const = default;
 };

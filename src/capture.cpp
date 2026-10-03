@@ -2383,9 +2383,17 @@ QJsonObject operationToJson(const Operation &operation) {
     break;
   case Operation::Type::Annotate:
     object.insert(QStringLiteral("type"), QStringLiteral("annotate"));
-    if (!operation.annotations.isEmpty())
+    if (operation.annotations.size() == 1) {
       object.insert(QStringLiteral("annotation"),
                     annotationToJson(operation.annotations.constFirst()));
+    } else if (!operation.annotations.isEmpty()) {
+      // A folded history base adds every older layer in one op; writing
+      // only the first one would drop the rest.
+      QJsonArray annotations;
+      for (const Annotation &annotation : operation.annotations)
+        annotations.push_back(annotationToJson(annotation));
+      object.insert(QStringLiteral("annotations"), annotations);
+    }
     break;
   case Operation::Type::Patch: {
     object.insert(QStringLiteral("type"), QStringLiteral("patch"));
@@ -2448,6 +2456,17 @@ bool operationFromJson(const QJsonObject &object, Operation &operation,
   }
   if (type == QStringLiteral("annotate")) {
     operation.type = Operation::Type::Annotate;
+    if (object.contains(QStringLiteral("annotations"))) {
+      const QJsonArray annotations =
+          object.value(QStringLiteral("annotations")).toArray();
+      for (const auto &value : annotations) {
+        Annotation annotation;
+        if (!annotationFromJson(value.toObject(), annotation, error))
+          return false;
+        operation.annotations.push_back(annotation);
+      }
+      return true;
+    }
     Annotation annotation;
     if (!annotationFromJson(object.value(QStringLiteral("annotation")).toObject(),
                             annotation, error))
@@ -2508,6 +2527,8 @@ bool saveOperationLog(const QString &path, const OperationLog &log,
   root.insert(QStringLiteral("index"), log.index);
   root.insert(QStringLiteral("nextId"), QString::number(log.nextId));
   root.insert(QStringLiteral("nextMarker"), log.nextMarker);
+  if (log.base > 0)
+    root.insert(QStringLiteral("base"), log.base);
   if (!log.recentId.isEmpty())
     root.insert(QStringLiteral("recentId"), log.recentId);
   if (!log.savedPath.isEmpty())
@@ -2575,7 +2596,10 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error) {
       return false;
     loaded.ops.push_back(std::move(operation));
   }
-  loaded.index = std::clamp(loaded.index, 0, static_cast<int>(loaded.ops.size()));
+  loaded.base = std::clamp(root.value(QStringLiteral("base")).toInt(), 0,
+                           static_cast<int>(loaded.ops.size()));
+  loaded.index = std::clamp(loaded.index, loaded.base,
+                            static_cast<int>(loaded.ops.size()));
   log = std::move(loaded);
   return true;
 }

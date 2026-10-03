@@ -826,7 +826,7 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
   }
   if (!log.ops.isEmpty()) {
     ops_ = std::move(log.ops);
-    opIndex_ = std::clamp(log.index, 0, static_cast<int>(ops_.size()));
+    adoptLogPosition(log.index, log.base);
     nextAnnotationId_ = std::max<quint64>(log.nextId, 1);
     nextMarker_ = std::max(log.nextMarker, 1);
   } else {
@@ -2912,6 +2912,7 @@ QString CaptureEditor::workingLogPath() const {
 OperationLog CaptureEditor::currentOperationLog() const {
   OperationLog log{ops_, opIndex_, nextAnnotationId_, nextMarker_,
                    pristineLogicalSize_, recentId_};
+  log.base = baseOps_;
   // Quick capture skips enterEdit(), where the initial crop is normally
   // committed. Retain that selection so the shelf reopens the captured area.
   if (phase_ == Phase::Export && !selection_.isEmpty() &&
@@ -2933,7 +2934,7 @@ bool CaptureEditor::restoreOperationLog(const QString &path, QString &error) {
   if (!log.recentId.isEmpty())
     recentId_ = log.recentId;
   ops_ = std::move(log.ops);
-  opIndex_ = std::clamp(log.index, 0, static_cast<int>(ops_.size()));
+  adoptLogPosition(log.index, log.base);
   nextAnnotationId_ = std::max<quint64>(log.nextId, 1);
   nextMarker_ = std::max(log.nextMarker, 1);
   replayLog();
@@ -2946,18 +2947,13 @@ void CaptureEditor::commitOp(Operation op) {
   if (opIndex_ < ops_.size())
     ops_.resize(opIndex_);
   ops_.push_back(std::move(op));
-  constexpr qsizetype maximumOps = 100;
-  while (ops_.size() > maximumOps) {
-    // Replay starts at the full monitor; the first Crop is the selected
-    // region/window. Dropping it leaves annotations in cropped space.
-    if (ops_.constFirst().type == Operation::Type::Crop)
-      ops_.removeAt(1);
-    else
-      ops_.removeFirst();
-    if (opIndex_ > 0)
-      --opIndex_;
-  }
   opIndex_ = ops_.size();
+  // Past 100 steps, fold the oldest down to 80 (in chunks, so a long session
+  // folds once per 20 edits instead of on every one).
+  constexpr qsizetype maximumOps = 100;
+  constexpr qsizetype foldedOps = 80;
+  if (ops_.size() > maximumOps)
+    foldOldestOperations(foldedOps);
   replayLog();
   scheduleSnapshot();
 }
@@ -3106,13 +3102,41 @@ void CaptureEditor::cycleBackground() {
   commitBackground(next, nextShadow);
 }
 
+namespace {
+/// What a log replays to; compared field by field when folding the log.
+struct ReplayedState {
+  QRectF selection;
+  BackgroundStyle background = BackgroundStyle::None;
+  bool imageShadow = true;
+  CanvasBoundaryMode canvasBoundary = CanvasBoundaryMode::Framed;
+  QVector<Annotation> annotations;
+  QVector<CutOp> cuts;
+  friend bool operator==(const ReplayedState &,
+                         const ReplayedState &) = default;
+};
+
+/// Pure replay of the first `count` operations from the untouched capture.
+ReplayedState replayOperations(const QVector<Operation> &ops, int count,
+                               QSizeF startSize);
+} // namespace
+
 void CaptureEditor::seedConfiguredBackground(BackgroundStyle style) {
   if (style == BackgroundStyle::None)
     return;
   Operation op;
   op.type = Operation::Type::Background;
   op.background = style;
-  ops_.insert(ops_.cbegin(), std::move(op));
+  // The configured backdrop is the very first step. Once history has folded
+  // (foldOldestOperations), "first" means right after the base, and only when
+  // no folded step already chose a backdrop (that later choice would win).
+  qsizetype at = 0;
+  if (baseOps_ > 0) {
+    if (replayOperations(ops_, baseOps_, replayStartSize()).background !=
+        BackgroundStyle::None)
+      return;
+    at = baseOps_;
+  }
+  ops_.insert(ops_.cbegin() + at, std::move(op));
   ++opIndex_;
   if (phase_ == Phase::Select)
     backgroundStyle_ = style;
@@ -3135,30 +3159,17 @@ void CaptureEditor::completeBackdropLoad() {
   }
 }
 
-void CaptureEditor::replayLog() {
-  QVector<quint64> selectedIds;
-  for (const int index : selectedAnnotations_) {
-    if (index >= 0 && index < annotations_.size() &&
-        annotations_.at(index).id != 0)
-      selectedIds.push_back(annotations_.at(index).id);
-  }
-  const quint64 selectedId =
-      selectedAnnotation_ >= 0 && selectedAnnotation_ < annotations_.size()
-          ? annotations_.at(selectedAnnotation_).id
-          : 0;
-
-  const QSize startSize =
-      pristineLogicalSize_.isEmpty() ? capture_.previewSize
-                                     : pristineLogicalSize_;
-  QRectF selection{QPointF(), QSizeF(startSize)};
+namespace {
+ReplayedState replayOperations(const QVector<Operation> &ops, int count,
+                               QSizeF startSize) {
+  QRectF selection{QPointF(), startSize};
   BackgroundStyle background = BackgroundStyle::None;
   bool imageShadow = true;
   CanvasBoundaryMode canvasBoundary = CanvasBoundaryMode::Framed;
   QVector<Annotation> annotations;
   QVector<CutOp> cuts;
-  int nextMarker = 1;
-  for (int index = 0; index < opIndex_ && index < ops_.size(); ++index) {
-    const Operation &op = ops_.at(index);
+  for (int index = 0; index < count && index < ops.size(); ++index) {
+    const Operation &op = ops.at(index);
     switch (op.type) {
     case Operation::Type::Crop: {
       // Annotation coordinates are relative to the source frame. Preserve
@@ -3238,19 +3249,137 @@ void CaptureEditor::replayLog() {
     }
     }
   }
+  return {selection, background, imageShadow, canvasBoundary,
+          std::move(annotations), std::move(cuts)};
+}
 
-  annotations_ = std::move(annotations);
-  backgroundStyle_ = background;
-  imageShadow_ = imageShadow;
-  canvasBoundaryMode_ = canvasBoundary;
-  if (cuts != cuts_) {
-    cuts_ = std::move(cuts);
+QVector<Operation> foldedBaseOperations(const ReplayedState &state,
+                                        QSizeF startSize) {
+  QVector<Operation> base;
+  // Cuts shrink the selection as they replay, so the crop that precedes them
+  // is the final selection grown back by every removed band.
+  QRectF crop = state.selection;
+  for (const CutOp &cut : state.cuts) {
+    const qreal band = cut.logicalEnd - cut.logicalStart;
+    if (band <= 0.0)
+      continue;
+    if (cut.orientation == Qt::Horizontal)
+      crop.setHeight(crop.height() + band);
+    else
+      crop.setWidth(crop.width() + band);
+  }
+  if (crop != QRectF(QPointF(), startSize)) {
+    Operation op;
+    op.type = Operation::Type::Crop;
+    op.crop = crop;
+    base.push_back(op);
+  }
+  for (const CutOp &cut : state.cuts) {
+    Operation op;
+    op.type = Operation::Type::Cut;
+    op.cut = cut;
+    base.push_back(op);
+  }
+  if (state.background != BackgroundStyle::None || !state.imageShadow) {
+    Operation op;
+    op.type = Operation::Type::Background;
+    op.background = state.background;
+    op.imageShadow = state.imageShadow;
+    base.push_back(op);
+  }
+  if (state.canvasBoundary != CanvasBoundaryMode::Framed) {
+    Operation op;
+    op.type = Operation::Type::CanvasBoundary;
+    op.canvasBoundary = state.canvasBoundary;
+    base.push_back(op);
+  }
+  // Annotations come last, already in their final coordinates, so no crop or
+  // cut above moves them again. One op keeps their order and ids.
+  if (!state.annotations.isEmpty()) {
+    Operation op;
+    op.type = Operation::Type::Annotate;
+    op.annotations = state.annotations;
+    base.push_back(op);
+  }
+  return base;
+}
+} // namespace
+
+void CaptureEditor::adoptLogPosition(int index, int base) {
+  const int size = static_cast<int>(ops_.size());
+  baseOps_ = std::clamp(base, 0, size);
+  opIndex_ = std::clamp(index, baseOps_, size);
+}
+
+QSizeF CaptureEditor::replayStartSize() const {
+  return QSizeF(pristineLogicalSize_.isEmpty() ? capture_.previewSize
+                                               : pristineLogicalSize_);
+}
+
+void CaptureEditor::foldOldestOperations(qsizetype target) {
+  // Dropping the oldest operation at the cap deleted the first layer on the
+  // 101st edit, a redaction included, so the export showed the hidden pixels
+  // again. Instead the oldest steps fold into a base: a
+  // few operations that rebuild the same state. Undo stops at the base; no
+  // layer is ever lost. The fold is checked by replaying both logs at every
+  // remaining undo step; if anything differs, nothing is folded and the log
+  // simply grows past the cap (a longer history, never a lost layer).
+  const QSizeF start = replayStartSize();
+  qsizetype fold = std::max<qsizetype>(baseOps_, ops_.size() - target);
+  for (int attempt = 0; attempt < 4 && fold <= opIndex_; ++attempt) {
+    const QVector<Operation> base =
+        foldedBaseOperations(replayOperations(ops_, static_cast<int>(fold),
+                                              start),
+                             start);
+    QVector<Operation> folded = base;
+    folded.append(ops_.mid(fold));
+    if (folded.size() > target && fold < opIndex_) {
+      fold = std::min<qsizetype>(opIndex_, fold + folded.size() - target);
+      continue;
+    }
+    if (folded.size() >= ops_.size())
+      return; // folding would not shorten the log
+    const qsizetype shift = base.size() - fold;
+    for (qsizetype step = fold; step <= ops_.size(); ++step) {
+      if (replayOperations(ops_, static_cast<int>(step), start) !=
+          replayOperations(folded, static_cast<int>(step + shift), start)) {
+        qWarning("Kept the full edit history: folding it would change step %lld",
+                 static_cast<long long>(step));
+        return;
+      }
+    }
+    ops_ = std::move(folded);
+    opIndex_ = static_cast<int>(opIndex_ + shift);
+    baseOps_ = static_cast<int>(base.size());
+    return;
+  }
+}
+
+void CaptureEditor::replayLog() {
+  QVector<quint64> selectedIds;
+  for (const int index : selectedAnnotations_) {
+    if (index >= 0 && index < annotations_.size() &&
+        annotations_.at(index).id != 0)
+      selectedIds.push_back(annotations_.at(index).id);
+  }
+  const quint64 selectedId =
+      selectedAnnotation_ >= 0 && selectedAnnotation_ < annotations_.size()
+          ? annotations_.at(selectedAnnotation_).id
+          : 0;
+
+  ReplayedState replayed = replayOperations(ops_, opIndex_, replayStartSize());
+  annotations_ = std::move(replayed.annotations);
+  backgroundStyle_ = replayed.background;
+  imageShadow_ = replayed.imageShadow;
+  canvasBoundaryMode_ = replayed.canvasBoundary;
+  if (replayed.cuts != cuts_) {
+    cuts_ = std::move(replayed.cuts);
     refreshComposedCapture();
   }
-  if (!selection.isEmpty())
-    selection_ = selection;
+  if (!replayed.selection.isEmpty())
+    selection_ = replayed.selection;
   refreshCanvasRect();
-  nextMarker = 1;
+  int nextMarker = 1;
   for (const Annotation &annotation : annotations_) {
     if (annotation.kind == Annotation::Kind::Marker)
       nextMarker = std::max(nextMarker, annotation.number + 1);
@@ -3298,8 +3427,11 @@ int CaptureEditor::raiseAnnotation(int index) {
 void CaptureEditor::undoEdit() {
   endNudgeRun();
   cancelActiveDragForHistory();
-  if (opIndex_ <= 0) {
-    setStatus(QStringLiteral("Nothing to undo"));
+  // The folded base (see foldOldestOperations) is one state, not steps.
+  if (opIndex_ <= baseOps_) {
+    setStatus(baseOps_ > 0
+                  ? QStringLiteral("Nothing older to undo: earlier steps were merged")
+                  : QStringLiteral("Nothing to undo"));
     return;
   }
   --opIndex_;
@@ -6828,7 +6960,7 @@ void CaptureEditor::adoptImage(QImage image, OperationLog log, CaptureMode kind,
   pristineLogicalSize_ = capture_.previewSize;
   cuts_.clear();
   ops_ = std::move(log.ops);
-  opIndex_ = std::clamp(log.index, 0, static_cast<int>(ops_.size()));
+  adoptLogPosition(log.index, log.base);
   nextAnnotationId_ = std::max<quint64>(log.nextId, 1);
   nextMarker_ = std::max(log.nextMarker, 1);
   redactionBaseStale_ = true;
@@ -6874,6 +7006,7 @@ void CaptureEditor::returnToSelect() {
   // screen again.
   ops_.clear();
   opIndex_ = 0;
+  baseOps_ = 0;
   replayLog();
   if (handedImage_) {
     // A stitched result is not the screen; take the monitor again so the

@@ -34,6 +34,7 @@
 #include "transform-smoke.hpp"
 #include "eyedropper.hpp"
 #include "icons.hpp"
+#include "image-fixture.hpp"
 
 #include <QApplication>
 #include <QBackingStore>
@@ -6361,7 +6362,9 @@ bool runOpLogCapKeepsLeadingCrop(QApplication &application, QString &error) {
   QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
   application.processEvents();
 
-  if (editor.operationLog().size() != 100 ||
+  // Past the cap the oldest steps fold into a base that starts with the crop,
+  // so the log stays within 100 operations and still leads with it.
+  if (editor.operationLog().size() > 100 ||
       editor.operationLog().constFirst().type != Operation::Type::Crop ||
       editor.currentSelection() != crop) {
     error = QStringLiteral("Op-log cap dropped the initial crop");
@@ -6404,6 +6407,127 @@ bool runOpLogCapKeepsLeadingCrop(QApplication &application, QString &error) {
     return false;
   }
   editor.close();
+  return true;
+}
+
+/**
+ * The 100-op cap used to drop the oldest operation, so the 101st edit deleted
+ * the first layer. When that layer was a redaction, the export showed the
+ * hidden pixels again. Old steps must fold into a base state instead: undo
+ * depth is what the cap limits, never content.
+ */
+bool runOpLogCapKeepsLayers(QApplication &application, QString &error) {
+  const QImage source = rowBandImage(400, 30, 10);
+  const QColor secret = fixtureBandColor(1);
+  CaptureData capture;
+  describeFileCapture(capture, source, {});
+  CaptureEditor editor(capture, CaptureEditor::CaptureMode::File,
+                       QuickOutputMode::None);
+  editor.setSuppressSnapshots(true);
+  editor.resize(1000, 800);
+  editor.show();
+  application.processEvents();
+  const auto drag = [](CaptureEditor &target, QPointF from, QPointF to) {
+    const QPoint start = target.annotationPointToWidgetForTest(from).toPoint();
+    const QPoint end = target.annotationPointToWidgetForTest(to).toPoint();
+    QTest::mousePress(&target, Qt::LeftButton, Qt::NoModifier, start);
+    QTest::mouseMove(&target, end, 10);
+    QTest::mouseRelease(&target, Qt::LeftButton, Qt::NoModifier, end);
+  };
+  // The pixel under band 1 (rows 30..59) with the layers but no backdrop.
+  const auto underRedaction = [](const CaptureEditor &target) {
+    return renderCapture(target.captureData(), target.currentSelection(),
+                         target.currentAnnotationsForTest(),
+                         BackgroundStyle::None)
+        .pixelColor(200, 45);
+  };
+  // A solid redaction over band 1, then a rectangle.
+  QTest::keyClick(&editor, Qt::Key_D);
+  QTest::keyClick(&editor, Qt::Key_D);
+  drag(editor, {0, 25}, {400, 65});
+  QTest::keyClick(&editor, Qt::Key_R);
+  drag(editor, {40, 120}, {160, 200});
+  if (editor.annotationCountForTest() != 2 || underRedaction(editor) == secret) {
+    error = QStringLiteral("Op-log cap fixture could not draw its layers");
+    return false;
+  }
+  // 150 more undoable steps: each B cycles the backdrop.
+  for (int index = 0; index < 150; ++index)
+    QTest::keyClick(&editor, Qt::Key_B);
+  application.processEvents();
+  if (editor.annotationCountForTest() != 2) {
+    error = QStringLiteral("Op-log cap dropped a layer (%1 left of 2)")
+                .arg(editor.annotationCountForTest());
+    return false;
+  }
+  if (underRedaction(editor) == secret) {
+    error = QStringLiteral("Op-log cap dropped the redaction: the hidden pixels show");
+    return false;
+  }
+  if (editor.operationLog().size() > 100) {
+    error = QStringLiteral("Op log is no longer bounded (%1 operations)")
+                .arg(editor.operationLog().size());
+    return false;
+  }
+  // Undo as far as it goes: the folded base is one state, so the early
+  // layers stay.
+  for (int index = 0; index < 200; ++index)
+    QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+  application.processEvents();
+  if (editor.annotationCountForTest() != 2 || underRedaction(editor) == secret) {
+    error = QStringLiteral("Undoing past the cap removed folded layers (%1 left)")
+                .arg(editor.annotationCountForTest());
+    return false;
+  }
+  for (int index = 0; index < 200; ++index)
+    QTest::keyClick(&editor, Qt::Key_Y, Qt::ControlModifier);
+  application.processEvents();
+  // The working document, the recents shelf and the window handoff all go
+  // through the JSON log, so the folded base must survive a round trip.
+  const QTemporaryDir directory;
+  if (!directory.isValid()) {
+    error = QStringLiteral("Could not create op-log fold directory");
+    return false;
+  }
+  const QString logPath =
+      QDir(directory.path()).filePath(QStringLiteral("folded.json"));
+  OperationLog persisted;
+  persisted.ops = editor.operationLog();
+  persisted.index = editor.operationIndex();
+  persisted.base = editor.operationBase();
+  persisted.nextId = 1000;
+  if (persisted.base <= 0) {
+    error = QStringLiteral("A log past the cap reported no folded base");
+    return false;
+  }
+  OperationLog reloaded;
+  if (!saveOperationLog(logPath, persisted, error) ||
+      !loadOperationLog(logPath, reloaded, error))
+    return false;
+  editor.close();
+  CaptureData reopenedCapture;
+  describeFileCapture(reopenedCapture, source, reloaded);
+  CaptureEditor reopened(reopenedCapture, CaptureEditor::CaptureMode::File,
+                         QuickOutputMode::None, reloaded);
+  reopened.setSuppressSnapshots(true);
+  reopened.resize(1000, 800);
+  reopened.show();
+  application.processEvents();
+  if (reopened.annotationCountForTest() != 2 ||
+      underRedaction(reopened) == secret) {
+    error = QStringLiteral("A folded log lost layers on save and reload (%1 left)")
+                .arg(reopened.annotationCountForTest());
+    return false;
+  }
+  for (int index = 0; index < 200; ++index)
+    QTest::keyClick(&reopened, Qt::Key_Z, Qt::ControlModifier);
+  application.processEvents();
+  if (reopened.annotationCountForTest() != 2 ||
+      underRedaction(reopened) == secret) {
+    error = QStringLiteral("A reloaded folded log let undo remove its base");
+    return false;
+  }
+  reopened.close();
   return true;
 }
 
@@ -12779,6 +12903,10 @@ int main(int argc, char **argv) {
   if (!runOpLogCapKeepsLeadingCrop(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 84;
+  }
+  if (!runOpLogCapKeepsLayers(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 226;
   }
   if (!runCropDragKeepsContentStill(application, snapshotError) ||
       !runCropKeepsAnnotationsAnchored(application, snapshotError)) {

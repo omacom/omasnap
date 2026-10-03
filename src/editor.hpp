@@ -132,6 +132,8 @@ public:
   }
   [[nodiscard]] const QVector<Operation> &operationLog() const { return ops_; }
   [[nodiscard]] int operationIndex() const { return opIndex_; }
+  /// Operations before this index are the folded base: one state, not steps.
+  [[nodiscard]] int operationBase() const { return baseOps_; }
   [[nodiscard]] QString workingSourcePath() const { return snapshotPath_; }
   [[nodiscard]] QString workingLogPath() const;
   bool restoreOperationLog(const QString &path, QString &error);
@@ -652,6 +654,9 @@ private:
   void cycleCanvasBoundary(bool reverse);
   void cycleBackground();
   void replayLog();
+  [[nodiscard]] QSizeF replayStartSize() const;
+  void foldOldestOperations(qsizetype target);
+  void adoptLogPosition(int index, int base);
   void redoEdit();
   void selectWindowInDirection(int key);
   friend bool runSaveAsSmoke(QString &error);
@@ -931,6 +936,8 @@ private:
   QVector<Annotation> annotations_;
   QVector<Operation> ops_;
   int opIndex_ = 0;
+  /// Leading ops_ that hold folded history (see foldOldestOperations()).
+  int baseOps_ = 0;
   quint64 nextAnnotationId_ = 1;
   int selectedAnnotation_ = -1;
   int editingAnnotation_ = -1;

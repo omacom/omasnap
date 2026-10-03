@@ -59,6 +59,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- The 101st edit no longer deletes the first layer. The 100-step history used
+  to drop its oldest step outright, so an early redaction could vanish and
+  reveal what it covered; old steps now merge into a fixed starting state.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.
