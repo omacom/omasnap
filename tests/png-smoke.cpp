@@ -1,6 +1,7 @@
 /** @fileoverview Independently decode PNG output and verify lossless pixels. */
 #include "png-smoke.hpp"
 
+#include "capture.hpp"
 #include "png.hpp"
 
 #include <QBuffer>
@@ -166,6 +167,75 @@ bool runPngSmoke(QString &error) {
       QImage::fromData(bytes, "PNG").convertToFormat(scroll.format()) != scroll ||
       pngLogicalSize(QImage::fromData(bytes, "PNG")) != QSize(512, 16500)) {
     error = QStringLiteral("A long scrolling capture lost pixels in PNG output");
+    return false;
+  }
+  return true;
+}
+
+bool runPngLogicalSizeBoundsSmoke(QString &error) {
+  // Real display scales, a long scroll capture included, are believed.
+  struct Kept {
+    QSize pixels;
+    QSize logical;
+  };
+  for (const Kept &kept : {Kept{{2000, 2000}, {2000, 2000}},
+                           Kept{{2000, 2000}, {1000, 1000}},
+                           Kept{{3200, 2000}, {2560, 1600}},
+                           Kept{{2000, 2000}, {500, 500}},
+                           Kept{{1024, 33000}, {512, 16500}}}) {
+    QImage image(kept.pixels, QImage::Format_RGB32);
+    setPngLogicalSize(image, kept.logical);
+    if (pngLogicalSize(image) != kept.logical) {
+      error = QStringLiteral("A %1x%2 logical size on %3x%4 pixels was refused")
+                  .arg(kept.logical.width())
+                  .arg(kept.logical.height())
+                  .arg(kept.pixels.width())
+                  .arg(kept.pixels.height());
+      return false;
+    }
+  }
+  // A tag from a PNG anyone can hand to --file is not believed when it
+  // claims an impossible scale: it would multiply the frame drawn around
+  // the export (and the editor's view) by that factor.
+  // An opened file keeps its pixels, so its output scale per axis is the
+  // source size over the logical size (what renderCapture multiplies by).
+  const auto outputScale = [](const CaptureData &capture) {
+    return QSizeF(capture.source.width() / qreal(capture.previewSize.width()),
+                  capture.source.height() / qreal(capture.previewSize.height()));
+  };
+  QImage small(400, 400, QImage::Format_RGB32);
+  small.fill(Qt::white);
+  for (const char *tag : {"40x40", "99x99", "1x1", "400x10"}) {
+    small.setText(QStringLiteral("Omasnap logical size"), QString::fromLatin1(tag));
+    CaptureData capture;
+    describeFileCapture(capture, small, {});
+    const QSizeF scale = outputScale(capture);
+    if (scale.width() > 4.0 || scale.height() > 4.0) {
+      const QImage framed =
+          renderCapture(capture, QRectF(QPointF(), capture.previewSize), {},
+                        BackgroundStyle::Slate, false, CanvasBoundaryMode::Framed);
+      error = QStringLiteral("Logical size tag %1 on a 400x400 PNG was believed: "
+                             "scale %2x%3, framed export %4x%5")
+                  .arg(QString::fromLatin1(tag))
+                  .arg(scale.width())
+                  .arg(scale.height())
+                  .arg(framed.width())
+                  .arg(framed.height());
+      return false;
+    }
+  }
+  // An edit log's preview size sets the same scale and obeys the same bound.
+  small.setText(QStringLiteral("Omasnap logical size"), QString());
+  OperationLog log;
+  log.previewSize = {40, 40};
+  CaptureData capture;
+  describeFileCapture(capture, small, log);
+  const QSizeF scale = outputScale(capture);
+  if (scale.width() > 4.0 || scale.height() > 4.0) {
+    error = QStringLiteral("An operation log's 40x40 preview size on a 400x400 "
+                           "image was believed: scale %1x%2")
+                .arg(scale.width())
+                .arg(scale.height());
     return false;
   }
   return true;

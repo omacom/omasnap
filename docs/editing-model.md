@@ -77,6 +77,8 @@ Flattened PNG exports carry their complete logical dimensions in an
 File and clipboard imports read it without needing the private sidecar;
 an editable document's operation log takes precedence. Untagged images retain
 their pixel dimensions: print DPI does not establish screenshot display scale.
+A tag or log whose logical size would mean a scale outside 1 to 4 on either
+axis is ignored, so a hand-made value cannot blow up the frame or the view.
 
 ## The two exceptions, and why they're still safe
 

@@ -13838,6 +13838,10 @@ int main(int argc, char **argv) {
     qWarning().noquote() << pngError;
     return EXIT_FAILURE;
   }
+  if (!runPngLogicalSizeBoundsSmoke(pngError)) {
+    qWarning().noquote() << pngError;
+    return 235;
+  }
 
   QString clipboardError;
   if (!runClipboardSmoke(clipboardError)) {

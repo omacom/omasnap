@@ -2656,9 +2656,9 @@ void describeFileCapture(CaptureData &capture, QImage image,
   QSize logicalSize = pngLogicalSize(image);
   // Editable documents take precedence: their operations use the source
   // canvas's coordinates, whereas a PNG tag describes its flattened pixels.
-  if (log.previewSize.isValid() && !log.previewSize.isEmpty() &&
-      log.previewSize.width() <= image.width() &&
-      log.previewSize.height() <= image.height()) {
+  // Both obey the same scale bound.
+  if (log.previewSize.isValid() &&
+      logicalScaleAllowed(image.size(), log.previewSize)) {
     logicalSize = log.previewSize;
   }
   if (!logicalSize.isEmpty()) {
