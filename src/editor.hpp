@@ -227,6 +227,8 @@ private:
   struct OcrResult {
     QString text;
     QString error;
+    /// Set when the worker could not copy `text` to the clipboard.
+    QString clipboardError;
   };
   /// What the export worker hands back: the saved path (Save/Both) or an
   /// error. Rendering, PNG encoding and the clipboard round trip all run off

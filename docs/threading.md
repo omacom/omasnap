@@ -27,13 +27,16 @@ reading its corresponding worker:
 | Watcher | Worker does |
 |---|---|
 | `captureWatcher_` | Reads window/monitor pixels via `captureMonitorPixels` |
-| `ocrWatcher_` | Renders the OCR crop and runs `tesseract` |
+| `ocrWatcher_` | Renders the OCR crop, runs `tesseract`, and copies the text |
 | `finishWatcher_` | Renders/encodes the export, copies/saves/launches the preview, then records the recent document |
 | `snapshotWatcher_` | Writes the crash-recovery working snapshot + operation log |
 | `pinWatcher_` | Renders and launches a pinned compositor window, then records the capture |
 | `recentsWatcher_` | Lists and decodes thumbnails for the recents shelf |
 | `backdropWatcher_` | Decodes an optional user-supplied backdrop image |
 | `highlighterProbeWatcher_` | Detects a nearby screenshot text row for highlighter Snap mode |
+
+The eyedropper copies its sampled hex on a one-thread pool, so quick samples
+land on the clipboard in the order they were taken.
 
 Editor dismissal also uses a worker, tracked by `dismissFuture_`, to return edits
 to an originating pin and retain the recent document. Output workers publish

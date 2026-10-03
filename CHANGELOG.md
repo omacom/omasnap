@@ -59,6 +59,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Copying OCR text or an eyedropper colour no longer freezes the editor while
+  `wl-copy` runs: both copies now happen off the UI thread.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.

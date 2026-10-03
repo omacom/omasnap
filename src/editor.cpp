@@ -50,6 +50,7 @@
 #include <QTextLayout>
 #include <QTextDocument>
 #include <QThread>
+#include <QThreadPool>
 #include <QTimer>
 #include <QWheelEvent>
 
@@ -143,6 +144,17 @@ private:
 };
 
 namespace {
+/// One thread for clipboard writes started from the UI, so they never block
+/// it and still land in the order they were asked for.
+QThreadPool &clipboardWorker() {
+  static QThreadPool *pool = [] {
+    auto *created = new QThreadPool(qApp);
+    created->setMaxThreadCount(1);
+    return created;
+  }();
+  return *pool;
+}
+
 constexpr std::array<qreal, 3> kTextSizes{2.0, 5.0, 9.0};
 constexpr std::array<const char *, 3> kTextSizeNames{"S", "M", "L"};
 constexpr qreal kToolbarWidth = 840;
@@ -900,16 +912,15 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
       setStatus(result.error);
       return;
     }
-    QString clipboardError;
-    if (!copyTextToClipboard(result.text, clipboardError)) {
-      dismissOcrOverlay();
-      setStatus(clipboardError);
-      return;
-    }
     const QString shown = result.text.trimmed();
     if (shown.isEmpty()) {
       dismissOcrOverlay();
       setStatus(QStringLiteral("No text found in that area"));
+      return;
+    }
+    if (!result.clipboardError.isEmpty()) {
+      dismissOcrOverlay();
+      setStatus(result.clipboardError);
       return;
     }
     setStatus(QStringLiteral("OCR copied to clipboard"));
@@ -3998,6 +4009,10 @@ void CaptureEditor::runOcr(const QRectF &localSelection) {
       result.error = QStringLiteral("Could not prepare image for OCR");
     else
       result.text = recognizeText(image, result.error);
+    // The copy is a wl-copy plus a wl-paste check (up to 2 x (5 + 5) s of
+    // timeouts). Run it here, on the worker, so the UI never waits on it.
+    if (result.error.isEmpty() && !result.text.trimmed().isEmpty())
+      static_cast<void>(copyTextToClipboard(result.text, result.clipboardError));
     return result;
   }));
 }
@@ -5831,9 +5846,15 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
       annotations_[selectedAnnotation_].color = customColor_;
       commitPatch({selectedAnnotation_});
     }
-    QString clipboardError;
-    static_cast<void>(copyTextToClipboard(
-        customColor_.name(QColor::HexRgb).toUpper(), clipboardError));
+    // The wl-copy + wl-paste round trip must not run inside the click
+    // handler. One serial worker keeps quick samples in order, so the last
+    // colour sampled is the one left on the clipboard.
+    clipboardWorker().start(
+        [hex = customColor_.name(QColor::HexRgb).toUpper()] {
+          QString clipboardError;
+          if (!copyTextToClipboard(hex, clipboardError))
+            qWarning().noquote() << clipboardError;
+        });
     // Sampling a color is something you do in order to keep working: it
     // hands back the tool that was in hand, and leaves the layer it just
     // recolored selected so another color can be tried on it. Dropping both

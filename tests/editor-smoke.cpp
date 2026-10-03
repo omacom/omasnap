@@ -59,6 +59,7 @@
 #include <QPixmap>
 #include <QScrollBar>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QUrl>
 #include <QWheelEvent>
 #include <QWindow>
@@ -6299,6 +6300,138 @@ bool runNotificationArgvCheck(QString &error) {
     return false;
   }
   sendCaptureNotification(QStringLiteral("smoke"));
+  return true;
+}
+
+/**
+ * The OCR result and the eyedropper's hex were copied with wl-copy plus a
+ * wl-paste check on the UI thread (the OCR finished slot and the mouse
+ * handler), so a slow wl-copy froze the editor. With a wl-copy that takes
+ * 1.5 s, neither may stall the UI thread, and both copies must still land.
+ */
+bool runClipboardCopiesOffUiThread(QApplication &application, QString &error) {
+  QTemporaryDir slow;
+  if (!slow.isValid()) {
+    error = QStringLiteral("Could not create the slow clipboard directory");
+    return false;
+  }
+  const QString board = QDir(slow.path()).filePath(QStringLiteral("board"));
+  const QByteArray quoted = QFile::encodeName(board);
+  const auto command = [&](const char *name, const QByteArray &body) {
+    QFile file(QDir(slow.path()).filePath(QString::fromLatin1(name)));
+    return file.open(QIODevice::WriteOnly) && file.write(body) > 0 &&
+           file.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+  };
+  if (!command("wl-copy", "#!/bin/sh\nsleep 1.5\ncat > '" + quoted + "'\n") ||
+      !command("wl-paste", "#!/bin/sh\nexec cat '" + quoted + "'\n")) {
+    error = QStringLiteral("Could not write the slow clipboard commands");
+    return false;
+  }
+  const QByteArray oldPath = qgetenv("PATH");
+  qputenv("PATH", slow.path().toUtf8() + ':' + oldPath);
+  const auto restorePath = qScopeGuard([&] { qputenv("PATH", oldPath); });
+
+  // The longest gap between 10 ms ticks of the UI thread.
+  QElapsedTimer clock;
+  qint64 last = 0;
+  qint64 worst = 0;
+  QTimer ticker;
+  ticker.setInterval(10);
+  QObject::connect(&ticker, &QTimer::timeout, [&] {
+    const qint64 now = clock.elapsed();
+    worst = std::max(worst, now - last);
+    last = now;
+  });
+  const auto clipboardHolds = [&](const QString &expected) {
+    return QTest::qWaitFor(
+        [&] {
+          QFile file(board);
+          return file.open(QIODevice::ReadOnly) &&
+                 file.readAll() == expected.toUtf8();
+        },
+        8000);
+  };
+
+  {
+    QImage page(1000, 260, QImage::Format_RGB32);
+    page.fill(Qt::white);
+    {
+      QPainter painter(&page);
+      painter.setPen(Qt::black);
+      painter.setFont(QFont(QStringLiteral("Noto Sans"), 64, QFont::Bold));
+      painter.drawText(page.rect(), Qt::AlignCenter,
+                       QStringLiteral("OCR smoke test 42"));
+    }
+    CaptureData capture;
+    describeFileCapture(capture, page, {});
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::File,
+                         QuickOutputMode::None);
+    editor.setSuppressSnapshots(true);
+    editor.resize(1000, 600);
+    editor.show();
+    application.processEvents();
+    clock.start();
+    last = 0;
+    worst = 0;
+    ticker.start();
+    QTest::keyClick(&editor, Qt::Key_O);
+    const bool settled = QTest::qWaitFor(
+        [&] {
+          return !editor.statusForTest().startsWith(
+              QStringLiteral("Reading selected text"));
+        },
+        15000);
+    QTest::qWait(50);
+    ticker.stop();
+    if (!settled ||
+        !editor.statusForTest().contains(QStringLiteral("OCR copied"))) {
+      error = QStringLiteral("OCR did not copy its text: %1")
+                  .arg(editor.statusForTest());
+      return false;
+    }
+    if (worst >= 500) {
+      error = QStringLiteral("Copying the OCR text stalled the UI thread %1 ms")
+                  .arg(worst);
+      return false;
+    }
+    if (!clipboardHolds(QStringLiteral("OCR smoke test 42"))) {
+      error = QStringLiteral("The OCR text never reached the clipboard");
+      return false;
+    }
+    editor.close();
+  }
+
+  {
+    QImage swatch(400, 300, QImage::Format_ARGB32_Premultiplied);
+    const QColor sampled(QStringLiteral("#3a7bd5"));
+    swatch.fill(sampled);
+    CaptureData capture;
+    describeFileCapture(capture, swatch, {});
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::File,
+                         QuickOutputMode::None);
+    editor.setSuppressSnapshots(true);
+    editor.resize(1000, 800);
+    editor.show();
+    application.processEvents();
+    QTest::keyClick(&editor, Qt::Key_I);
+    const QPoint point =
+        editor.annotationPointToWidgetForTest({200, 150}).toPoint();
+    QElapsedTimer handler;
+    handler.start();
+    QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, point);
+    const qint64 spent = handler.elapsed();
+    if (spent >= 500) {
+      error = QStringLiteral("The eyedropper click blocked the UI thread %1 ms")
+                  .arg(spent);
+      return false;
+    }
+    const QString hex = sampled.name(QColor::HexRgb).toUpper();
+    if (!clipboardHolds(hex)) {
+      error = QStringLiteral("The eyedropper never copied %1").arg(hex);
+      return false;
+    }
+    editor.close();
+  }
   return true;
 }
 
@@ -13843,6 +13976,10 @@ int main(int argc, char **argv) {
   if (!runClipboardSmoke(clipboardError)) {
     qWarning().noquote() << clipboardError;
     return 88;
+  }
+  if (!runClipboardCopiesOffUiThread(application, clipboardError)) {
+    qWarning().noquote() << clipboardError;
+    return 227;
   }
 
   QString transformError;
