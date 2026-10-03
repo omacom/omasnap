@@ -2,12 +2,16 @@
 #include "instance-lock.hpp"
 
 #include <QDeadlineTimer>
+#include <QFile>
 #include <QLockFile>
 #include <QThread>
 
 #include <cerrno>
 #include <csignal>
 #include <cstring>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 namespace {
 /** How long a starting editor waits for the running instance to let go. */
@@ -40,6 +44,19 @@ InstanceHolder readHolder(QLockFile &lock, qint64 &pid) {
   pid = lockPid;
   if (::kill(static_cast<pid_t>(lockPid), 0) != 0 && errno == ESRCH)
     return InstanceHolder::Dead;
+  // A live pid is not proof: after a crash leaves the lock file behind, its
+  // pid can be reused by another omasnap process (a pin never holds the
+  // lock), which would then be sent SIGTERM. QLockFile keeps an exclusive
+  // flock() on the file from before it writes the pid until it unlocks, so
+  // a lock file nobody has flocked is stale whatever pid it names.
+  const int fd = ::open(QFile::encodeName(lock.fileName()).constData(),
+                        O_RDONLY | O_CLOEXEC);
+  if (fd >= 0) {
+    const bool unheld = ::flock(fd, LOCK_SH | LOCK_NB) == 0;
+    ::close(fd); // Also drops the probe's shared lock.
+    if (unheld)
+      return InstanceHolder::Dead;
+  }
   return InstanceHolder::Alive;
 }
 

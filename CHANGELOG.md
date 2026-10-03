@@ -59,6 +59,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- A lock file left by a crashed capture no longer gets an unrelated omasnap
+  process (such as a pin that reused its process ID) closed by the next
+  capture; a lock nobody holds is reclaimed instead.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.

@@ -3,13 +3,17 @@
 
 #include "instance-lock.hpp"
 
+#include <QByteArray>
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QDir>
 #include <QFile>
+#include <QIODevice>
+#include <QList>
 #include <QLockFile>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QThread>
 
@@ -185,6 +189,67 @@ bool runStaleLockCheck(const QString &lockPath, QString &error) {
   return true;
 }
 
+/** A lock left by a killed instance can name a pid that now belongs to
+ *  another live omasnap process, such as a pin (pins never hold the lock).
+ *  That process must not be signalled: nobody holds the lock, so it is stale. */
+bool runReusedPidStaleLockCheck(const QString &root, QString &error) {
+  const QString lockPath =
+      QDir(root).filePath(QStringLiteral("reused.instance"));
+  QProcess holder;
+  if (!startLockHolder(holder, lockPath, error))
+    return false;
+  holder.kill();
+  if (!holder.waitForFinished(2000) || !QFile::exists(lockPath)) {
+    error = QStringLiteral("Killed lock holder left no lock file to reuse");
+    return false;
+  }
+  // The bystander is this same executable, like a pin: alive, same program
+  // name (Qt already treats a pid owned by another program as stale), and
+  // holding a different lock, not this one.
+  QProcess bystander;
+  if (!startLockHolder(bystander,
+                       QDir(root).filePath(QStringLiteral("other.instance")),
+                       error))
+    return false;
+  const auto stopBystander = qScopeGuard([&bystander] {
+    bystander.kill();
+    bystander.waitForFinished(2000);
+  });
+  QFile file(lockPath);
+  if (!file.open(QIODevice::ReadOnly)) {
+    error = QStringLiteral("Could not read the stale lock file");
+    return false;
+  }
+  QList<QByteArray> lines = file.readAll().split('\n');
+  file.close();
+  lines[0] = QByteArray::number(bystander.processId());
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) ||
+      file.write(lines.join('\n')) <= 0) {
+    error = QStringLiteral("Could not point the stale lock at the bystander");
+    return false;
+  }
+  file.close();
+
+  QLockFile lock(lockPath);
+  const InstanceLockResult result =
+      acquireInstanceLock(lock, InstanceMode::Capture);
+  const bool bystanderAlive = !bystander.waitForFinished(200) &&
+                              bystander.state() == QProcess::Running;
+  if (!bystanderAlive || result.signalledPid != 0) {
+    error = QStringLiteral("A stale lock's reused pid (another live omasnap "
+                           "process) was sent SIGTERM");
+    return false;
+  }
+  if (!result.proceed || !lock.isLocked()) {
+    error = QStringLiteral("A stale lock naming a reused pid was not "
+                           "reclaimed: %1")
+                .arg(result.error);
+    return false;
+  }
+  lock.unlock();
+  return true;
+}
+
 /** An unusable lock path must fail loudly, not look like a second instance. */
 bool runUnwritableLockCheck(const QString &root, QString &error) {
   if (::geteuid() == 0)
@@ -227,6 +292,15 @@ bool runInstanceLockSmoke(QString &error) {
          runCaptureCancelCheck(lockPath, error) &&
          runStaleLockCheck(lockPath, error) &&
          runUnwritableLockCheck(lockRoot.path(), error);
+}
+
+bool runInstanceLockReusedPidSmoke(QString &error) {
+  const QTemporaryDir lockRoot;
+  if (!lockRoot.isValid()) {
+    error = QStringLiteral("Could not create the instance-lock test directory");
+    return false;
+  }
+  return runReusedPidStaleLockCheck(lockRoot.path(), error);
 }
 
 int runInstanceLockHolder(const QString &lockPath) {
