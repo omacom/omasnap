@@ -8,6 +8,7 @@
 #include "chrome-theme.hpp"
 #include "card-stack.hpp"
 #include "capture.hpp"
+#include "grab-hide.hpp"
 #include "pin-file.hpp"
 #include "pin-expiry.hpp"
 #include "pin-layout.hpp"
@@ -21,6 +22,7 @@
 #include <QDir>
 #include <QDrag>
 #include <QFile>
+#include <QFileDevice>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QEnterEvent>
@@ -632,8 +634,14 @@ public:
     stackStateReloadTimer_.setSingleShot(true);
     stackStateReloadTimer_.setInterval(20);
     connect(&stackStateReloadTimer_, &QTimer::timeout, this, [this] { reloadStackState(); });
-    connect(&stackFiles_, &QFileSystemWatcher::directoryChanged, this,
-            [this] { stackStateReloadTimer_.start(); });
+    connect(&stackFiles_, &QFileSystemWatcher::directoryChanged, this, [this] {
+      stackStateReloadTimer_.start();
+      checkGrabRequest(); // at once: a capture is waiting on it
+    });
+    grabRestoreTimer_.setSingleShot(true);
+    grabRestoreTimer_.setInterval(2000);
+    connect(&grabRestoreTimer_, &QTimer::timeout, this,
+            [this] { restoreAfterGrab(); });
     connect(&stackStateWatcher_, &QFutureWatcher<PinStackState>::finished, this, [this] {
       stackStateQueryPending_ = false;
       if (!closing_) {
@@ -652,6 +660,8 @@ public:
       if (!root.isEmpty()) {
         stackStatePath_ = QDir(root).filePath(QStringLiteral("pin-targets.json"));
         stackFiles_.addPath(root);
+        runtimeRoot_ = root;
+        updateTimedMarker();
         reloadStackState();
       }
     });
@@ -829,7 +839,14 @@ public:
     }));
   }
 
-  ~PinWindow() override { closeButtonWatch(); }
+  ~PinWindow() override {
+    closeButtonWatch();
+    if (!runtimeRoot_.isEmpty()) {
+      const qint64 self = QCoreApplication::applicationPid();
+      QFile::remove(timedPreviewMarkerPath(runtimeRoot_, self));
+      QFile::remove(grabAckPath(runtimeRoot_, self));
+    }
+  }
 
   [[nodiscard]] bool hasPinLock() const { return snapshotFile_.isLocked(); }
 
@@ -837,6 +854,7 @@ protected:
   void showEvent(QShowEvent *event) override {
     QWidget::showEvent(event);
     expiry_.start();
+    updateTimedMarker();
   }
 
   void resizeEvent(QResizeEvent *event) override {
@@ -850,6 +868,12 @@ protected:
       painted_ = true;
     }
     QPainter painter(this);
+    if (grabHidden_) {
+      // Another omasnap is grabbing the screen: nothing of this card shows.
+      painter.setCompositionMode(QPainter::CompositionMode_Source);
+      painter.fillRect(rect(), Qt::transparent);
+      return;
+    }
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
@@ -1500,6 +1524,7 @@ protected:
       return;
     }
     closing_ = true;
+    updateTimedMarker(); // a closing card is no longer on screen to hide
     expiry_.setPaused(true);
     stackStateReloadTimer_.stop();
     tiltAnimation_.stop();
@@ -1555,6 +1580,7 @@ private:
     // Moving a preview expresses intent to keep it, even within the stack.
     // A click or arming the compositor drag watch alone does not pin it.
     expiry_.setKept(true);
+    updateTimedMarker();
   }
 
   void updateExpiryPause() {
@@ -1563,8 +1589,67 @@ private:
                       finishRequested_ || snapPending_);
   }
 
+  /// A timed (not kept) card on screen announces itself so the next capture
+  /// can hide it (grab-hide.hpp).
+  void updateTimedMarker() {
+    if (runtimeRoot_.isEmpty())
+      return;
+    const QString marker =
+        timedPreviewMarkerPath(runtimeRoot_, QCoreApplication::applicationPid());
+    if (isVisible() && !expiry_.kept() && !closing_) {
+      if (!QFile::exists(marker)) {
+        QSaveFile file(marker);
+        if (file.open(QIODevice::WriteOnly) &&
+            file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner))
+          static_cast<void>(file.commit());
+      }
+    } else {
+      QFile::remove(marker);
+      if (grabHidden_)
+        restoreAfterGrab();
+    }
+  }
+
+  /// A capture is about to grab the screen: a timed card paints itself
+  /// transparent (it stays mapped, so it keeps its place in the stack),
+  /// waits for the compositor to have that frame, then says so. It comes
+  /// back when the request goes, or after two seconds if the capture died.
+  void checkGrabRequest() {
+    if (runtimeRoot_.isEmpty())
+      return;
+    const qint64 requester = activeGrabRequest(runtimeRoot_);
+    if (requester == 0) {
+      if (grabHidden_)
+        restoreAfterGrab();
+      return;
+    }
+    if (expiry_.kept() || closing_ || !isVisible() || grabAckFor_ == requester)
+      return;
+    grabHidden_ = true;
+    repaint();
+    QGuiApplication::sync();
+    QSaveFile ack(grabAckPath(runtimeRoot_, QCoreApplication::applicationPid()));
+    if (ack.open(QIODevice::WriteOnly) &&
+        ack.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+      ack.write(QByteArray::number(requester));
+      if (ack.commit())
+        grabAckFor_ = requester;
+    }
+    grabRestoreTimer_.start();
+  }
+
+  void restoreAfterGrab() {
+    grabHidden_ = false;
+    grabAckFor_ = 0;
+    grabRestoreTimer_.stop();
+    if (!runtimeRoot_.isEmpty())
+      QFile::remove(grabAckPath(runtimeRoot_, QCoreApplication::applicationPid()));
+    update();
+  }
+
   void toggleKept() {
     expiry_.setKept(!expiry_.kept());
+    updateTimedMarker();
     QToolTip::hideText();
     showToast(expiry_.kept() ? QStringLiteral("Pinned")
                              : QStringLiteral("Fades after 10 seconds"));
@@ -1663,6 +1748,12 @@ private:
   bool painted_ = false;
   PinExpiry expiry_;
   qreal opacity_ = 1.0;
+  /// Private runtime folder, once known (resolved on a worker at start).
+  QString runtimeRoot_;
+  /// Painted transparent while another process grabs the screen.
+  bool grabHidden_ = false;
+  qint64 grabAckFor_ = 0;
+  QTimer grabRestoreTimer_;
   bool expired_ = false;
   bool stackInteracting_ = false;
   bool fileDragActive_ = false;

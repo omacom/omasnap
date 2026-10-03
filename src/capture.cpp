@@ -2,6 +2,7 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include "capture.hpp"
+#include "grab-hide.hpp"
 #include "pin-file.hpp"
 #include "pin-layout.hpp"
 #include "png.hpp"
@@ -1347,18 +1348,24 @@ bool captureMonitorPixels(const MonitorInfo &monitor, CaptureData &capture,
     startupTimingMark("hyprctl clients launched");
   }
 
-  const QString testCapture = qEnvironmentVariable("OMASNAP_TEST_CAPTURE");
-  if (!testCapture.isEmpty()) {
-    if (!capture.source.load(testCapture)) {
-      error = QStringLiteral("Screen capture failed: could not load test "
-                             "capture %1")
-                  .arg(testCapture);
+  {
+    // The previous capture's timed preview card may still be on screen; it
+    // paints itself transparent for this grab only (grab-hide.hpp). With no
+    // card up this costs one directory listing.
+    const TimedPreviewsHidden previewsHidden(secureRuntimeDirectory());
+    const QString testCapture = qEnvironmentVariable("OMASNAP_TEST_CAPTURE");
+    if (!testCapture.isEmpty()) {
+      if (!capture.source.load(testCapture)) {
+        error = QStringLiteral("Screen capture failed: could not load test "
+                               "capture %1")
+                    .arg(testCapture);
+        return false;
+      }
+    } else if (!captureOutputSurface(monitor, capture.source, error)) {
+      if (!error.startsWith(QStringLiteral("Screen capture failed:")))
+        error = QStringLiteral("Screen capture failed: %1").arg(error);
       return false;
     }
-  } else if (!captureOutputSurface(monitor, capture.source, error)) {
-    if (!error.startsWith(QStringLiteral("Screen capture failed:")))
-      error = QStringLiteral("Screen capture failed: %1").arg(error);
-    return false;
   }
   startupTimingMark("output pixels available");
 

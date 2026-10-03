@@ -59,6 +59,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- A capture taken while the previous capture's timed preview is still up no
+  longer contains that preview. The card turns invisible for the grab and
+  comes back right after; kept shots stay in the picture.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.

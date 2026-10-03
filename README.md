@@ -534,6 +534,9 @@ pin icon in the active window-border color, even when the other controls are
 hidden. Unpinning starts a fresh
 10-second countdown.
 New captures always go in front of the existing stack, including kept shots.
+A timed preview still on screen turns invisible for the moment of the next
+capture and comes back after it, so it never ends up in that screenshot;
+kept shots stay in the picture.
 Opening Edit leaves the preview's expiry policy unchanged; pin it first to keep
 the preview available throughout annotation.
 

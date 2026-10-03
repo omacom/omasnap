@@ -9,6 +9,7 @@
 #include "pin-interaction-smoke.hpp"
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QHelpEvent>
 #include <QImage>
 #include <QJsonArray>
@@ -16,6 +17,7 @@
 #include <QJsonObject>
 #include <QPoint>
 #include <QRectF>
+#include <QRgb>
 #include <QSaveFile>
 #include <QScopeGuard>
 #include <QString>
@@ -26,6 +28,7 @@
 #include <QtCore/qtestsupport_core.h>
 #include <QtEnvironmentVariables>
 #include <QtMath>
+#include <QtTypes>
 
 bool runPinThemeRenderingSmoke(const QString &path, QString &error) {
   const QTemporaryDir runtime;
@@ -559,5 +562,102 @@ bool runPinInteractionSmoke(QString &error) {
     return false;
   }
   QToolTip::hideText();
+  return true;
+}
+
+// A capture taken while the previous capture's timed preview card is still on
+// screen must not contain that card. The card stops drawing for the grab and
+// comes back afterwards; a preview the user kept stays in the picture.
+bool runPinGrabHideSmoke(QString &error) {
+  const QTemporaryDir runtime;
+  if (!runtime.isValid()) {
+    error = QStringLiteral("Could not create the grab-hide runtime");
+    return false;
+  }
+  const QByteArray previousRuntime = qgetenv("XDG_RUNTIME_DIR");
+  const QByteArray previousCapture = qgetenv("OMASNAP_TEST_CAPTURE");
+  const auto restore = qScopeGuard([&] {
+    pinPool().waitForDone();
+    for (const auto &variable : {qMakePair("XDG_RUNTIME_DIR", previousRuntime),
+                                 qMakePair("OMASNAP_TEST_CAPTURE", previousCapture)}) {
+      if (variable.second.isNull())
+        qunsetenv(variable.first);
+      else
+        qputenv(variable.first, variable.second);
+    }
+  });
+  qputenv("XDG_RUNTIME_DIR", runtime.path().toUtf8());
+  QImage card(200, 113, QImage::Format_RGB32);
+  card.fill(QColor(QStringLiteral("#d04040")));
+  QImage screen(400, 300, QImage::Format_RGB32);
+  screen.fill(QColor(QStringLiteral("#2060a0")));
+  const QString cardPath = runtime.filePath(QStringLiteral("card.png"));
+  const QString screenPath = runtime.filePath(QStringLiteral("screen.png"));
+  if (secureRuntimeDirectory().isEmpty() || !card.save(cardPath) ||
+      !screen.save(screenPath)) {
+    error = QStringLiteral("Could not save the grab-hide fixtures");
+    return false;
+  }
+  qputenv("OMASNAP_TEST_CAPTURE", screenPath.toUtf8());
+  const auto opaquePixels = [](PinWindow &pin) {
+    const QImage shot = pin.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    qsizetype count = 0;
+    for (int y = 0; y < shot.height(); y += 4)
+      for (int x = 0; x < shot.width(); x += 4)
+        count += qAlpha(shot.pixel(x, y)) > 0;
+    return count;
+  };
+  MonitorInfo monitor;
+  monitor.name = QStringLiteral("SMOKE-1");
+  monitor.geometry = QRect(0, 0, 400, 300);
+  monitor.pixelSize = monitor.geometry.size();
+  // Grabs the (test) screen and reports how long the grab was held up.
+  const auto grabScreen = [&](qint64 &waited) {
+    CaptureData capture;
+    QElapsedTimer clock;
+    clock.start();
+    const bool grabbed = captureMonitorPixels(monitor, capture, false, error);
+    waited = clock.elapsed();
+    return grabbed && capture.source.size() == screen.size();
+  };
+
+  PinWindow pin(card, cardPath, card.size(), PinLifetime::Timed);
+  pin.show();
+  // The card learns its runtime folder on a worker after it starts.
+  pinPool().waitForDone();
+  if (!QTest::qWaitFor([&] { return opaquePixels(pin) > 0; }, 3000)) {
+    error = QStringLiteral("The grab-hide fixture card drew nothing");
+    return false;
+  }
+  QTest::qWait(50);
+  qint64 waited = 0;
+  if (!grabScreen(waited)) {
+    error = QStringLiteral("The grab-hide screen capture failed: %1").arg(error);
+    return false;
+  }
+  // Nothing has run since the grab, so the card shows what the grab saw.
+  if (opaquePixels(pin) != 0) {
+    error = QStringLiteral("A timed preview card was still drawn when the screen was grabbed");
+    return false;
+  }
+  if (waited > 200) {
+    error = QStringLiteral("Hiding the timed card held up the grab %1 ms").arg(waited);
+    return false;
+  }
+  if (!QTest::qWaitFor([&] { return opaquePixels(pin) > 0; }, 3000)) {
+    error = QStringLiteral("The timed card did not come back after the grab");
+    return false;
+  }
+  // Kept on purpose: it stays in the picture, and the grab does not wait.
+  QTest::keyClick(&pin, Qt::Key_P, Qt::ControlModifier);
+  QTest::qWait(50);
+  if (!grabScreen(waited)) {
+    error = QStringLiteral("The grab-hide screen capture failed: %1").arg(error);
+    return false;
+  }
+  if (opaquePixels(pin) == 0 || waited > 50) {
+    error = QStringLiteral("A kept pin was hidden from the grab (waited %1 ms)").arg(waited);
+    return false;
+  }
   return true;
 }
