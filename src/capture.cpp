@@ -13,6 +13,7 @@
 #include <QBuffer>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDeadlineTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -30,6 +31,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QtTypes>
 
 #include <QUrl>
 #include <algorithm>
@@ -313,10 +315,16 @@ struct ProcessResult {
   QByteArray error;
   int exitCode = -1;
   bool finished = false;
+  bool outputTooLarge = false;
 };
 
+/// Runs `program` and collects its output. With `maxOutputBytes` set, stdout
+/// is read as it arrives and the process is stopped as soon as it exceeds
+/// that size, so a large or endless stream is never buffered in full.
 ProcessResult runProcess(const QString &program, const QStringList &arguments,
-                         const QByteArray &input = {}, int timeoutMs = 10000) {
+                         // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+                         const QByteArray &input = {}, int timeoutMs = 10000,
+                         qint64 maxOutputBytes = -1) {
   QProcess process;
   process.setProcessChannelMode(QProcess::SeparateChannels);
   process.start(program, arguments);
@@ -326,6 +334,33 @@ ProcessResult runProcess(const QString &program, const QStringList &arguments,
   if (!input.isEmpty())
     process.write(input);
   process.closeWriteChannel();
+  if (maxOutputBytes >= 0) {
+    QByteArray output;
+    const QDeadlineTimer deadline(timeoutMs);
+    bool running = true;
+    while (running) {
+      running = process.state() != QProcess::NotRunning &&
+                !deadline.hasExpired();
+      if (running)
+        process.waitForReadyRead(
+            static_cast<int>(std::max<qint64>(1, deadline.remainingTime())));
+      output += process.readAllStandardOutput();
+      if (output.size() > maxOutputBytes) {
+        process.kill();
+        process.waitForFinished(1000);
+        ProcessResult refused;
+        refused.outputTooLarge = true;
+        return refused;
+      }
+    }
+    const bool finished = process.state() == QProcess::NotRunning;
+    if (!finished) {
+      process.kill();
+      process.waitForFinished(1000);
+    }
+    return {output, process.readAllStandardError(),
+            finished ? process.exitCode() : -1, finished};
+  }
   const bool finished = process.waitForFinished(timeoutMs);
   if (!finished)
     process.kill();
@@ -1582,6 +1617,10 @@ QImage applyRedactionsScaled(QImage image, const QVector<Annotation> &redactions
   return image;
 }
 
+/// Largest encoded clipboard image `--clipboard` reads: the same 256 MiB as
+/// Qt's default image allocation limit, well above any real screenshot PNG.
+constexpr qint64 kMaxClipboardImageBytes = qint64(256) * 1024 * 1024;
+
 bool loadClipboardImage(QImage &image, QString &error) {
   image = {};
   error.clear();
@@ -1624,10 +1663,17 @@ bool loadClipboardImage(QImage &image, QString &error) {
   bool receivedImageData = false;
   QString readError;
   for (const QString &mimeType : imageTypes) {
+    // The clipboard owner decides how much wl-paste delivers; stop reading
+    // at the limit instead of holding the whole stream before refusing it.
     const ProcessResult pasted = runProcess(
         QStringLiteral("wl-paste"),
         {QStringLiteral("--no-newline"), QStringLiteral("--type"), mimeType},
-        {}, 5000);
+        {}, 5000, kMaxClipboardImageBytes);
+    if (pasted.outputTooLarge) {
+      error = QStringLiteral("Clipboard image is too large to open (over %1 MiB)")
+                  .arg(kMaxClipboardImageBytes >> 20);
+      return false;
+    }
     if (!pasted.finished || pasted.exitCode != 0) {
       const QString detail = QString::fromUtf8(pasted.error).trimmed();
       if (!detail.isEmpty())

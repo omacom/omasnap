@@ -59,6 +59,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- `--clipboard` stops reading at 256 MiB and refuses the image, instead of
+  holding however much the clipboard owner sends in memory before deciding.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.

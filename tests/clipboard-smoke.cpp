@@ -143,3 +143,64 @@ bool runClipboardSmoke(QString &error) {
   return runImageCheck(error) && runTextOnlyCheck(error) &&
          runReadFailureCheck(error);
 }
+
+bool runClipboardSizeLimitSmoke(QString &error) {
+  const QTemporaryDir directory;
+  if (!directory.isValid()) {
+    error = QStringLiteral("Could not create clipboard-limit directory");
+    return false;
+  }
+  // The clipboard owner decides how many bytes wl-paste delivers. This one
+  // offers a PNG signature followed by just over 256 MiB, then leaves a
+  // marker once everything was written: the read must stop at the size limit
+  // (stopping wl-paste) rather than buffer the whole stream before refusing it.
+  const QString served =
+      QDir(directory.path()).filePath(QStringLiteral("served"));
+  const QByteArray script = QByteArrayLiteral(
+      "#!/usr/bin/env bash\n"
+      "set -euo pipefail\n"
+      "if [[ \"${1:-}\" == \"--list-types\" ]]; then\n"
+      "  printf 'image/png\\n'\n"
+      "  exit 0\n"
+      "fi\n"
+      "if [[ \"${1:-}\" == \"--no-newline\" && \"${2:-}\" == \"--type\" "
+      "&& \"${3:-}\" == \"image/png\" ]]; then\n"
+      "  printf '\\x89PNG\\r\\n\\x1a\\n'\n"
+      "  head -c 268435456 /dev/zero\n"
+      "  head -c 1048576 /dev/zero\n"
+      "  : > \"$OMASNAP_TEST_CLIPBOARD_SERVED\"\n"
+      "  exit 0\n"
+      "fi\n"
+      "exit 1\n");
+  if (!writeExecutable(
+          QDir(directory.path()).filePath(QStringLiteral("wl-paste")),
+          script)) {
+    error = QStringLiteral("Could not create fake wl-paste command");
+    return false;
+  }
+  const QByteArray oldPath = qgetenv("PATH");
+  const auto restoreEnvironment = qScopeGuard([oldPath] {
+    qputenv("PATH", oldPath);
+    qunsetenv("OMASNAP_TEST_CLIPBOARD_SERVED");
+  });
+  qputenv("PATH", directory.path().toUtf8() + ':' + oldPath);
+  qputenv("OMASNAP_TEST_CLIPBOARD_SERVED", QFile::encodeName(served));
+
+  QImage image;
+  QString clipboardError;
+  const bool loaded = loadClipboardImage(image, clipboardError);
+  if (loaded || !image.isNull() ||
+      !clipboardError.contains(QStringLiteral("too large"),
+                               Qt::CaseInsensitive) ||
+      QFile::exists(served)) {
+    error = QStringLiteral("An oversized clipboard image was read in full "
+                           "before it was refused (loaded: %1, wl-paste "
+                           "finished: %2, error: %3)")
+                .arg(loaded ? QStringLiteral("yes") : QStringLiteral("no"),
+                     QFile::exists(served) ? QStringLiteral("yes")
+                                           : QStringLiteral("no"),
+                     clipboardError);
+    return false;
+  }
+  return true;
+}
