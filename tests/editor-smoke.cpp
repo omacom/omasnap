@@ -57,7 +57,9 @@
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPixmap>
+#include <QFuture>
 #include <QScrollBar>
+#include <QSet>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QWheelEvent>
@@ -68,12 +70,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <csignal>
 #include <limits>
 #include <numbers>
 #include <optional>
 #include <sys/resource.h>
+#include <utility>
 
 namespace {
 /**
@@ -3296,6 +3300,109 @@ bool runScreenshotFilenameChecks(QString &error) {
     error = QStringLiteral("Saved filename did not match <date>-<app>: %1 %2")
                 .arg(name, moveError);
     return false;
+  }
+  return true;
+}
+
+/**
+ * Saves that land in the same second share a timestamped name. Each one must
+ * still claim its own file: none may fail and none may replace another, both
+ * when the snapshot is renamed on the same disk and when it is copied in from
+ * another filesystem (the runtime folder is usually tmpfs), and for the
+ * source-keeping copy used by previews and pins.
+ */
+bool runSameSecondSaveChecks(QString &error) {
+  const QTemporaryDir screenshots;
+  QTemporaryDir sameDisk;
+  // RAM-backed sources, as from a tmpfs XDG_RUNTIME_DIR, force the copy path.
+  QTemporaryDir otherDisk(QStringLiteral("/dev/shm/omasnap-smoke-XXXXXX"));
+  if (!screenshots.isValid() || !sameDisk.isValid()) {
+    error = QStringLiteral("Could not create same-second save folders");
+    return false;
+  }
+  const QByteArray previousDir = qgetenv("OMASNAP_SCREENSHOT_DIR");
+  qputenv("OMASNAP_SCREENSHOT_DIR", QFile::encodeName(screenshots.path()));
+  const auto restoreDir = qScopeGuard([&previousDir] {
+    if (previousDir.isEmpty())
+      qunsetenv("OMASNAP_SCREENSHOT_DIR");
+    else
+      qputenv("OMASNAP_SCREENSHOT_DIR", previousDir);
+  });
+  // Keep the developer's own [output] filename out of this check.
+  QStandardPaths::setTestModeEnabled(true);
+  const auto restoreTestMode =
+      qScopeGuard([] { QStandardPaths::setTestModeEnabled(false); });
+
+  struct Round {
+    QTemporaryDir *sources;
+    bool keepSource;
+    const char *label;
+  };
+  const Round rounds[] = {{&sameDisk, false, "moved on the same disk"},
+                          {&otherDisk, false, "moved from another filesystem"},
+                          {&sameDisk, true, "copied"}};
+  for (const auto &[sources, keepSource, label] : rounds) {
+    if (!sources->isValid())
+      continue; // no /dev/shm: the same-disk rounds still run
+    const QStringList stale = QDir(screenshots.path()).entryList(QDir::Files);
+    for (const QString &name : stale)
+      QFile::remove(screenshots.filePath(name));
+    constexpr int savers = 8;
+    constexpr int bursts = 10;
+    QSet<QByteArray> expected;
+    for (int burst = 0; burst < bursts; ++burst) {
+      QVector<QString> paths;
+      for (int saver = 0; saver < savers; ++saver) {
+        const QByteArray body = QByteArray("capture ") +
+                                QByteArray::number(burst) + '-' +
+                                QByteArray::number(saver);
+        const QString path = sources->filePath(
+            QStringLiteral("snapshot-%1-%2.png").arg(burst).arg(saver));
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly) || file.write(body) != body.size()) {
+          error = QStringLiteral("Could not write a same-second save source");
+          return false;
+        }
+        expected.insert(body);
+        paths.push_back(path);
+      }
+      // Every saver starts at once, like two captures saved in one second.
+      std::atomic<int> ready = 0;
+      QVector<QFuture<QString>> saves;
+      for (const QString &path : std::as_const(paths)) {
+        saves.push_back(QtConcurrent::run([path, keepSource, &ready] {
+          ++ready;
+          while (ready.load() < savers)
+            QThread::yieldCurrentThread();
+          QString saveError;
+          return keepSource ? copySnapshotToScreenshots(path, saveError)
+                            : moveSnapshotToScreenshots(
+                                  path, saveError, QStringLiteral("race"));
+        }));
+      }
+      for (const QFuture<QString> &save : saves) {
+        if (save.result().isEmpty()) {
+          error = QStringLiteral("A same-second save failed (%1)")
+                      .arg(QString::fromUtf8(label));
+          return false;
+        }
+      }
+    }
+    QSet<QByteArray> found;
+    const QStringList saved = QDir(screenshots.path()).entryList(QDir::Files);
+    for (const QString &name : saved) {
+      QFile file(screenshots.filePath(name));
+      if (file.open(QIODevice::ReadOnly))
+        found.insert(file.readAll());
+    }
+    if (found != expected) {
+      error = QStringLiteral("Same-second saves replaced each other: %1 of %2 "
+                             "captures kept (%3)")
+                  .arg(found.size())
+                  .arg(expected.size())
+                  .arg(QString::fromUtf8(label));
+      return false;
+    }
   }
   return true;
 }
@@ -12376,6 +12483,10 @@ int main(int argc, char **argv) {
   if (!runScreenshotFilenameChecks(snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 126;
+  }
+  if (!runSameSecondSaveChecks(snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 228;
   }
   if (!runStuckModifierSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;

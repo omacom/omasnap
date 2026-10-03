@@ -38,8 +38,11 @@
 #include <cmath>
 #include <fcntl.h>
 #include <numbers>
+#include <stdio.h>  // renameat2, RENAME_NOREPLACE
+#include <stdlib.h> // mkostemp
 #include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 /// Mat a Framed canvas keeps beyond a layer that outgrew the normal frame.
@@ -383,23 +386,118 @@ QString suggestedScreenshotPathImpl(const QString &appSlug) {
       config.filename, QDateTime::currentDateTime(), appSlug));
 }
 
-QString screenshotTargetPath(QString &error, const QString &appSlug) {
-  const QString suggested = suggestedScreenshotPathImpl(appSlug);
-  const QFileInfo file(suggested);
-  const QString root = file.absolutePath();
+/// Gives the file at `sourcePath` the name `target` only if nothing has that
+/// name yet: 0 on success, EEXIST when the name is taken, else an errno.
+/// Picking a free name with exists() and then renaming or copying onto it let
+/// two saves in the same second take the same name, so one capture silently
+/// replaced the other (or the second save failed). The claim is atomic here:
+/// a rename that never replaces, or, across filesystems or when the source
+/// stays, a copy into a hidden temporary file beside the target that is then
+/// renamed the same way. No hard links are needed, so this also works on
+/// vfat/exFAT, and no partially written file ever carries the final name.
+int claimScreenshotName(const QString &sourcePath, const QString &target,
+                        bool keepSource) {
+  const QByteArray source = QFile::encodeName(sourcePath);
+  const QByteArray name = QFile::encodeName(target);
+  if (!keepSource) {
+    if (::renameat2(AT_FDCWD, source.constData(), AT_FDCWD, name.constData(),
+                    RENAME_NOREPLACE) == 0)
+      return 0;
+    if (errno != EXDEV && errno != EINVAL && errno != ENOSYS)
+      return errno; // EEXIST included
+  }
+  const int in = ::open(source.constData(), O_RDONLY | O_CLOEXEC);
+  if (in < 0)
+    return errno;
+  struct stat status {};
+  QByteArray temporary = QFile::encodeName(QFileInfo(target).absolutePath()) +
+                         QByteArrayLiteral("/.omasnap-save-XXXXXX");
+  const int out = ::fstat(in, &status) == 0
+                      ? ::mkostemp(temporary.data(), O_CLOEXEC)
+                      : -1;
+  if (out < 0) {
+    const int failure = errno;
+    ::close(in);
+    return failure;
+  }
+  int failure = 0;
+  std::array<char, 1 << 16> buffer{};
+  while (failure == 0) {
+    const ssize_t got = ::read(in, buffer.data(), buffer.size());
+    if (got == 0)
+      break;
+    if (got < 0) {
+      if (errno != EINTR)
+        failure = errno;
+      continue;
+    }
+    for (ssize_t written = 0; written < got && failure == 0;) {
+      const ssize_t wrote = ::write(out, buffer.data() + written,
+                                    static_cast<size_t>(got - written));
+      if (wrote > 0)
+        written += wrote;
+      else if (wrote < 0 && errno != EINTR)
+        failure = errno;
+    }
+  }
+  // Keep the source's permissions, as the copy this replaces did.
+  if (failure == 0 && ::fchmod(out, status.st_mode & 07777) != 0)
+    failure = errno;
+  if (::close(out) != 0 && failure == 0)
+    failure = errno;
+  ::close(in);
+  bool claimed = false;
+  if (failure == 0) {
+    if (::renameat2(AT_FDCWD, temporary.constData(), AT_FDCWD,
+                    name.constData(), RENAME_NOREPLACE) == 0) {
+      claimed = true;
+    } else if (errno == EINVAL || errno == ENOSYS) {
+      // A filesystem without RENAME_NOREPLACE (some network mounts): a hard
+      // link never replaces an existing name either.
+      if (::link(temporary.constData(), name.constData()) != 0)
+        failure = errno;
+    } else {
+      failure = errno;
+    }
+  }
+  if (!claimed)
+    ::unlink(temporary.constData());
+  if (failure == 0 && !keepSource)
+    ::unlink(source.constData());
+  return failure;
+}
+
+/// Claims the next free screenshot name for `sourcePath`, moving on to the
+/// -2, -3 … suffix whenever another save takes a name first.
+QString publishScreenshot(const QString &sourcePath, bool keepSource,
+                          const QString &appSlug, QString &error) {
+  const QFileInfo suggested(suggestedScreenshotPathImpl(appSlug));
+  const QString root = suggested.absolutePath();
   if (!QDir().mkpath(root)) {
     error =
         QStringLiteral("Could not create screenshot directory: %1").arg(root);
     return {};
   }
 
-  const QString fileName = file.fileName();
+  const QString fileName = suggested.fileName();
   const QString stem = fileName.chopped(4);
-  QString path = QDir(root).filePath(fileName);
-  for (int suffix = 2; QFile::exists(path); ++suffix)
-    path =
-        QDir(root).filePath(QStringLiteral("%1-%2.png").arg(stem).arg(suffix));
-  return path;
+  for (int suffix = 1;; ++suffix) {
+    QString path = QDir(root).filePath(
+        suffix == 1 ? fileName
+                    : QStringLiteral("%1-%2.png").arg(stem).arg(suffix));
+    if (QFileInfo::exists(path))
+      continue;
+    const int result = claimScreenshotName(sourcePath, path, keepSource);
+    if (result == 0)
+      return path;
+    if (result != EEXIST) {
+      error = keepSource
+                  ? QStringLiteral("Could not save screenshot to: %1").arg(path)
+                  : QStringLiteral("Could not move screenshot snapshot to: %1")
+                        .arg(path);
+      return {};
+    }
+  }
 }
 
 bool parseMonitor(const QByteArray &json, MonitorInfo &monitor,
@@ -1770,28 +1868,11 @@ QString suggestedScreenshotPath(const QString &appSlug) {
 
 QString moveSnapshotToScreenshots(const QString &sourcePath, QString &error,
                                   const QString &appSlug) {
-  const QString targetPath = screenshotTargetPath(error, appSlug);
-  if (targetPath.isEmpty())
-    return {};
-  if (QFile::rename(sourcePath, targetPath))
-    return targetPath;
-  if (QFile::copy(sourcePath, targetPath)) {
-    QFile::remove(sourcePath);
-    return targetPath;
-  }
-  error = QStringLiteral("Could not move screenshot snapshot to: %1")
-              .arg(targetPath);
-  return {};
+  return publishScreenshot(sourcePath, false, appSlug, error);
 }
 
 QString copySnapshotToScreenshots(const QString &sourcePath, QString &error) {
-  const QString targetPath = screenshotTargetPath(error, {});
-  if (targetPath.isEmpty())
-    return {};
-  if (QFile::copy(sourcePath, targetPath))
-    return targetPath;
-  error = QStringLiteral("Could not save screenshot to: %1").arg(targetPath);
-  return {};
+  return publishScreenshot(sourcePath, true, {}, error);
 }
 
 QString temporarySnapshotPath() {
