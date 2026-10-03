@@ -4176,6 +4176,98 @@ bool runDraftViewLockCheck(QApplication &application, QString &error) {
   return true;
 }
 
+/** `--file` and `--pin` read a same-name .json beside the image as its
+ *  operation log. Another program's report.json beside report.png is not
+ *  one: the image must still open (plain), and so must editing its pin.
+ *  omasnap's own log there is still restored, and a broken one still fails. */
+bool runForeignSidecarChecks(QString &error) {
+  const QTemporaryDir files;
+  const QTemporaryDir runtime;
+  if (!files.isValid() || !runtime.isValid()) {
+    error = QStringLiteral("Could not create the sidecar fixture folders");
+    return false;
+  }
+  const QByteArray previousRuntime = qgetenv("XDG_RUNTIME_DIR");
+  qputenv("XDG_RUNTIME_DIR", QFile::encodeName(runtime.path()));
+  const auto restoreRuntime = qScopeGuard([previousRuntime] {
+    if (previousRuntime.isNull())
+      qunsetenv("XDG_RUNTIME_DIR");
+    else
+      qputenv("XDG_RUNTIME_DIR", previousRuntime);
+  });
+  QImage image(400, 300, QImage::Format_RGB32);
+  image.fill(QColor(30, 60, 90));
+  const QDir folder(files.path());
+  const auto writeBytes = [](const QString &path, const QByteArray &bytes) {
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+  };
+  struct Foreign {
+    const char *name;
+    QByteArray json;
+  };
+  for (const Foreign &foreign : {
+           Foreign{"report", "{\"title\":\"quarterly report\",\"rows\":3}\n"},
+           Foreign{"notes", "not json at all\n"},
+           Foreign{"list", "[1, 2, 3]\n"}}) {
+    const QString png =
+        folder.filePath(QString::fromLatin1(foreign.name) + QStringLiteral(".png"));
+    if (!image.save(png) || !writeBytes(operationLogPath(png), foreign.json)) {
+      error = QStringLiteral("Could not write the foreign sidecar fixture");
+      return false;
+    }
+    OperationLog log;
+    QString loadError;
+    if (!loadSidecarOperationLog(png, log, loadError) || !log.ops.isEmpty() ||
+        log.previewSize.isValid()) {
+      error = QStringLiteral("An unrelated %1.json stopped %1.png from opening: %2")
+                  .arg(QString::fromLatin1(foreign.name), loadError);
+      return false;
+    }
+    QString pinError;
+    if (!copyPinDocument(png, pinError)) {
+      error = QStringLiteral("An unrelated %1.json stopped editing a pin of "
+                             "%1.png: %2")
+                  .arg(QString::fromLatin1(foreign.name), pinError);
+      return false;
+    }
+  }
+  // omasnap's own log beside an image is still restored...
+  const QString own = folder.filePath(QStringLiteral("own.png"));
+  OperationLog ownLog;
+  ownLog.previewSize = {200, 150};
+  QString saveError;
+  if (!image.save(own) ||
+      !saveOperationLog(operationLogPath(own), ownLog, saveError)) {
+    error = QStringLiteral("Could not write the omasnap sidecar fixture: %1")
+                .arg(saveError);
+    return false;
+  }
+  OperationLog restored;
+  QString loadError;
+  if (!loadSidecarOperationLog(own, restored, loadError) ||
+      restored.previewSize != QSize(200, 150)) {
+    error = QStringLiteral("omasnap's own sidecar log was not restored: %1")
+                .arg(loadError);
+    return false;
+  }
+  // ...and a broken one is still reported rather than silently dropped.
+  const QString broken = folder.filePath(QStringLiteral("broken.png"));
+  if (!image.save(broken) ||
+      !writeBytes(operationLogPath(broken),
+                  "{\"version\":1,\"index\":1,\"ops\":[{\"type\":\"background\","
+                  "\"style\":\"no-such-style\"}]}\n")) {
+    error = QStringLiteral("Could not write the broken sidecar fixture");
+    return false;
+  }
+  OperationLog brokenLog;
+  if (loadSidecarOperationLog(broken, brokenLog, loadError)) {
+    error = QStringLiteral("A broken omasnap sidecar log was silently ignored");
+    return false;
+  }
+  return true;
+}
+
 /** Handing a live edit to the other presentation keeps everything: the
  *  selection, the layers, and the undo history survive the round trip
  *  through the handoff document and file mode. */
@@ -12526,6 +12618,10 @@ int main(int argc, char **argv) {
   if (!runPinEditorReturnChecks(application, snapshotError)) {
     qCritical().noquote() << snapshotError;
     return 65;
+  }
+  if (!runForeignSidecarChecks(snapshotError)) {
+    qCritical().noquote() << snapshotError;
+    return 232;
   }
   if (!runEditorHandoffRoundTrip(application, snapshotError)) {
     qWarning().noquote() << snapshotError;

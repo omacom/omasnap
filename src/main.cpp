@@ -343,9 +343,7 @@ int main(int argc, char **argv) {
         return 1;
       }
       inputName = localFile;
-      const QString sidecar = operationLogPath(localFile);
-      if (QFile::exists(sidecar) &&
-          !loadOperationLog(sidecar, restoredLog, error)) {
+      if (!loadSidecarOperationLog(localFile, restoredLog, error)) {
         qCritical().noquote()
             << QStringLiteral("Could not restore operation log: %1").arg(error);
         return 1;

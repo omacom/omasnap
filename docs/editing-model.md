@@ -75,7 +75,9 @@ their proportions. The editable source's log still uses its original coordinates
 Flattened PNG exports carry their complete logical dimensions in an
 `Omasnap logical size` text field, including crops, mats, and canvas growth.
 File and clipboard imports read it without needing the private sidecar;
-an editable document's operation log takes precedence. Untagged images retain
+an editable document's operation log takes precedence. A same-name `.json`
+beside an opened image that is not an omasnap operation log (another
+program's file) is ignored, and the image opens without layers. Untagged images retain
 their pixel dimensions: print DPI does not establish screenshot display scale.
 
 ## The two exceptions, and why they're still safe

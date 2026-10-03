@@ -116,16 +116,13 @@ QString sharedPinPath(const QString &path, const QString &shared,
   if (!shared.isEmpty() && QFileInfo::exists(shared))
     return shared;
   OperationLog metadata;
-  const QString sidecar = operationLogPath(path);
-  if (QFile::exists(sidecar)) {
-    if (!loadOperationLog(sidecar, metadata, error))
-      return {};
-    if (!metadata.savedPath.isEmpty()) {
-      if (QFileInfo(metadata.savedPath).isFile())
-        return metadata.savedPath;
-      error = QStringLiteral("Saved screenshot is no longer available");
-      return {};
-    }
+  if (!loadSidecarOperationLog(path, metadata, error))
+    return {};
+  if (!metadata.savedPath.isEmpty()) {
+    if (QFileInfo(metadata.savedPath).isFile())
+      return metadata.savedPath;
+    error = QStringLiteral("Saved screenshot is no longer available");
+    return {};
   }
   const QFileInfo source(path);
   if (!source.isFile()) {

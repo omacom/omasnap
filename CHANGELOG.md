@@ -59,6 +59,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Open an image even when another program's `.json` with the same name sits
+  beside it (`report.png` next to `report.json`), for `--file` and for editing
+  or sharing a `--pin`, instead of failing on it as a broken edit history.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.

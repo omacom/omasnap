@@ -264,8 +264,16 @@ private:
 [[nodiscard]] QString operationLogPath(const QString &imagePath);
 [[nodiscard]] bool saveOperationLog(const QString &path, const OperationLog &log,
                                     QString &error);
+/** `notOperationLog`, when given, is set when the file is not an omasnap
+ *  operation log at all (not a JSON object, or no version-1 ops array). */
 [[nodiscard]] bool loadOperationLog(const QString &path, OperationLog &log,
-                                    QString &error);
+                                    QString &error,
+                                    bool *notOperationLog = nullptr);
+/** Reads the operation log beside an opened image (`--file`, `--pin`), if it
+ *  has one. Without one, or when that .json is another program's file, `log`
+ *  is left empty and this succeeds. */
+[[nodiscard]] bool loadSidecarOperationLog(const QString &imagePath,
+                                           OperationLog &log, QString &error);
 [[nodiscard]] QString temporaryExportPath();
 /** Restore a document's logical size from its operation log or, for flattened
  *  exports, its PNG metadata. Untagged images use their pixel dimensions. */
