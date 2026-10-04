@@ -8777,32 +8777,117 @@ bool runShapeFillToolSmoke(QApplication &application, QString &error) {
     error = QStringLiteral("Rectangle did not start hollow at wheel size 5");
     return false;
   }
+  // Canvas wheel after place thickens the just-placed stroke and the tool
+  // default together (chips and wheel share that contract).
   wheel(-1);
+  const Annotation hollowAfterWheel =
+      shapeSized(Annotation::Kind::Rectangle, {100, 95}, {300, 195}, false, 0,
+                 4);
+  if (!snapshotMatches(expected({hollowAfterWheel}))) {
+    error = QStringLiteral(
+        "Wheel after place did not thicken the just-placed rectangle");
+    return false;
+  }
   QTest::keyClick(&editor, Qt::Key_R);
   drag(QPoint(200, 362), QPoint(400, 462));
   const Annotation filled =
       shape(Annotation::Kind::Rectangle, {100, 245}, {300, 345}, true);
-  if (!snapshotMatches(expected({hollow, filled}))) {
+  if (!snapshotMatches(expected({hollowAfterWheel, filled}))) {
     error = QStringLiteral("R again did not fill the next rectangle");
     return false;
   }
 
-  // Alt+wheel rounds the corners of new rectangles (2 px per notch, 0–24);
-  // the plain wheel keeps meaning stroke size, as for every other tool.
+  // Alt+wheel with R armed and nothing selected rounds the just-placed
+  // rectangle live and syncs the tool default (2 px per notch, 0–24); the
+  // plain wheel keeps meaning stroke size, as for every other tool.
   wheel(6, Qt::AltModifier);
+  Annotation filledLive = filled;
+  filledLive.cornerRadius = 12;
+  if (!snapshotMatches(expected({hollowAfterWheel, filledLive}))) {
+    error = QStringLiteral(
+        "Alt+wheel after place did not round the just-placed rectangle");
+    return false;
+  }
+  if (editor.cornerRadiusForTest() != 12.0) {
+    error = QStringLiteral(
+        "Alt+wheel after place did not sync the rectangle tool default");
+    return false;
+  }
+  if (editor.lastRectangleAnnotationIdForTest() == 0) {
+    error = QStringLiteral("Placing a rectangle did not record its layer id");
+    return false;
+  }
+  // One undo restores the layer; the armed default stays for the next draw.
+  QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+  application.processEvents();
+  if (!snapshotMatches(expected({hollowAfterWheel, filled}))) {
+    error = QStringLiteral(
+        "Undo did not restore the rectangle rounded by Alt+wheel after place");
+    return false;
+  }
+  if (editor.cornerRadiusForTest() != 12.0) {
+    error = QStringLiteral(
+        "Undo of live corner rounding cleared the rectangle tool default");
+    return false;
+  }
   drag(QPoint(450, 212), QPoint(650, 312));
   const Annotation rounded =
       shape(Annotation::Kind::Rectangle, {350, 95}, {550, 195}, true, 12);
-  if (!snapshotMatches(expected({hollow, filled, rounded}))) {
-    error = QStringLiteral("Alt+wheel did not round the next rectangle");
+  if (!snapshotMatches(expected({hollowAfterWheel, filled, rounded}))) {
+    error = QStringLiteral("Next rectangle did not inherit the corner radius");
     return false;
   }
+
+  // Mid-drag Alt+wheel only moves the tool default / preview, not the last
+  // placed rectangle.
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(450, 362));
+  QTest::mouseMove(&editor, QPoint(550, 412), 20);
+  application.processEvents();
   wheel(-20, Qt::AltModifier);
-  drag(QPoint(450, 362), QPoint(650, 462));
+  if (editor.cornerRadiusForTest() != 0.0 ||
+      !snapshotMatches(expected({hollowAfterWheel, filled, rounded}))) {
+    error = QStringLiteral(
+        "Alt+wheel mid-drag changed the last rectangle or failed to clamp");
+    return false;
+  }
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(650, 462));
+  application.processEvents();
   const Annotation squareAgain =
       shape(Annotation::Kind::Rectangle, {350, 245}, {550, 345}, true, 0);
-  if (!snapshotMatches(expected({hollow, filled, rounded, squareAgain}))) {
+  if (!snapshotMatches(expected({hollowAfterWheel, filled, rounded, squareAgain}))) {
     error = QStringLiteral("Alt+wheel did not clamp the corner radius to 0");
+    return false;
+  }
+
+  // Rapid Alt+wheel after place coalesces into one undo step so wheel spam
+  // cannot push Annotate out of the op window.
+  wheel(5, Qt::AltModifier);
+  Annotation squareCoalesced = squareAgain;
+  squareCoalesced.cornerRadius = 10;
+  if (!snapshotMatches(
+          expected({hollowAfterWheel, filled, rounded, squareCoalesced}))) {
+    error = QStringLiteral(
+        "Alt+wheel after place did not round the newest rectangle");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+  application.processEvents();
+  if (!snapshotMatches(expected({hollowAfterWheel, filled, rounded, squareAgain}))) {
+    error = QStringLiteral(
+        "Rapid Alt+wheel corner tweaks did not coalesce into one undo");
+    return false;
+  }
+  // Clamp the armed default without rewriting the last layer (mid-drag no-op
+  // place) so later draws stay sharp-cornered.
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(680, 492));
+  application.processEvents();
+  wheel(-20, Qt::AltModifier);
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(680, 492));
+  application.processEvents();
+  if (editor.cornerRadiusForTest() != 0.0 ||
+      !snapshotMatches(expected({hollowAfterWheel, filled, rounded, squareAgain}))) {
+    error = QStringLiteral(
+        "Clamping the tool default mid-press rewrote an existing rectangle");
     return false;
   }
 
@@ -8812,16 +8897,22 @@ bool runShapeFillToolSmoke(QApplication &application, QString &error) {
   application.processEvents();
   QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier,
                     editor.toScreenPointForTest(QPointF(450, 145)).toPoint());
+  const qreal defaultBeforeSelectWheel = editor.cornerRadiusForTest();
   wheel(1, Qt::AltModifier);
   Annotation roundedMore = rounded;
   roundedMore.cornerRadius = 14;
-  if (!snapshotMatches(expected({hollow, filled, roundedMore, squareAgain}))) {
+  if (!snapshotMatches(expected({hollowAfterWheel, filled, roundedMore, squareAgain}))) {
     error = QStringLiteral("Alt+wheel did not round the selected rectangle");
+    return false;
+  }
+  if (editor.cornerRadiusForTest() != defaultBeforeSelectWheel) {
+    error = QStringLiteral(
+        "Alt+wheel on a selected rectangle changed the tool default");
     return false;
   }
   QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
   application.processEvents();
-  if (!snapshotMatches(expected({hollow, filled, rounded, squareAgain}))) {
+  if (!snapshotMatches(expected({hollowAfterWheel, filled, rounded, squareAgain}))) {
     error = QStringLiteral("Rounding the selected rectangle was not undoable");
     return false;
   }
@@ -8833,7 +8924,7 @@ bool runShapeFillToolSmoke(QApplication &application, QString &error) {
   const Annotation ellipse =
       shape(Annotation::Kind::Ellipse, {100, 375}, {200, 395}, false);
   if (!snapshotMatches(
-          expected({hollow, filled, rounded, squareAgain, ellipse}))) {
+          expected({hollowAfterWheel, filled, rounded, squareAgain, ellipse}))) {
     error = QStringLiteral("E again did not toggle the shared fill off");
     return false;
   }
@@ -8845,14 +8936,14 @@ bool runShapeFillToolSmoke(QApplication &application, QString &error) {
   QTest::keyClick(&editor, Qt::Key_Delete);
   application.processEvents();
   if (!snapshotMatches(
-          expected({hollow, filled, rounded, squareAgain, ellipse}))) {
+          expected({hollowAfterWheel, filled, rounded, squareAgain, ellipse}))) {
     error = QStringLiteral("Hollow rectangle interior selected a layer");
     return false;
   }
   QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(300, 412));
   QTest::keyClick(&editor, Qt::Key_Delete);
   application.processEvents();
-  if (!snapshotMatches(expected({hollow, rounded, squareAgain, ellipse}))) {
+  if (!snapshotMatches(expected({hollowAfterWheel, rounded, squareAgain, ellipse}))) {
     error = QStringLiteral("Filled rectangle interior did not select it");
     return false;
   }
@@ -8861,7 +8952,7 @@ bool runShapeFillToolSmoke(QApplication &application, QString &error) {
   QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(300, 212));
   QTest::keyClick(&editor, Qt::Key_R);
   application.processEvents();
-  Annotation hollowNowFilled = hollow;
+  Annotation hollowNowFilled = hollowAfterWheel;
   hollowNowFilled.filled = true;
   if (!snapshotMatches(
           expected({hollowNowFilled, rounded, squareAgain, ellipse}))) {
@@ -8878,7 +8969,7 @@ bool runShapeFillToolSmoke(QApplication &application, QString &error) {
   }
   QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
   application.processEvents();
-  if (!snapshotMatches(expected({hollow, rounded, squareAgain, ellipse}))) {
+  if (!snapshotMatches(expected({hollowAfterWheel, rounded, squareAgain, ellipse}))) {
     error = QStringLiteral("Undo did not restore the hollow rectangle");
     return false;
   }
@@ -8896,7 +8987,7 @@ bool runShapeFillToolSmoke(QApplication &application, QString &error) {
   const Annotation viaButton =
       shape(Annotation::Kind::Rectangle, {400, 375}, {500, 395}, true);
   if (!snapshotMatches(
-          expected({hollow, rounded, squareAgain, ellipse, viaButton}))) {
+          expected({hollowAfterWheel, rounded, squareAgain, ellipse, viaButton}))) {
     error = QStringLiteral("Toolbar re-click did not toggle fill");
     return false;
   }
@@ -11234,6 +11325,206 @@ bool runCaptureControlsSmoke(QApplication &application, QString &error) {
 /** Checks that the wheel over a selected layer changes its weight, not its
  *  extent: a stroke gets heavier where it already is, and resizing stays with
  *  the corner handle. */
+/** After weighing a selected rectangle, the next rectangle must inherit that
+ *  stroke size. Selection owns the wheel, so without syncing annotationSize_
+ *  the size control appears to stop working on the second shape. */
+bool runRectangleStrokeSizeSyncSmoke(QApplication &application, QString &error) {
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("TEST");
+  capture.monitor.geometry = {0, 0, 800, 600};
+  capture.monitor.pixelSize = {800, 600};
+  capture.monitor.scale = 1.0;
+  capture.source = QImage(800, 600, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(QColor(QStringLiteral("#182030")));
+  capture.previewSize = capture.source.size();
+
+  CaptureEditor editor(capture);
+  editor.resize(800, 600);
+  editor.show();
+  application.processEvents();
+  // 600x400 selection shown 1:1 at widget offset (100, 117).
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+  QTest::mouseMove(&editor, QPoint(700, 500), 20);
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(700, 500));
+  application.processEvents();
+
+  const auto wheel = [&](int notches) {
+    for (int notch = 0; notch < std::abs(notches); ++notch) {
+      QWheelEvent event(QPointF(400, 300), QPointF(400, 300), {},
+                        {0, notches > 0 ? 120 : -120}, Qt::NoButton,
+                        Qt::NoModifier, Qt::NoScrollPhase, false);
+      QApplication::sendEvent(&editor, &event);
+    }
+    application.processEvents();
+  };
+
+  // First hollow rectangle at the default stroke size (4).
+  QTest::keyClick(&editor, Qt::Key_R);
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(200, 200));
+  QTest::mouseMove(&editor, QPoint(400, 300), 20);
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
+  application.processEvents();
+  if (editor.currentAnnotationsForTest().size() != 1 ||
+      editor.currentAnnotationsForTest().constFirst().size != 4.0) {
+    error = QStringLiteral("First rectangle did not land at default size 4");
+    return false;
+  }
+  // Tim's flow: canvas wheel thickens the just-placed stroke via
+  // lastStrokeAnnotationId_ without selecting it (A cycling stays intact).
+  if (editor.selectedCountForTest() != 0) {
+    error = QStringLiteral("Placed rectangle unexpectedly stayed selected");
+    return false;
+  }
+  if (editor.lastStrokeAnnotationIdForTest() == 0) {
+    error = QStringLiteral("Placed rectangle was not recorded as last stroke");
+    return false;
+  }
+  // Canvas wheel after place: thicken last stroke + tool default.
+  wheel(2); // 4 -> 6
+  if (editor.currentAnnotationsForTest().constFirst().size != 6.0 ||
+      editor.annotationSizeForTest() != 6.0) {
+    error = QStringLiteral(
+        "Canvas wheel after place did not thicken the just-placed rectangle");
+    return false;
+  }
+  // Spam the wheel far past the former 100-op log window. Size patches must
+  // coalesce so the Annotate is never dropped and the shape never vanishes.
+  wheel(80);
+  wheel(-120);
+  wheel(40);
+  application.processEvents();
+  if (editor.currentAnnotationsForTest().size() != 1) {
+    error = QStringLiteral(
+        "Wheel spam dropped the placed rectangle (count %1)")
+                .arg(editor.currentAnnotationsForTest().size());
+    return false;
+  }
+  {
+    const qreal size = editor.currentAnnotationsForTest().constFirst().size;
+    if (size < 2.0 || size > 12.0) {
+      error = QStringLiteral(
+          "Wheel spam left stroke size out of clamp [2,12] (got %1)")
+                  .arg(size);
+      return false;
+    }
+  }
+  editor.setStrokeAnnotationSizeForTest(4.0);
+  application.processEvents();
+  editor.setStrokeAnnotationSizeForTest(7.0);
+  application.processEvents();
+  if (editor.currentAnnotationsForTest().constFirst().size != 7.0 ||
+      editor.annotationSizeForTest() != 7.0) {
+    error = QStringLiteral(
+        "Post-place size API did not thicken the just-placed rectangle");
+    return false;
+  }
+  editor.setStrokeAnnotationSizeForTest(4.0);
+  application.processEvents();
+
+  // Click the stroke so selection owns the wheel (the usual post-draw posture:
+  // the pointer still sits on the corner just released).
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(200, 250));
+  application.processEvents();
+  wheel(2); // selected stroke 4 -> 6; tool default must follow
+  if (editor.currentAnnotationsForTest().constFirst().size != 6.0) {
+    error = QStringLiteral("Wheel did not thicken the selected rectangle");
+    return false;
+  }
+
+  // Click empty canvas to dismiss selection and draw the second rectangle.
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(500, 350));
+  QTest::mouseMove(&editor, QPoint(650, 450), 20);
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(650, 450));
+  application.processEvents();
+  if (editor.currentAnnotationsForTest().size() != 2) {
+    error = QStringLiteral("Second rectangle was not committed");
+    return false;
+  }
+  if (editor.currentAnnotationsForTest().constLast().size != 6.0) {
+    error = QStringLiteral(
+        "Second rectangle kept the old tool stroke size instead of the "
+        "weighed size %1")
+                .arg(editor.currentAnnotationsForTest().constLast().size);
+    return false;
+  }
+
+  // Select-mode weigh must still thicken the live selection (regression guard
+  // for the creatingShape gate that skipped adjustSelectedAnnotation).
+  // Clicking a layer raises it to the top of the stack, so the selected rect
+  // is constLast() after the hit — not constFirst().
+  QTest::keyClick(&editor, Qt::Key_V);
+  application.processEvents();
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(200, 250));
+  application.processEvents();
+  wheel(2); // selected first rect 6 -> 8
+  if (editor.currentAnnotationsForTest().constLast().size != 8.0) {
+    error = QStringLiteral(
+        "Select-mode wheel did not thicken the selected rectangle (got %1)")
+                .arg(editor.currentAnnotationsForTest().constLast().size);
+    return false;
+  }
+
+  // In-progress create: wheel during the drag must land on the committed shape.
+  // Put the selection down first — with a rectangle still selected, R toggles
+  // fill instead of arming the tool.
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(500, 150));
+  application.processEvents();
+  QTest::keyClick(&editor, Qt::Key_R);
+  application.processEvents();
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(220, 400));
+  QTest::mouseMove(&editor, QPoint(320, 480), 20);
+  application.processEvents();
+  wheel(1); // tool default 8 -> 9; preview reads annotationSize_
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(320, 480));
+  application.processEvents();
+  if (editor.currentAnnotationsForTest().size() < 3 ||
+      editor.currentAnnotationsForTest().constLast().size != 9.0) {
+    error = QStringLiteral(
+        "Wheel during an in-progress drag did not set the committed stroke "
+        "size (got %1)")
+                .arg(editor.currentAnnotationsForTest().isEmpty()
+                         ? 0.0
+                         : editor.currentAnnotationsForTest().constLast().size);
+    return false;
+  }
+
+  // Size slider API: absolute set thickens the selection and the tool default.
+  // Selecting the first rect raises it, so it is constLast() afterward.
+  QTest::keyClick(&editor, Qt::Key_V);
+  application.processEvents();
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(200, 250));
+  application.processEvents();
+  editor.setStrokeAnnotationSizeForTest(4.0);
+  application.processEvents();
+  if (editor.currentAnnotationsForTest().constLast().size != 4.0 ||
+      editor.annotationSizeForTest() != 4.0) {
+    error = QStringLiteral(
+        "Size slider API did not sync selected stroke and tool default");
+    return false;
+  }
+  editor.setStrokeAnnotationSizeForTest(10.0);
+  application.processEvents();
+  if (editor.currentAnnotationsForTest().constLast().size != 10.0 ||
+      editor.annotationSizeForTest() != 10.0) {
+    error = QStringLiteral(
+        "Size slider API did not thicken the selected rectangle to 10");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_R);
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(480, 200));
+  QTest::mouseMove(&editor, QPoint(580, 280), 20);
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(580, 280));
+  application.processEvents();
+  if (editor.currentAnnotationsForTest().constLast().size != 10.0) {
+    error = QStringLiteral(
+        "Rectangle after size slider did not inherit tool size 10");
+    return false;
+  }
+
+  editor.close();
+  return true;
+}
+
 bool runLayerWeightSmoke(QApplication &application, QString &error) {
   CaptureData capture;
   capture.monitor.name = QStringLiteral("TEST");
@@ -12470,6 +12761,10 @@ int main(int argc, char **argv) {
   if (!runViewportZoomSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 123;
+  }
+  if (!runRectangleStrokeSizeSyncSmoke(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 119;
   }
   if (!runLayerWeightSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
