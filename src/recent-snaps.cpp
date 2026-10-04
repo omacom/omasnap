@@ -1,4 +1,5 @@
 #include "recent-snaps.hpp"
+#include "host-mode.hpp"
 #include "png.hpp"
 
 #include "capture.hpp"
@@ -158,6 +159,8 @@ bool RecentSnapWriter::record(const QImage &source, const OperationLog &log,
                               const QImage &rendered, QString &error,
                               const RecentSnap *replaced) {
   StartupTimingScope timing("record recent capture");
+  if (const HostSession *host = hostSession(); host && !host->recents)
+    return true; // --no-recents: the host asked for no shelf entry.
   if (!error_.isEmpty()) {
     error = error_;
     return false;

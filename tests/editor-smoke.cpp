@@ -9,6 +9,7 @@
 #include "cli-path.hpp"
 #include "clipboard-smoke.hpp"
 #include "png-smoke.hpp"
+#include "host-mode-smoke.hpp"
 #include "chrome-theme-smoke.hpp"
 #include "cut-mapping-smoke.hpp"
 #include "cut-smoke.hpp"
@@ -13831,6 +13832,12 @@ int main(int argc, char **argv) {
       qWarning().noquote() << clipboardError;
       return 64;
     }
+  }
+
+  QString hostError;
+  if (!runHostModeSmoke(hostError)) {
+    qWarning().noquote() << "host mode smoke failed:" << hostError;
+    return EXIT_FAILURE;
   }
 
   QString pngError;

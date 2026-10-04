@@ -2,6 +2,7 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include "capture.hpp"
+#include "host-mode.hpp"
 #include "pin-file.hpp"
 #include "pin-layout.hpp"
 #include "png.hpp"
@@ -2644,6 +2645,8 @@ QStringList captureNotificationArguments(const QString &message,
 }
 
 void sendCaptureNotification(const QString &message, const QString &imagePath) {
+  if (hostModeActive())
+    return; // The host reports results its own way.
   QProcess::startDetached(QStringLiteral("omarchy-notification-send"),
                           captureNotificationArguments(message, imagePath));
 }

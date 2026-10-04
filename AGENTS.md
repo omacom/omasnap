@@ -56,8 +56,8 @@ change that touches the principle, not just this summary.
   dependency pulled in just for it. Otherwise it's rejected; fork it
   instead. No X11, no macOS/Windows. See
   [docs/platform-scope.md](docs/platform-scope.md).
-- **Lean, learned dependencies.** The dependency set is Qt6 + LayerShellQt +
-  wayland-client + libdeflate, plus shelling out to a few existing Omarchy tools
+- **Lean, learned dependencies.** The dependency set is Qt6 (Network only for
+  uploads) + LayerShellQt + wayland-client + libdeflate, plus shelling out to a few existing Omarchy tools
   (`hyprctl`, `wl-copy`/`wl-paste`, `tesseract`, `omarchy-notification-send`)
   instead of linking their equivalents in-process. Know this list before
   proposing an addition to it. See [docs/dependencies.md](docs/dependencies.md).
@@ -85,6 +85,7 @@ change that touches the principle, not just this summary.
 |---|---|
 | `src/main.cpp` | CLI parsing, single-instance lock, mode dispatch |
 | `src/instance-lock.cpp/.hpp` | Single-instance handover: cancel a running overlay, or stop it and take over for `--file` |
+| `src/host-mode.cpp/.hpp` | Host mode (`--host`): process-wide session, JSON result, exit codes, `--host-capabilities` probe, hosted pin upload command |
 | `src/capture.cpp/.hpp` | Capture, render pipeline, output (clipboard/save/notify), source+JSON operation-log persistence, config loading glue |
 | `src/editor.cpp/.hpp` | Annotation editor: tools, vector layers, operation-log undo/redo, the select↔edit phase machine, export |
 | `src/overlay-chrome.cpp/.hpp` | Shared chrome every overlay wears: the capture-kind tab strip, hotkey legend, status pill |
@@ -99,9 +100,12 @@ change that touches the principle, not just this summary.
 | `src/pin.cpp/.hpp`, `src/pin-file.cpp/.hpp`, `src/pin-layout.cpp/.hpp` | Floating pinned captures, their files, and compositor placement |
 | `src/pin-expiry.cpp/.hpp` | Preview countdown, interaction pauses, and fade |
 | `src/icons.cpp/.hpp` | Vector icon renderer for toolbar and pin controls |
+| `src/upload.cpp/.hpp` | Upload hosts from `omasnap.conf`, the blocking upload runner for workers, `--upload` / `--sign-in` |
+| `src/upload-*.cpp/.hpp` | Upload providers (S3 + SigV4, Dropbox, Nextcloud, Immich, XBackBone, FTP via curl, Imgur, ShareX `.sxcu`), chained HTTP jobs, and the secret store |
 | `src/cli-path.cpp/.hpp` | Command-line image target resolution |
 | `src/eyedropper.cpp/.hpp` | Display-to-source color sampling |
 | `tests/*-smoke.cpp/.hpp` | Headless Qt Test coverage: offscreen region clicks, async capture, single-instance handover, stitching fixtures |
+| `tests/upload-*.cpp/.hpp` | `omasnap-upload-smoke`: every upload provider against a local HTTP server, config resolution, sign-ins |
 | `docs/` | Longer writeups of the principles above — read before changing behavior they cover |
 | `install-omarchy` | Omarchy installer (deps via `omarchy-pkg-add`, installs to `~/.local`) |
 | `CMakeLists.txt` | Build definition; **the version lives here** (`project(omasnap VERSION ...)`) |

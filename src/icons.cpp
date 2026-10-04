@@ -258,6 +258,21 @@ void drawToolbarIcon(QPainter &painter, const QRectF &bounds,
     link.lineTo(15, 17);
     painter.drawPath(link);
     painter.drawLine(QPointF(8, 12), QPointF(16, 12));
+  } else if (action == QStringLiteral("upload")) {
+    QPainterPath tray;
+    tray.moveTo(4, 15);
+    tray.lineTo(4, 18);
+    tray.quadTo(4, 20, 6, 20);
+    tray.lineTo(18, 20);
+    tray.quadTo(20, 20, 20, 18);
+    tray.lineTo(20, 15);
+    painter.drawPath(tray);
+    QPainterPath arrow;
+    arrow.moveTo(7, 8.5);
+    arrow.lineTo(12, 3.5);
+    arrow.lineTo(17, 8.5);
+    painter.drawPath(arrow);
+    painter.drawLine(QPointF(12, 4), QPointF(12, 15));
   } else if (action == QStringLiteral("folder")) {
     QPainterPath folder;
     folder.moveTo(3, 10);

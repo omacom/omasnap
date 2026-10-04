@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.24)
-project(omasnap VERSION 1.21.0 LANGUAGES C CXX)
+project(omasnap VERSION 1.22.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CTest)
 set(CMAKE_AUTOMOC ON)
 
 find_package(PkgConfig REQUIRED)
-find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Core Gui Test Widgets)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Core Gui Network Test Widgets)
 find_package(LayerShellQt REQUIRED)
 pkg_check_modules(WaylandClient REQUIRED IMPORTED_TARGET wayland-client)
 pkg_check_modules(Libdeflate REQUIRED IMPORTED_TARGET libdeflate)
@@ -71,6 +71,8 @@ add_library(omasnap-core STATIC
   src/chrome-theme.hpp
   src/eyedropper.cpp
   src/eyedropper.hpp
+  src/host-mode.cpp
+  src/host-mode.hpp
   src/surface-capture.cpp
   src/stitch.cpp
   src/stitch.hpp
@@ -78,6 +80,26 @@ add_library(omasnap-core STATIC
   src/text-band.hpp
   src/auto-capture.cpp
   src/auto-capture.hpp
+  src/upload.cpp
+  src/upload.hpp
+  src/upload-custom.cpp
+  src/upload-dropbox.cpp
+  src/upload-ftp.cpp
+  src/upload-http.cpp
+  src/upload-http.hpp
+  src/upload-imgur.cpp
+  src/upload-immich.cpp
+  src/upload-nextcloud.cpp
+  src/upload-provider.cpp
+  src/upload-provider.hpp
+  src/upload-s3.cpp
+  src/upload-secrets.cpp
+  src/upload-secrets.hpp
+  src/upload-sigv4.cpp
+  src/upload-sigv4.hpp
+  src/upload-sxcu.cpp
+  src/upload-sxcu.hpp
+  src/upload-xbackbone.cpp
   src/scroll-capture.cpp
   src/scroll-capture.hpp
   src/scroll-inject.cpp
@@ -138,6 +160,7 @@ target_link_libraries(omasnap-core PUBLIC
   Qt6::Concurrent
   Qt6::Core
   Qt6::Gui
+  Qt6::Network
   Qt6::Widgets
   LayerShellQt::Interface
   PkgConfig::WaylandClient
@@ -191,6 +214,7 @@ qt_add_executable(omasnap-smoke
   tests/pin-lifecycle-smoke.hpp
   tests/pin-interaction-smoke.cpp
   tests/pin-interaction-smoke.hpp
+  tests/upload-fake-server.hpp
   tests/pin-layout-smoke.cpp
   tests/pin-layout-smoke.hpp
   src/stitch.cpp
@@ -203,6 +227,8 @@ qt_add_executable(omasnap-smoke
   tests/scroll-startup-smoke.hpp
   tests/save-as-smoke.cpp
   tests/save-as-smoke.hpp
+  tests/host-mode-smoke.cpp
+  tests/host-mode-smoke.hpp
 )
 target_include_directories(omasnap-smoke PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"
@@ -212,6 +238,27 @@ target_link_libraries(omasnap-smoke PRIVATE omasnap-core Qt6::Test)
 target_precompile_headers(omasnap-smoke REUSE_FROM omasnap-core)
 add_test(NAME omasnap-smoke COMMAND omasnap-smoke "${CMAKE_CURRENT_BINARY_DIR}/omasnap-smoke-output")
 set_tests_properties(omasnap-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+# Early exits (--version, --help, bad options) must not race startup workers:
+# the theme watcher once loaded on a thread while exit() destroyed its regexes.
+add_test(NAME omasnap-cli-exit
+  COMMAND sh -c "for i in $(seq 1 20); do \"$<TARGET_FILE:omasnap>\" --version >/dev/null || exit 1; done")
+set_tests_properties(omasnap-cli-exit PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+qt_add_executable(omasnap-upload-smoke
+  tests/upload-smoke.cpp
+  tests/upload-sxcu-smoke.cpp
+  tests/upload-provider-smoke.cpp
+  tests/upload-config-smoke.cpp
+  tests/upload-fake-server.hpp
+  tests/upload-test-kit.hpp
+)
+target_include_directories(omasnap-upload-smoke PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+)
+target_compile_options(omasnap-upload-smoke PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(omasnap-upload-smoke PRIVATE omasnap-core Qt6::Test)
+add_test(NAME omasnap-upload-smoke COMMAND omasnap-upload-smoke)
+set_tests_properties(omasnap-upload-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 qt_add_executable(stitch-replay

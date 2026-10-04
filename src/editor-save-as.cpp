@@ -1,5 +1,6 @@
 /** @fileoverview Nonblocking Save As for overlay and windowed editors. */
 #include "editor.hpp"
+#include "host-mode.hpp"
 #include "capture.hpp"
 #include "overlay-chrome.hpp"
 #include "pin.hpp"
@@ -63,6 +64,11 @@ void CaptureEditor::cancelSaveAs() {
 }
 
 void CaptureEditor::saveAs() {
+  if (hostModeActive()) {
+    // Hosted: every save means "finish" and goes to the host's output path.
+    finish(OutputMode::Save);
+    return;
+  }
   if (busy_ || dragging_ || panning_ || configuredCustomDefaultPending_ ||
       phase_ != Phase::Edit || selection_.isEmpty())
     return;

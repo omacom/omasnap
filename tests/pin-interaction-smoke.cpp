@@ -7,6 +7,7 @@
 #include "pin-file.hpp"
 #include "pin-layout.hpp"
 #include "pin-interaction-smoke.hpp"
+#include "upload-fake-server.hpp"
 
 #include <QByteArray>
 #include <QHelpEvent>
@@ -316,10 +317,123 @@ bool runPinRevealSmoke(QString &error) {
   }
   return true;
 }
+
+// U uploads the capture to the hosts in omasnap.conf on a worker, shows
+// progress in the toast, and copies the link; with no hosts set it uploads
+// nothing and says why in a notification.
+bool runPinUploadSmoke(QString &error) {
+  QTemporaryDir files;
+  if (!files.isValid()) {
+    error = QStringLiteral("Could not create the upload fixture");
+    return false;
+  }
+  const QList<QByteArray> variables{"PATH", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME",
+                                    "XDG_DATA_HOME", "XDG_STATE_HOME"};
+  QList<QByteArray> previous;
+  for (const QByteArray &variable : variables)
+    previous << qgetenv(variable.constData());
+  const auto restore = qScopeGuard([&] {
+    pinPool().waitForDone();
+    QThreadPool::globalInstance()->waitForDone();
+    for (qsizetype i = 0; i < variables.size(); ++i) {
+      if (previous.at(i).isNull())
+        qunsetenv(variables.at(i).constData());
+      else
+        qputenv(variables.at(i).constData(), previous.at(i));
+    }
+  });
+  const auto write = [&](const QString &name, const QByteArray &contents,
+                         bool executable = false) {
+    QDir().mkpath(QFileInfo(files.filePath(name)).path());
+    QFile file(files.filePath(name));
+    return file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+           file.write(contents) == contents.size() &&
+           (!executable || file.setPermissions(QFileDevice::ReadOwner |
+                              QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+  };
+  const auto read = [&](const QString &name) {
+    QFile file(files.filePath(name));
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+  };
+  if (!write(QStringLiteral("bin/wl-copy"),
+             "#!/bin/sh\n/bin/cat > \"${0%/*}/../clipboard\"\n", true) ||
+      !write(QStringLiteral("bin/wl-paste"),
+             "#!/bin/sh\n/bin/cat \"${0%/*}/../clipboard\"\n", true) ||
+      !write(QStringLiteral("bin/omarchy-notification-send"),
+             "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"${0%/*}/../notification\"\n", true) ||
+      !write(QStringLiteral("bin/hyprctl"), "#!/bin/sh\nexit 1\n", true)) {
+    error = QStringLiteral("Could not isolate the upload commands");
+    return false;
+  }
+  qputenv("PATH", files.filePath(QStringLiteral("bin")).toUtf8());
+  qputenv("XDG_RUNTIME_DIR", files.path().toUtf8());
+  qputenv("XDG_CONFIG_HOME", files.filePath(QStringLiteral("config")).toUtf8());
+  qputenv("XDG_DATA_HOME", files.filePath(QStringLiteral("data")).toUtf8());
+  qputenv("XDG_STATE_HOME", files.filePath(QStringLiteral("state")).toUtf8());
+
+  QImage image(640, 360, QImage::Format_RGB32);
+  image.fill(Qt::darkGreen);
+  const QString source = pinnedSnapshotPath(11);
+  if (!image.save(source)) {
+    error = QStringLiteral("Could not write the upload preview at %1").arg(source);
+    return false;
+  }
+
+  FakeHttpServer server;
+  if (!server.listen()) {
+    error = QStringLiteral("Could not start the fake upload host");
+    return false;
+  }
+  server.reply = "https://files.example/shot.png";
+  PinWindow pin(pinDisplayImage(image), source, QSize(200, 113), PinLifetime::Timed);
+  pin.show();
+  const QPoint upload = pinControlRect(pin.size(), 7).center().toPoint();
+  QEnterEvent enter(upload, upload, pin.mapToGlobal(upload));
+  QApplication::sendEvent(&pin, &enter);
+
+  // Nothing configured: nothing leaves the machine. (A later upload's
+  // progress must not be cleared by this toast's timeout.)
+  QTest::keyClick(&pin, Qt::Key_U);
+  if (!QTest::qWaitFor([&] { return pin.toast_ == QStringLiteral("Upload failed"); }, 5000) ||
+      !server.requests.isEmpty() ||
+      !QTest::qWaitFor([&] { return read(QStringLiteral("notification"))
+                                        .contains("set [upload] hosts in omasnap.conf"); }, 5000)) {
+    error = QStringLiteral("An unconfigured upload was attempted or not explained");
+    return false;
+  }
+
+  // A host from an .sxcu file, as a user would set it up.
+  if (!write(QStringLiteral("config/omasnap/omasnap.conf"), "[upload]\nhosts = local\n") ||
+      !write(QStringLiteral("config/omasnap/uploaders/local.sxcu"),
+             QString::fromUtf8(R"({"RequestURL": "%1", "FileFormName": "file"})")
+                 .arg(server.url()).toUtf8())) {
+    error = QStringLiteral("Could not write the upload config");
+    return false;
+  }
+  QTest::mouseClick(&pin, Qt::LeftButton, Qt::NoModifier, upload);
+  if (!QTest::qWaitFor([&] { return pin.toast_ == QStringLiteral("Link copied"); }, 10000) ||
+      read(QStringLiteral("clipboard")) != "https://files.example/shot.png" ||
+      server.requests.size() != 1 ||
+      !server.requests.first().body.contains("name=\"file\"; filename=") ||
+      pin.actionPending_ ||
+      !read(QStringLiteral("state/omasnap/uploads.jsonl")).contains("files.example/shot.png")) {
+    error = QStringLiteral("Upload did not send the capture, copy its link and "
+                           "record it (toast %1, clipboard %2, %3 requests, "
+                           "notification %4)")
+                .arg(pin.toast_, QString::fromUtf8(read(QStringLiteral("clipboard"))))
+                .arg(server.requests.size())
+                .arg(QString::fromUtf8(read(QStringLiteral("notification"))));
+    return false;
+  }
+  pin.close();
+  return true;
+}
 } // namespace
 
 bool runPinInteractionSmoke(QString &error) {
   if (!runPinRevealSmoke(error))
+    return false;
+  if (!runPinUploadSmoke(error))
     return false;
   QTemporaryDir runtime;
   if (!runtime.isValid()) {

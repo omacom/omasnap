@@ -237,6 +237,10 @@ private:
     QString error;
     bool snapshotsSuppressed = false;
     bool savedPreview = false;
+    /// Host mode: the flattened PNG went to the host's output path.
+    bool hostOutput = false;
+    QSize hostPixelSize;
+    QSize hostLogicalSize;
   };
   /// What reopening a shelved capture reads off disk: the full-resolution
   /// source plus its operation log. Loaded on the worker pool, not the UI
@@ -662,6 +666,8 @@ private:
   void saveAsToPath(const QString &path);
   void finish(OutputMode mode);
   void completeFinish(const FinishResult &result);
+  /// Host mode: reports the finished output (or its failure) and closes.
+  void completeHostFinish(const FinishResult &result);
   void handleEscape();
   void handleToolbar(const QString &action);
   void paintEdit(QPainter &painter);

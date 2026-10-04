@@ -352,6 +352,8 @@ QRectF pinControlRect(const QSize &frame, int index) {
     return {right - size - gap, inset, size, size};
   case 6: // Show in folder, beside Copy path
     return {inset + dragWidth + size + gap * 2, inset, size, size};
+  case 7: // Upload (omasnap's hosts, or the host app's command), beside Show in folder
+    return {inset + dragWidth + size * 2 + gap * 3, inset, size, size};
   default:
     return {};
   }
@@ -365,6 +367,8 @@ QString pinControlTip(int index, bool kept) {
     return QStringLiteral("Copy saved file path · L / F");
   case 6:
     return QStringLiteral("Show in folder · R");
+  case 7:
+    return QStringLiteral("Upload and copy the link · U");
   case 4:
     return QStringLiteral("Drag this image out");
   case 5:

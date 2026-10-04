@@ -296,6 +296,53 @@ Exit codes:
 | `1` | Capture, image, or single-instance lock failure |
 | `2` | Usage error |
 
+### Host mode (driven by another app)
+
+An application such as [XerahS](https://github.com/KovaForge/XerahS) can use omasnap as its
+capture front end. Host mode is off unless `--host` is passed, so standalone behaviour,
+keybindings and output are unchanged.
+
+```bash
+omasnap --host <name> --output <png-path> [--result-json <path>|-]
+        [--capture-region|--capture-window|--capture-fullscreen|--scroll|smart]
+        [--region x,y,w,h] [--editor overlay|window] [--no-recents]
+omasnap --host <name> --file <png> --output <png-path> --editor overlay|window
+omasnap --host-capabilities
+```
+
+- The same selection overlay, in-process capture and toggle apply: a second invocation
+  dismisses the running overlay and both report `cancelled`.
+- The flattened PNG (native pixels, logical-size metadata kept) goes to `--output` only.
+  Nothing is copied, saved to the screenshots folder, notified, previewed or pinned.
+  Recents stay on unless `--no-recents` is passed.
+- With `--editor`, Copy, Save, Save As and Pin all mean "finish": write `--output` and
+  report. `Esc` reports `cancelled`. `W` (switch editors) is unavailable while hosted.
+- `--region x,y,w,h` captures that global logical rectangle on the focused monitor with no
+  overlay (used for "capture last region").
+- One JSON object goes to `--result-json` (stdout by default), then omasnap exits with
+  `0` ok, `1` failure, `2` usage error or `3` cancelled:
+
+```json
+{"schemaVersion":1,"status":"ok","target":"region","path":"/run/user/1000/xerahs/omasnap/cap-1234.png",
+ "pixelWidth":2006,"pixelHeight":1600,"logicalWidth":1003,"logicalHeight":800,"scale":2.0,
+ "monitor":"eDP-1","region":{"x":120,"y":80,"width":1003,"height":800},
+ "window":{"class":"firefox","title":"…","address":"0x5559…"},
+ "annotated":false,"documentPath":null,"omasnapVersion":"1.22.0"}
+```
+
+Failures carry `"status":"error"` (or `"usage"`) and an `"error"` message.
+
+`--host-capabilities` checks what capture needs (Hyprland and `hyprctl`, a Wayland
+connection, `ext_image_copy_capture_manager_v1` and `zwlr_layer_shell_v1`) without mapping
+a surface, prints JSON with `ok`, `hostMode` (protocol version, currently `1`), `targets`,
+`editor` and `pin`, and exits `0` when capture can run.
+
+Pins opened with `--pin` by a host that sets `OMASNAP_HOST_UPLOAD_COMMAND` show an
+**Upload** button (and `U` while hovered). It runs that command (split into argv, never a
+shell) with the PNG path appended, takes the link from the last output line that is an `http(s)://`
+URL or a JSON object with a `url` field (as `omaxerahs upload` prints), and copies it. omasnap itself never uploads or stores credentials. Without the
+variable, pins show no Upload control.
+
 ### Edit an existing or clipboard image
 
 Point omasnap at any readable image and it opens straight into the annotation editor
@@ -427,6 +474,87 @@ Install the corresponding Tesseract language data before adding a language to
 `OMASNAP_OCR_LANGS`. When unset, omasnap falls back to Omarchy's
 `OMARCHY_OCR_LANGS` (which commonly includes the user's script, e.g.
 `tha+eng`), then to `eng`.
+
+### Uploads (optional)
+
+Omasnap can send a capture to a file host and copy the link: hover a preview
+and press `U` (or its upload button), or run `omasnap --upload FILE`, which
+also prints the link. Nothing is uploaded until you name the hosts, in order,
+in `omasnap.conf`; the first that takes the file wins:
+
+```ini
+[upload]
+hosts = work, litterbox
+```
+
+A host is one of:
+
+- **A built-in, anonymous host**: `litterbox` (deleted after 72 hours, up to
+  1 GB), `catbox` (kept, up to 200 MB) or `uguu` (deleted after 3 hours, up to
+  128 MiB).
+- **A ShareX custom uploader**: `NAME.sxcu` in `~/.config/omasnap/uploaders/`
+  is the host `NAME`, so configs from ShareX or XerahS work unchanged.
+  Multipart and binary bodies are supported, with the usual `{response}`,
+  `{json:path}`, `{regex:pattern|group}`, `{header:name}` and `{filename}`
+  response syntax.
+- **A `[host.NAME]` section** with a `type`:
+
+```ini
+[host.work]
+# Amazon S3 or compatible: AWS, Cloudflare R2, Backblaze B2, Wasabi, MinIO.
+type = s3
+endpoint = <account>.r2.cloudflarestorage.com
+region = auto
+bucket = shots
+access_key_id = AKIA...
+secret_access_key_command = secret-tool lookup service omasnap key work/secret_access_key
+# Optional: object_prefix = omasnap/%y/%mo, custom_domain = https://cdn.example.com,
+# link_type = public | signed (7 days, for private buckets), path_style = true,
+# public_acl = true, storage_class = standard_ia, unique_names = false.
+
+[host.cloud]
+type = nextcloud
+server_url = https://cloud.example.com
+# omasnap --sign-in cloud stores the user name and an app password.
+# Optional: folder = omasnap/%y-%mo, expire_days = 7, direct_link = true
+
+[host.box]
+type = dropbox
+# Your own app from dropbox.com/developers/apps, with files.content.write and
+# sharing.write, and http://127.0.0.1:52475/oauth2/callback as its redirect
+# URI. Then: omasnap --sign-in box
+app_key = abc123
+# Optional: folder = /omasnap, direct_link = true
+
+[host.photos]
+type = immich
+server_url = https://photos.example.com
+api_key_command = pass show immich/api-key
+# Optional: share_link = false, expire_days = 7, public_url = https://share.example.com
+
+[host.server]
+# sftp (default), ftps, ftps-implicit or ftp, through curl. For SFTP the server
+# must be in ~/.ssh/known_hosts.
+type = ftp
+protocol = sftp
+host = example.com
+username = me
+private_key = ~/.ssh/id_ed25519
+directory = /var/www/shots
+public_url = https://example.com/shots
+```
+
+`xbackbone` (`server_url`, `token`, and `api = v1` for its newer API) and `imgur` (`client_id`
+for anonymous uploads) work the same way.
+
+Every setting can be written as a plain value, or as `KEY_command` whose output
+is the value, such as `secret-tool lookup …` or `pass show …`. Quote values that
+contain `;` or `,`. Secrets that are neither come from the desktop keyring
+under `service omasnap key HOST/KEY`, which is also where `--sign-in` keeps
+Dropbox and Nextcloud tokens. Without a keyring they go in
+`~/.local/share/omasnap/secrets.json`, readable only by you. Folder settings
+accept `%y`, `%mo` and `%d`. Every upload is appended to
+`~/.local/state/omasnap/uploads.jsonl`, deletion links included.
 
 ## Controls
 
@@ -577,7 +705,7 @@ Hover the pin to reveal its controls and use its keyboard shortcuts; the cursor
 becomes a pointing hand over each button. **Edit** and **Copy** sit in the center
 of the image, with text labels and no tooltips. The pin button sits beside **×**
 at the top-right; the drag handle, file-path button, and folder button sit at
-the top-left.
+the top-left, followed by the upload button.
 Icon buttons use compact, dark tooltips for their actions and shortcuts.
 Pins follow normal mouse focus while hovered and keep focus with the current
 app when first created.
@@ -599,6 +727,7 @@ Automatic expiry compacts the stack without transferring keyboard focus.
 | Edit button, `A` / `E` while hovered | Annotate the capture while keeping the same pin |
 | Link button, `L` / `F` while hovered | Save the capture if needed and copy its file path |
 | Folder button, `R` while hovered | Save the capture if needed and show it in the default file browser |
+| Upload button, `U` while hovered | Upload the capture to the hosts in `[upload]` and copy the link |
 | Copy button, `C` while hovered, `Ctrl+C` | Copy the full-resolution PNG |
 | Top-left six-dot drag handle | Drag the PNG into a file-capable drop target |
 | Wheel | Keep the fixed preview size |

@@ -1,6 +1,7 @@
 /** @fileoverview Handles screenshot selection, annotation, and editor drawing.
  */
 #include "editor.hpp"
+#include "host-mode.hpp"
 #include "shortcut-guide.hpp"
 #include "chrome-theme.hpp"
 #include "card-stack.hpp"
@@ -3385,6 +3386,11 @@ void CaptureEditor::waitForExport() {
 void CaptureEditor::handOffEditor(bool toWindow) {
   if (busy_)
     return;
+  if (hostModeActive()) {
+    // A handoff starts a second process the host never sees; stay put.
+    setStatus(QStringLiteral("Switching editors is not available here"));
+    return;
+  }
   endNudgeRun();
   acceptText();
   const bool snapshotsSuppressed = suppressSnapshots_;
@@ -3469,6 +3475,12 @@ void CaptureEditor::pinSnapshot() {
 
   if (pinDocument_) {
     handleEscape();
+    return;
+  }
+  if (hostModeActive()) {
+    // A hosted capture never retains a pin: pinning finishes the capture and
+    // the host decides what to do with it.
+    finish(OutputMode::Save);
     return;
   }
 
@@ -4191,6 +4203,19 @@ void CaptureEditor::finish(OutputMode mode) {
           qWarning().noquote() << recoveryError;
       }
     });
+    if (hostModeActive()) {
+      // The host owns every output: no clipboard, save, preview or pin.
+      QString error;
+      const QSize logical = renderedCaptureLogicalSize(captureCopy, image.size());
+      if (writeHostOutput(image, logical, error)) {
+        result.hostOutput = true;
+        result.hostPixelSize = image.size();
+        result.hostLogicalSize = logical;
+      } else {
+        result.error = error;
+      }
+      return;
+    }
     const bool autosave = mode == OutputMode::CopyAndPreview &&
                           loadOutputConfig(defaultConfigPath()).autosave;
     if (mode == OutputMode::CopyAndPreview && !autosave) {
@@ -4241,7 +4266,51 @@ void CaptureEditor::finish(OutputMode mode) {
   }));
 }
 
+void CaptureEditor::completeHostFinish(const FinishResult &result) {
+  HostResult host;
+  host.target = hostSession()->target;
+  if (!result.error.isEmpty() || !result.hostOutput) {
+    host.status = QStringLiteral("error");
+    host.error = result.error.isEmpty() ? QStringLiteral("Capture failed")
+                                        : result.error;
+    reportHostResult(host);
+    close();
+    return;
+  }
+  host.status = QStringLiteral("ok");
+  host.path = hostSession()->outputPath;
+  host.pixelSize = result.hostPixelSize;
+  host.logicalSize = result.hostLogicalSize;
+  host.scale = capture_.monitor.scale;
+  host.monitor = capture_.monitor.name;
+  if (captureMode_ != CaptureMode::File) {
+    host.region = selection_.toAlignedRect().translated(
+        capture_.monitor.geometry.topLeft());
+    const WindowTarget *best = nullptr;
+    qreal bestArea = 0.0;
+    for (const WindowTarget &window : capture_.windows) {
+      const QRectF overlap = QRectF(window.rect).intersected(selection_);
+      const qreal area = overlap.width() * overlap.height();
+      if (area > bestArea) {
+        bestArea = area;
+        best = &window;
+      }
+    }
+    if (best)
+      host.window = HostWindowInfo{best->appClass, best->title, best->stableId};
+  }
+  host.annotated = !annotations_.isEmpty() ||
+                   backgroundStyle_ != BackgroundStyle::None;
+  reportHostResult(host);
+  snapshotPath_.clear();
+  close();
+}
+
 void CaptureEditor::completeFinish(const FinishResult &result) {
+  if (hostModeActive()) {
+    completeHostFinish(result);
+    return;
+  }
   if (!result.error.isEmpty()) {
     busy_ = false;
     suppressSnapshots_ = result.snapshotsSuppressed;

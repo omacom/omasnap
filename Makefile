@@ -27,6 +27,7 @@ build: configure
 smoke: build
 	QT_QPA_PLATFORM=offscreen $(BUILD_DIR)/omasnap-smoke \
 		$(BUILD_DIR)/omasnap-smoke-output
+	QT_QPA_PLATFORM=offscreen $(BUILD_DIR)/omasnap-upload-smoke
 
 lint: build
 	@set -eu; \

@@ -10,14 +10,14 @@ From `CMakeLists.txt`, this is the entire list:
 
 | Dependency | What it's for |
 |---|---|
-| **Qt6** (Concurrent, Core, Gui, Test, Widgets) 6.8+ | Everything: windowing, painting, the editor UI, the worker-pool threading model ([threading.md](threading.md)), the test harness |
+| **Qt6** (Concurrent, Core, Gui, Network, Test, Widgets) 6.8+ | Everything: windowing, painting, the editor UI, the worker-pool threading model ([threading.md](threading.md)), the test harness; Network for uploads |
 | **LayerShellQt** | Layer-shell surfaces (the capture overlay and editor) |
 | **wayland-client** (pkg-config) | Raw protocol client code (`ext-image-copy-capture`, `zwlr_virtual_pointer_v1`) that LayerShellQt/QtWayland don't expose |
 | **libdeflate** (pkg-config) | Fast lossless PNG compression and CRCs for 8-bit screenshots; avoids seconds of Qt/zlib encoding before a 6K preview can appear |
 | **wayland-scanner** + protocol XML | Generates the C bindings for the above at build time; not a runtime dependency |
 
 That's it. No JSON library (Qt's `QJsonDocument` handles `hyprctl -j`
-output), no HTTP,
+output), no HTTP library beyond Qt Network,
 no logging framework, no CLI-parsing library beyond `QCommandLineParser`,
 no general config-file parser beyond `QSettings` (used for the one optional INI
 file — see below). The theme adapter reads a bounded scalar subset of Omarchy's
@@ -34,6 +34,13 @@ Qt still reads every image and writes images with profiles/other text/offset met
 high-bit-depth formats, and captures exceeding the encoder's 128 MiB filtered
 buffer budget. Those use Qt's streaming writer at zlib level 1. PNG DPI metadata
 is preserved on both paths. No quality or compression setting is exposed.
+
+Qt Network ships in `qt6-base`, which Omasnap already requires, so uploads add
+no package. It is the only practical way to speak the hosts' HTTP APIs (S3's
+signed requests, Dropbox's OAuth loopback, multipart forms) without a heavier
+library, and it is used only by `src/upload*.cpp`, always from a worker thread
+with its own event loop (see [threading.md](threading.md)). Nothing is sent
+until `[upload] hosts` names a destination.
 
 ## Runtime: external processes, not libraries
 
@@ -53,6 +60,9 @@ no user-visible benefit.
 | `xdg-mime` / `busctl` | Resolve the default folder application and ask it to select the screenshot with `FileManager1.ShowItems` | Optional — falls back to `xdg-open` |
 | `tesseract` | OCR text recognition | Only if OCR is used; missing tesseract fails just that action |
 | `omarchy-notification-send` | Capture-finished notifications | No — falls back silently if absent (checked with `command -v` semantics via failed `QProcess::startDetached`) |
+| `curl` | Uploads to SFTP, FTP and FTPS hosts (Qt has no FTP or SFTP); the password goes over stdin | Only for `type = ftp` hosts |
+| `secret-tool` | Reading and storing upload secrets in the desktop keyring | No — falls back to a private file |
+| `/bin/sh` | Running a host's `KEY_command` (`secret-tool lookup`, `pass show`, …) | Only when configured |
 
 These run through the small `QProcess` helpers in `src/capture.cpp` and
 `src/pin.cpp`, from a background worker (see [threading.md](threading.md)).

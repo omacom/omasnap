@@ -131,18 +131,31 @@ bool runPinLayoutSmoke(QString &error) {
   for (const int height : {50, 75, 76, 113, 356, 400}) {
     const QSize frame(200, height);
     const QRectF bounds{QPointF(), QSizeF(frame)};
-    for (int control = 0; control < 7; ++control) {
+    for (int control = 0; control < 8; ++control) {
       const QRectF rect = pinControlRect(frame, control);
       if (rect.isEmpty() || !bounds.contains(rect)) {
         error = QStringLiteral("A pin control fell outside the preview");
         return false;
       }
-      for (int other = control + 1; other < 7; ++other) {
+      for (int other = control + 1; other < 8; ++other) {
         if (rect.intersects(pinControlRect(frame, other))) {
           error = QStringLiteral("Pin controls overlap on a short preview");
           return false;
         }
       }
+    }
+    // The hosted Upload action appears only where it fits without overlap.
+    if (const QRectF upload = pinControlRect(frame, 7); !upload.isEmpty()) {
+      bool overlaps = !bounds.contains(upload);
+      for (int other = 0; other < 7; ++other)
+        overlaps = overlaps || upload.intersects(pinControlRect(frame, other));
+      if (overlaps) {
+        error = QStringLiteral("The hosted Upload control overlaps another control");
+        return false;
+      }
+    } else if (height >= 113) {
+      error = QStringLiteral("The hosted Upload control is missing on a tall preview");
+      return false;
     }
     const QRectF edit = pinControlRect(frame, 3);
     const QRectF copy = pinControlRect(frame, 1);
@@ -150,32 +163,35 @@ bool runPinLayoutSmoke(QString &error) {
     const QRectF close = pinControlRect(frame, 0);
     const QRectF path = pinControlRect(frame, 2);
     const QRectF folder = pinControlRect(frame, 6);
+    const QRectF upload = pinControlRect(frame, 7);
     if (edit.right() >= copy.left() ||
         edit.united(copy).center().x() != frame.width() / 2.0 ||
         (height >= 113 && edit.center().y() != height / 2.0) ||
         pin.right() >= close.left() || pin.top() != close.top() ||
-        path.right() >= folder.left() || path.top() != folder.top()) {
+        path.right() >= folder.left() || path.top() != folder.top() ||
+        folder.right() >= upload.left() || folder.top() != upload.top() ||
+        upload.right() >= pin.left()) {
       error = QStringLiteral("Pin controls lost their centered actions or paired icons");
       return false;
     }
   }
   if (!pinControlRect(preview, -1).isEmpty() ||
-      !pinControlRect(preview, 7).isEmpty()) {
+      !pinControlRect(preview, 8).isEmpty()) {
     error = QStringLiteral("An unknown pin control has a click target");
     return false;
   }
 
   // Edit and Copy explain themselves with labels; only icons need hover tips.
   QSet<QString> tips;
-  for (const int control : {0, 2, 4, 5, 6}) {
+  for (const int control : {0, 2, 4, 5, 6, 7}) {
     if (pinControlTip(control).isEmpty()) {
       error = QStringLiteral("A pin control has no tooltip");
       return false;
     }
     tips.insert(pinControlTip(control));
   }
-  if (tips.size() != 5 || !pinControlTip(1).isEmpty() ||
-      !pinControlTip(3).isEmpty() || !pinControlTip(7).isEmpty() ||
+  if (tips.size() != 6 || !pinControlTip(1).isEmpty() ||
+      !pinControlTip(3).isEmpty() || !pinControlTip(8).isEmpty() ||
       !pinControlTip(-1).isEmpty() || pinControlTip(5, true) == pinControlTip(5, false)) {
     error = QStringLiteral("Pin control tooltips repeat or overflow");
     return false;

@@ -7,6 +7,32 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Added
 
+- Uploads: `U` on a preview (or its upload button) and `omasnap --upload FILE`
+  send the capture to the hosts named in `[upload] hosts` of `omasnap.conf` and
+  copy the link. Hosts are the anonymous Litterbox, Catbox and Uguu, ShareX
+  `.sxcu` files, or `[host.NAME]` sections for S3 and S3-compatible storage,
+  Dropbox, Nextcloud, Immich, XBackBone, SFTP/FTP/FTPS and Imgur, tried in
+  order. Secrets can come from a command or the keyring, and
+  `omasnap --sign-in HOST` connects Dropbox and Nextcloud in the browser.
+  Nothing uploads until a host is named.
+  On a pin launched by a host (such as XerahS), the same control uploads through
+  the host's command instead.
+
+## 1.22.0
+
+### Added
+
+- Host mode for applications that use omasnap as their capture front end, such as
+  XerahS: `--host <name> --output <png> [--result-json <path>|-]`, optional
+  `--region x,y,w,h` for a non-interactive region and `--no-recents`. A hosted capture
+  writes only the host's PNG and reports one JSON result (exit `0` ok, `1` failure,
+  `2` usage, `3` cancelled); it never copies, saves, notifies, previews or pins.
+  Standalone behaviour is unchanged.
+- `--host-capabilities` prints what host mode needs from the session as JSON without
+  mapping a surface.
+- Pins launched by a host that sets `OMASNAP_HOST_UPLOAD_COMMAND` gain an Upload button
+  (`U`) that runs the host's upload command and copies the returned link.
+
 - `Tab` cycles region selection between free, square, 3:4, and 16:9 while
   capturing; `Shift+Tab` cycles back. The capture guide shows the active aspect.
 
@@ -58,6 +84,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   line endpoints; restore them on release or cancellation.
 
 ### Fixed
+
+- `omasnap --version`, `--help` and unknown options no longer crash (SIGSEGV) while
+  exiting: the theme watcher now starts after the command line is parsed, so exit
+  no longer tears down its regexes under a running theme load.
 
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
@@ -210,7 +240,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Keep the toolbar, capture tabs, hotkey legend, and canvas geometry aligned.
 - Remove the pixels actually covered by a cut-band drag.
 
-[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.21.0...main)
+[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.22.0...main)
+· [1.22.0 changes](https://github.com/omacom/omasnap/compare/v1.21.0...v1.22.0)
 · [1.21.0 changes](https://github.com/omacom/omasnap/compare/v1.20.1...v1.21.0)
 · [1.20.1 changes](https://github.com/omacom/omasnap/compare/v1.20.0...v1.20.1)
 · [1.20.0 changes](https://github.com/omacom/omasnap/compare/v1.19.1...v1.20.0)

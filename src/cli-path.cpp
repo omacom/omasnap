@@ -67,7 +67,8 @@ void configureCaptureCommandLine(QCommandLineParser &parser, bool beforeQt) {
       "the editor opens on that image instead.\n"
       "\n"
       "Exit codes: 0 success, including dismissing a running overlay; 1 "
-      "capture,\nimage, or single-instance lock failure; 2 usage error."));
+      "capture,\nimage, or single-instance lock failure; 2 usage error; 3 "
+      "cancelled (--host only)."));
   parser.addHelpOption();
   parser.addVersionOption();
   const QCommandLineOption fullscreenOption(
@@ -106,6 +107,18 @@ void configureCaptureCommandLine(QCommandLineParser &parser, bool beforeQt) {
       QStringLiteral("Show an image as a floating window pinned on every workspace."),
       QStringLiteral("path"));
   parser.addOption(pinOption);
+  const QCommandLineOption uploadOption(
+      QStringLiteral("upload"),
+      QStringLiteral("Upload an image to the hosts in [upload] of omasnap.conf, "
+                     "copy the link and print it."),
+      QStringLiteral("path"));
+  parser.addOption(uploadOption);
+  const QCommandLineOption signInOption(
+      QStringLiteral("sign-in"),
+      QStringLiteral("Sign in to an upload host (Dropbox, Nextcloud) in the "
+                     "browser and keep its token in the keyring."),
+      QStringLiteral("host"));
+  parser.addOption(signInOption);
   QCommandLineOption previewOption(
       QStringLiteral("preview"), QString(), QStringLiteral("path"));
   previewOption.setFlags(QCommandLineOption::HiddenFromHelp);
@@ -135,6 +148,40 @@ void configureCaptureCommandLine(QCommandLineParser &parser, bool beforeQt) {
       QStringLiteral("Capture a scrolling region and stitch it into one tall "
                      "image, then copy it and show a timed preview."));
   parser.addOption(scrollOption);
+  const QCommandLineOption hostOption(
+      QStringLiteral("host"),
+      QStringLiteral("Run for a host application (e.g. XerahS): write the "
+                     "flattened PNG to --output and report one JSON result, "
+                     "with no clipboard, save, notification, preview or pin. "
+                     "Exit codes: 0 ok, 1 failure, 2 usage error, 3 cancelled."),
+      QStringLiteral("name"));
+  parser.addOption(hostOption);
+  const QCommandLineOption outputOption(
+      QStringLiteral("output"),
+      QStringLiteral("Host mode: PNG path the capture is written to."),
+      QStringLiteral("png-path"));
+  parser.addOption(outputOption);
+  const QCommandLineOption resultOption(
+      QStringLiteral("result-json"),
+      QStringLiteral("Host mode: where the JSON result goes, or - for stdout "
+                     "(the default)."),
+      QStringLiteral("path"));
+  parser.addOption(resultOption);
+  const QCommandLineOption regionValueOption(
+      QStringLiteral("region"),
+      QStringLiteral("Host mode: capture this global logical rectangle "
+                     "(x,y,w,h) on the focused monitor without an overlay."),
+      QStringLiteral("x,y,w,h"));
+  parser.addOption(regionValueOption);
+  const QCommandLineOption noRecentsOption(
+      QStringLiteral("no-recents"),
+      QStringLiteral("Host mode: keep the capture off the recents shelf."));
+  parser.addOption(noRecentsOption);
+  const QCommandLineOption capabilitiesOption(
+      QStringLiteral("host-capabilities"),
+      QStringLiteral("Print what host mode needs from this session as JSON, "
+                     "without mapping a surface. Exit 0 when capture can run."));
+  parser.addOption(capabilitiesOption);
   parser.addPositionalArgument(
       QStringLiteral("target"),
       QStringLiteral("Capture mode (smart, region, windows, fullscreen, scroll) or the "
