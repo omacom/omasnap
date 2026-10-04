@@ -1,6 +1,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 #include "capture.hpp"
+#include "clipboard-image.hpp"
 #include "chrome-theme.hpp"
 #include "cli-path.hpp"
 #include "editor.hpp"
@@ -126,6 +127,10 @@ QByteArray hyprctlOutput(const QStringList &arguments) {
 } // namespace
 
 int main(int argc, char **argv) {
+  if (argc == 3 && QString::fromLocal8Bit(argv[1]) == QStringLiteral("--clipboard-owner")) {
+    QCoreApplication application(argc, argv);
+    return runClipboardImageOwner(QString::fromLocal8Bit(argv[2]));
+  }
   startupTimingMark("entered main");
   QCoreApplication::setApplicationName(QStringLiteral("omasnap"));
   QCoreApplication::setApplicationVersion(QString::fromLatin1(OMASNAP_VERSION));

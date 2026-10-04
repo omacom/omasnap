@@ -12,6 +12,7 @@ pkg_check_modules(Libdeflate REQUIRED IMPORTED_TARGET libdeflate)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 
 set(PROTOCOL_XMLS
+  /usr/share/wayland-protocols/staging/ext-data-control/ext-data-control-v1.xml
   # ext-image-capture-source references this interface even for output-only use.
   /usr/share/wayland-protocols/staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml
   /usr/share/wayland-protocols/staging/ext-image-capture-source/ext-image-capture-source-v1.xml
@@ -34,6 +35,8 @@ foreach(PROTOCOL_XML IN LISTS PROTOCOL_XMLS)
 endforeach()
 
 add_library(omasnap-core STATIC
+  src/clipboard-image.cpp
+  src/clipboard-image.hpp
   src/card-stack.hpp
   src/cli-path.cpp
   src/cli-path.hpp
