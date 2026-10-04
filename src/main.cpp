@@ -8,6 +8,7 @@
 #include "output-config.hpp"
 #include "overlay-chrome.hpp"
 #include "overlay-dismissal.hpp"
+#include "overlay-layer.hpp"
 #include "pin.hpp"
 #include "pin-file.hpp"
 #include "recent-snaps.hpp"
@@ -36,7 +37,6 @@
 #include <QScreen>
 #include <QSocketNotifier>
 #include <QUrl>
-#include <QWindow>
 
 #include <csignal>
 #include <optional>
@@ -532,27 +532,12 @@ int main(int argc, char **argv) {
     instanceLock.unlock();
     return result;
   }
-  editor.setGeometry(targetScreen->geometry());
-  editor.winId();
-  QWindow *window = editor.windowHandle();
-  LayerShellQt::Window *layerWindow = LayerShellQt::Window::get(window);
-  if (!window || !layerWindow) {
+  LayerShellQt::Window *layerWindow =
+      configureOverlayLayer(editor, targetScreen, true);
+  if (!layerWindow) {
     qCritical() << "Could not create capture overlay layer";
     return 1;
   }
-  layerWindow->setScope(QStringLiteral("omasnap"));
-  layerWindow->setScreen(targetScreen);
-  layerWindow->setLayer(LayerShellQt::Window::LayerOverlay);
-  LayerShellQt::Window::Anchors anchors;
-  anchors.setFlag(LayerShellQt::Window::AnchorTop);
-  anchors.setFlag(LayerShellQt::Window::AnchorBottom);
-  anchors.setFlag(LayerShellQt::Window::AnchorLeft);
-  anchors.setFlag(LayerShellQt::Window::AnchorRight);
-  layerWindow->setAnchors(anchors);
-  layerWindow->setExclusiveZone(-1);
-  layerWindow->setKeyboardInteractivity(
-      LayerShellQt::Window::KeyboardInteractivityExclusive);
-  layerWindow->setActivateOnShow(true);
   editor.setLayerWindow(layerWindow);
   OverlayDismissal overlayDismissal(editor);
   startupTimingMark("layer surface configured");

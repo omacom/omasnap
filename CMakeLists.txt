@@ -43,6 +43,8 @@ add_library(omasnap-core STATIC
   src/instance-lock.hpp
   src/overlay-dismissal.cpp
   src/overlay-dismissal.hpp
+  src/overlay-layer.cpp
+  src/overlay-layer.hpp
   src/pin-file.cpp
   src/pin-file.hpp
   src/pin-layout.cpp

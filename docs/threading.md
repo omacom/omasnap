@@ -27,6 +27,7 @@ reading its corresponding worker:
 | Watcher | Worker does |
 |---|---|
 | `captureWatcher_` | Reads window/monitor pixels via `captureMonitorPixels` |
+| `monitorsWatcher_` | Freezes the other monitors for their select-phase veils, one result per monitor |
 | `ocrWatcher_` | Renders the OCR crop and runs `tesseract` |
 | `finishWatcher_` | Renders/encodes the export, copies/saves/launches the preview, then records the recent document |
 | `snapshotWatcher_` | Writes the crash-recovery working snapshot + operation log |

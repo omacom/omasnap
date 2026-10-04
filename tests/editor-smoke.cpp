@@ -726,6 +726,73 @@ bool runSmartSelectionSmoke(QApplication &application, QString &error) {
   return true;
 }
 
+/** Checks that the select overlay takes over another monitor's frozen frame
+ *  when the pointer moves there, as its veil hands it over. */
+bool runMonitorMoveSmoke(QApplication &application, QString &error) {
+  CaptureData first;
+  first.monitor.name = QStringLiteral("TEST");
+  first.monitor.geometry = QRect(0, 0, 800, 600);
+  first.monitor.pixelSize = QSize(800, 600);
+  first.source = QImage(800, 600, QImage::Format_ARGB32_Premultiplied);
+  first.source.fill(QColor(QStringLiteral("#406080")));
+  first.previewSize = first.source.size();
+  first.windows = {{QRect(80, 80, 300, 220), QStringLiteral("w1"),
+                    QStringLiteral("first"), QStringLiteral("test-app")}};
+
+  CaptureData second;
+  second.monitor.name = QStringLiteral("TEST-2");
+  second.monitor.geometry = QRect(800, 0, 400, 300);
+  second.monitor.pixelSize = QSize(400, 300);
+  second.source = QImage(400, 300, QImage::Format_ARGB32_Premultiplied);
+  second.source.fill(QColor(QStringLiteral("#806040")));
+  second.previewSize = second.source.size();
+  const QRect secondWindow(40, 30, 200, 150);
+  second.windows = {{secondWindow, QStringLiteral("w2"),
+                     QStringLiteral("second"), QStringLiteral("test-app")}};
+
+  CaptureEditor editor(first, CaptureEditor::CaptureMode::Smart);
+  editor.setSuppressSnapshots(true);
+  editor.resize(800, 600);
+  editor.show();
+  application.processEvents();
+  editor.moveToMonitorForTest(second);
+  editor.resize(400, 300);
+  application.processEvents();
+  if (editor.monitorNameForTest() != second.monitor.name ||
+      !editor.selectingForTest() || !editor.smartModeForTest() ||
+      !editor.currentSelection().isEmpty()) {
+    error = QStringLiteral(
+        "Moving monitors did not offer the new frozen frame for selection");
+    return false;
+  }
+  // Hyprland reports a click on another monitor to this surface, past its
+  // edge; it must not select anything here.
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(520, 100));
+  application.processEvents();
+  if (!editor.selectingForTest() || !editor.currentSelection().isEmpty()) {
+    error = QStringLiteral("A click past the overlay edge made a selection");
+    return false;
+  }
+  QTest::mouseMove(&editor, QPoint(100, 100), 20);
+  application.processEvents();
+  const QImage ui = editor.grab().toImage();
+  if (!colorNear(grabLogicalPixel(ui, editor, QPointF(120, 90)),
+                 QColor(QStringLiteral("#806040")), 2)) {
+    error = QStringLiteral("The moved overlay did not show the new monitor");
+    return false;
+  }
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+  application.processEvents();
+  if (!editor.editingForTest() ||
+      editor.currentSelection() != QRectF(secondWindow)) {
+    error = QStringLiteral(
+        "Smart click after moving monitors missed the new monitor's window");
+    return false;
+  }
+  editor.close();
+  return true;
+}
+
 /** Checks that positional local image targets are recognized. */
 bool runPositionalImageTargetCheck(QString &error) {
   QTemporaryDir directory;
@@ -12335,6 +12402,10 @@ int main(int argc, char **argv) {
   if (!runSmartSelectionSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 136;
+  }
+  if (!runMonitorMoveSmoke(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 225;
   }
   if (!runPointerDamageRegionCheck(snapshotError)) {
     qWarning().noquote() << snapshotError;

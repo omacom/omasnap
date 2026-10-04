@@ -121,6 +121,34 @@ bool runTransformSmoke(QString &error) {
     return false;
   }
 
+  // Every active monitor is discovered, focused or not, for the veils.
+  if (!writeExecutable(
+          fakeHyprctl,
+          QByteArrayLiteral(
+              "#!/usr/bin/env bash\n"
+              "printf '[{\"focused\":false,\"scale\":1.25,\"width\":1920,"
+              "\"height\":1080,\"transform\":0,\"name\":\"TEST-SIDE\","
+              "\"x\":2048,\"y\":0,\"activeWorkspace\":{\"id\":2}},"
+              "{\"focused\":true,\"scale\":1.0,\"width\":300,"
+              "\"height\":200,\"transform\":1,\"name\":\"TEST-MAIN\","
+              "\"x\":0,\"y\":0,\"activeWorkspace\":{\"id\":7}}]\\n'\n"))) {
+    error = QStringLiteral("Could not create monitor-probe commands");
+    restoreEnvironment();
+    return false;
+  }
+  QString probeError;
+  const QVector<MonitorInfo> monitors = probeMonitors(probeError);
+  if (monitors.size() != 2 ||
+      monitors.at(0).name != QStringLiteral("TEST-SIDE") ||
+      monitors.at(0).geometry != QRect(2048, 0, 1536, 864) ||
+      monitors.at(0).workspaceId != 2 ||
+      monitors.at(1).geometry != QRect(0, 0, 200, 300)) {
+    error = QStringLiteral("Monitor probe did not report every monitor: %1")
+                .arg(probeError);
+    restoreEnvironment();
+    return false;
+  }
+
   restoreEnvironment();
 
   const QImage upright = indexedImage({{1, 2}, {3, 4}, {5, 6}});

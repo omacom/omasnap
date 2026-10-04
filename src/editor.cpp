@@ -11,6 +11,7 @@
 #include "eyedropper.hpp"
 #include "output-config.hpp"
 #include "overlay-chrome.hpp"
+#include "overlay-layer.hpp"
 #include "palette-config.hpp"
 #include "recent-snaps.hpp"
 #include "scroll-capture.hpp"
@@ -18,6 +19,7 @@
 #include "text-band.hpp"
 
 #include <QtConcurrent/QtConcurrentRun>
+#include <LayerShellQt/Window>
 
 #include <QApplication>
 #include <QUuid>
@@ -960,12 +962,7 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
               update();
               return;
             }
-            capture_ = job.capture;
-            liveMonitor_ = capture_.monitor;
-            pristineSource_ = capture_.source;
-            pristineLogicalSize_ = capture_.previewSize;
-            cuts_.clear();
-            redactionBaseStale_ = true;
+            adoptScreen(job.capture);
             switch (pendingMode_) {
             case CaptureMode::Smart:
               smartMode_ = true;
@@ -1012,6 +1009,12 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
     }
     close();
   });
+
+  connect(&monitorsWatcher_, &QFutureWatcher<CaptureData>::resultReadyAt,
+          this, [this](int index) {
+            if (!veilsReleased_)
+              presentMonitorVeil(monitorsWatcher_.resultAt(index));
+          });
 
   captureMode_ = mode;
   smartMode_ = mode == CaptureMode::Smart;
@@ -1101,6 +1104,7 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
 
 CaptureEditor::~CaptureEditor() {
   cancelSaveAs();
+  releaseMonitorVeils();
   // Output completion closes the window before history compression finishes.
   // Drain those value-only workers after the surface has gone; main releases
   // the instance lock first so another capture cannot terminate this save.
@@ -3519,6 +3523,7 @@ void CaptureEditor::startCapture(CaptureMode mode, bool includeWindows) {
 
 void CaptureEditor::enterEdit(QString status) {
   phase_ = Phase::Edit;
+  releaseMonitorVeils();
   tool_ = Tool::Select;
   refreshCanvasRect();
   viewZoom_ = 1.0;
@@ -3567,6 +3572,7 @@ void CaptureEditor::enterExport() {
     return;
   }
   phase_ = Phase::Export;
+  releaseMonitorVeils();
   dragging_ = false;
   windowMode_ = false;
   updatePointerCursor();
@@ -4396,6 +4402,7 @@ void CaptureEditor::handleToolbar(const QString &action) {
 void CaptureEditor::closeEvent(QCloseEvent *event) {
   cancelSaveAs();
   if (!event->spontaneous()) {
+    releaseMonitorVeils();
     QWidget::closeEvent(event);
     return;
   }
@@ -5294,6 +5301,19 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
     panAnchor_ = event->position();
     return;
   }
+  // Hyprland keeps pointer focus on this exclusive-keyboard surface across
+  // monitors, so motion past its edge is the pointer on another monitor.
+  if (phase_ == Phase::Select && !dragging_ &&
+      !QRectF(rect()).contains(event->position())) {
+    if (const MonitorVeil *veil = monitorVeilAt(event->position())) {
+      followPointerTo(veil->capture().monitor.name);
+      return;
+    }
+  } else if (!pendingMonitor_.isEmpty()) {
+    // Back before the veil being waited for painted: it will stack above
+    // this overlay, so the move becomes a remap on this monitor.
+    pendingMonitor_ = capture_.monitor.name;
+  }
   LiveCanvas oldCanvas;
   const QRegion oldPointerVisual = pointerMotionRegion(cursor_, &oldCanvas);
   const QRectF oldSelection = selection_;
@@ -5697,6 +5717,10 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
     return;
   }
   if (event->button() != Qt::LeftButton)
+    return;
+  // Past this surface's edge the press is on another monitor (see
+  // mouseMoveEvent), never the start of a selection here.
+  if (phase_ == Phase::Select && !QRectF(rect()).contains(event->position()))
     return;
   cursor_ = event->position();
   endNudgeRun();
@@ -6736,6 +6760,8 @@ void CaptureEditor::commitRegion(const QRectF &region,
 void CaptureEditor::startScrollCapture(const QRect &region) {
   if (scrollPanel_ || liveMonitor_.name.isEmpty())
     return;
+  // Other monitors stay usable while the page scrolls.
+  releaseMonitorVeils();
   phase_ = Phase::Select;
   scrollMode_ = true;
   windowMode_ = false;
@@ -6849,6 +6875,136 @@ void CaptureEditor::adoptImage(QImage image, OperationLog log, CaptureMode kind,
   snapshotPath_.clear();
   sourceWritten_ = false;
   enterSelectedCapture(status);
+}
+
+void CaptureEditor::adoptScreen(CaptureData capture) {
+  capture_ = std::move(capture);
+  liveMonitor_ = capture_.monitor;
+  pristineSource_ = capture_.source;
+  pristineLogicalSize_ = capture_.previewSize;
+  cuts_.clear();
+  redactionBaseStale_ = true;
+}
+
+void CaptureEditor::offerOtherMonitors() {
+  if (monitorsOffered_ || !layer_ || windowedPresentation_ ||
+      phase_ != Phase::Select || !hasLiveScreen() || handedImage_ ||
+      capture_.source.isNull() || QGuiApplication::screens().size() < 2)
+    return;
+  monitorsOffered_ = true;
+  // The overlay is already up, so this monitor's grab is done; the rest are
+  // grabbed now, each veil mapping as soon as its frame lands. Grabbing one
+  // output never photographs a veil or the overlay on another.
+  const QString current = capture_.monitor.name;
+  monitorsWatcher_.setFuture(QtConcurrent::run(
+      [current](QPromise<CaptureData> &promise) {
+        QString error;
+        const QVector<MonitorInfo> monitors = probeMonitors(error);
+        if (monitors.isEmpty() && !error.isEmpty())
+          qWarning().noquote() << error;
+        for (const MonitorInfo &monitor : monitors) {
+          if (promise.isCanceled())
+            return;
+          if (monitor.name == current)
+            continue;
+          CaptureData capture;
+          if (captureMonitorPixels(monitor, capture, true, error))
+            promise.addResult(std::move(capture));
+          else
+            qWarning().noquote() << error;
+        }
+      }));
+}
+
+void CaptureEditor::presentMonitorVeil(CaptureData capture) {
+  auto *veil = new MonitorVeil(std::move(capture),
+                               chromeAlpha(chromeTheme().scrim, kBackdropDim));
+  // Queued: the frame reaches the compositor after paintEvent returns.
+  connect(
+      veil, &MonitorVeil::firstPainted, this,
+      [this] {
+        if (!pendingMonitor_.isEmpty())
+          followPointerTo(pendingMonitor_);
+      },
+      Qt::QueuedConnection);
+  if (!veil->present()) {
+    delete veil;
+    return;
+  }
+  veils_.push_back(veil);
+}
+
+const MonitorVeil *CaptureEditor::monitorVeil(const QString &name) const {
+  for (MonitorVeil *veil : veils_) {
+    if (veil->capture().monitor.name == name)
+      return veil;
+  }
+  return nullptr;
+}
+
+const MonitorVeil *CaptureEditor::monitorVeilAt(const QPointF &point) const {
+  const QPointF global = QPointF(capture_.monitor.geometry.topLeft()) + point;
+  for (MonitorVeil *veil : veils_) {
+    if (QRectF(veil->capture().monitor.geometry).contains(global))
+      return veil;
+  }
+  return nullptr;
+}
+
+void CaptureEditor::followPointerTo(const QString &name) {
+  pendingMonitor_.clear();
+  // A drag, a capture in flight, or anything but the frozen screen stays on
+  // the monitor it began on.
+  if (veilsReleased_ || phase_ != Phase::Select || dragging_ ||
+      capturePending_ || busy_ || scrollPanel_ || handedImage_ ||
+      !hasLiveScreen())
+    return;
+  const MonitorVeil *target = monitorVeil(name);
+  if (!target)
+    return;
+  // The monitor being left must already show its frozen frame, or the live
+  // desktop flashes there between the overlay unmapping and a veil mapping.
+  const MonitorVeil *left = monitorVeil(capture_.monitor.name);
+  if (!left || !left->painted()) {
+    pendingMonitor_ = name;
+    if (!left)
+      presentMonitorVeil(capture_);
+    return;
+  }
+  moveToMonitor(target->capture());
+}
+
+void CaptureEditor::moveToMonitor(CaptureData capture) {
+  QScreen *target = nullptr;
+  for (QScreen *screen : QGuiApplication::screens()) {
+    if (screen->name() == capture.monitor.name) {
+      target = screen;
+      break;
+    }
+  }
+  adoptScreen(std::move(capture));
+  selection_ = {};
+  hoveredWindow_ = -1;
+  setRecentsOpen(false);
+  if (target && layer_) {
+    // A layer surface cannot change outputs while mapped. Remapping also
+    // stacks it above the veil already covering that monitor.
+    hide();
+    setScreen(target);
+    layer_->setScreen(target);
+    setGeometry(target->geometry());
+    show();
+    setFocus(Qt::ActiveWindowFocusReason);
+  }
+  updatePointerCursor();
+  update();
+}
+
+void CaptureEditor::releaseMonitorVeils() {
+  veilsReleased_ = true;
+  pendingMonitor_.clear();
+  monitorsWatcher_.cancel();
+  qDeleteAll(std::exchange(veils_, {}));
 }
 
 void CaptureEditor::returnToSelect() {
@@ -7988,8 +8144,9 @@ void CaptureEditor::paintEvent(QPaintEvent *event) {
   if (firstPaint) {
     firstPaintReported_ = true;
     startupTimingMark("first overlay paint completed");
-    QTimer::singleShot(0, this, [] {
+    QTimer::singleShot(0, this, [this] {
       startupTimingMark("event loop resumed after first paint");
+      offerOtherMonitors();
     });
   }
 }
