@@ -52,6 +52,7 @@
 #include <QFileInfo>
 #include <QFontInfo>
 #include <QFontMetricsF>
+#include <QInputMethod>
 #include <QKeyEvent>
 #include <QLockFile>
 #include <QPainter>
@@ -3706,6 +3707,55 @@ bool runNativeCaretHiddenCheck(QApplication &application, QString &error) {
   if (draft->cursorWidth() != 0) {
     error = QStringLiteral("Native caret width is %1, expected 0")
                 .arg(draft->cursorWidth());
+    return false;
+  }
+  editor.close();
+  return true;
+}
+
+/** Input methods still get the draft's caret while the native one is hidden. */
+bool runInputMethodCaretCheck(QApplication &application, QString &error) {
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("TEST");
+  capture.monitor.geometry = {0, 0, 800, 600};
+  capture.monitor.pixelSize = {800, 600};
+  capture.monitor.scale = 1.0;
+  capture.source = QImage(300, 200, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(Qt::white);
+  capture.previewSize = capture.source.size();
+
+  CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+  editor.resize(800, 600);
+  editor.show();
+  application.processEvents();
+  QTest::keyClick(&editor, Qt::Key_T);
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier,
+                    editor.toScreenPointForTest(QPointF(80, 80)).toPoint());
+  application.processEvents();
+  auto *draft = qobject_cast<QPlainTextEdit *>(QApplication::focusWidget());
+  if (!draft) {
+    error = QStringLiteral(
+        "Text draft did not open for the input method caret check");
+    return false;
+  }
+  // fcitx5's Qt plugin places its candidate window from this rectangle, and
+  // QInputMethod leaves an invalid (zero-width) one in the draft's own
+  // coordinates.
+  const QRectF caret = QApplication::inputMethod()->cursorRectangle();
+  const QRectF box(QPointF(draft->mapTo(&editor, QPoint(0, 0))),
+                   QSizeF(draft->size()));
+  if (!caret.isValid() || !box.intersects(caret)) {
+    error = QStringLiteral(
+                "Input method caret rectangle %1,%2 %3x%4 is not on the "
+                "draft at %5,%6 %7x%8")
+                .arg(caret.x())
+                .arg(caret.y())
+                .arg(caret.width())
+                .arg(caret.height())
+                .arg(box.x())
+                .arg(box.y())
+                .arg(box.width())
+                .arg(box.height());
     return false;
   }
   editor.close();
@@ -12538,6 +12588,10 @@ int main(int argc, char **argv) {
   if (!runNativeCaretHiddenCheck(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 121;
+  }
+  if (!runInputMethodCaretCheck(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 226;
   }
   if (!runDraftViewLockCheck(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
