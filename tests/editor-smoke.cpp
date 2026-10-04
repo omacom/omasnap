@@ -54,6 +54,7 @@
 #include <QFontMetricsF>
 #include <QKeyEvent>
 #include <QLockFile>
+#include <QNativeGestureEvent>
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPixmap>
@@ -3509,6 +3510,72 @@ bool runZoomOutCheck(QApplication &application, QString &error) {
   application.processEvents();
   if (!cornerIsImage()) {
     error = QStringLiteral("Ctrl+0 did not return to fit from a zoom out");
+    return false;
+  }
+  return true;
+}
+
+/** A touchpad swipe's fractional increments step a size once per whole notch,
+ *  not once per increment, and a touchpad pinch zooms the view. */
+bool runTouchpadGestureCheck(QApplication &application, QString &error) {
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("TEST");
+  capture.monitor.geometry = {0, 0, 800, 600};
+  capture.monitor.pixelSize = {800, 600};
+  capture.monitor.scale = 1.0;
+  capture.source = QImage(800, 600, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(QColor(40, 120, 220));
+  capture.previewSize = capture.source.size();
+
+  CaptureEditor editor(capture);
+  editor.setSuppressSnapshots(true);
+  editor.resize(800, 600);
+  editor.show();
+  application.processEvents();
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+  QTest::mouseMove(&editor, QPoint(650, 470), 20);
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(650, 470));
+  application.processEvents();
+  QTest::keyClick(&editor, Qt::Key_R);
+  application.processEvents();
+
+  const auto swipe = [&](int deltaY, Qt::ScrollPhase phase) {
+    QWheelEvent wheel(QPointF(400, 300), QPointF(400, 300), {0, deltaY / 12},
+                      {0, deltaY}, Qt::NoButton, Qt::NoModifier, phase, false);
+    QApplication::sendEvent(&editor, &wheel);
+    application.processEvents();
+  };
+  swipe(40, Qt::ScrollBegin);
+  swipe(40, Qt::ScrollUpdate);
+  if (editor.statusForTest().startsWith(QStringLiteral("Size"))) {
+    error = QStringLiteral("Touchpad increments below a notch changed the size");
+    return false;
+  }
+  swipe(40, Qt::ScrollUpdate);
+  if (editor.statusForTest() !=
+      QStringLiteral("Size 5 · mouse wheel changes size")) {
+    error = QStringLiteral("A notch of touchpad travel did not step the size "
+                           "once: %1")
+                .arg(editor.statusForTest());
+    return false;
+  }
+  for (int increment = 0; increment < 5; ++increment)
+    swipe(40, Qt::ScrollUpdate);
+  if (editor.statusForTest() !=
+      QStringLiteral("Size 6 · mouse wheel changes size")) {
+    error = QStringLiteral("Touchpad swipe stepped once per increment: %1")
+                .arg(editor.statusForTest());
+    return false;
+  }
+
+  const qreal fitWidth = editor.editImageRectForTest().width();
+  QNativeGestureEvent pinch(Qt::ZoomNativeGesture, QPointingDevice::primaryPointingDevice(),
+                            2, QPointF(400, 300), QPointF(400, 300),
+                            QPointF(400, 300), 0.5, {}, 0);
+  QApplication::sendEvent(&editor, &pinch);
+  application.processEvents();
+  if (editor.editImageRectForTest().width() < fitWidth * 1.4) {
+    error = QStringLiteral("Touchpad pinch did not zoom the view");
     return false;
   }
   return true;
@@ -12514,6 +12581,10 @@ int main(int argc, char **argv) {
   if (!runZoomOutCheck(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 10;
+  }
+  if (!runTouchpadGestureCheck(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 226;
   }
   if (!runTextOutlineCheck(snapshotError)) {
     qWarning().noquote() << snapshotError;

@@ -7,6 +7,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Added
 
+- Touchpad pinch zooms the editor about the pinch, like `Ctrl`+wheel.
+
 - `Tab` cycles region selection between free, square, 3:4, and 16:9 while
   capturing; `Shift+Tab` cycles back. The capture guide shows the active aspect.
 
@@ -58,6 +60,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   line endpoints; restore them on release or cancellation.
 
 ### Fixed
+
+- Two-finger touchpad swipes change tool and layer sizes one step per
+  notch of travel instead of one step per scroll increment, so a swipe no
+  longer flings a size from its minimum to its maximum.
 
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the

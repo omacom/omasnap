@@ -37,6 +37,7 @@
 #include <QKeyEvent>
 #include <QLinearGradient>
 #include <QMouseEvent>
+#include <QNativeGestureEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPainterPathStroker>
@@ -6344,6 +6345,34 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
   update();
 }
 
+void CaptureEditor::showWheelZoomStatus() {
+  setStatus(QStringLiteral("Zoom %1% · wheel scrolls · Ctrl+wheel zooms · "
+                           "arrows and middle-drag pan · Shift+wheel goes "
+                           "sideways · Ctrl+0 fits")
+                .arg(qRound(viewZoom_ *
+                            (baseImageRect().width() /
+                             std::max<qreal>(canvasRect_.width(), 1)) *
+                            100)));
+}
+
+bool CaptureEditor::event(QEvent *event) {
+  // A touchpad pinch zooms about the pointer, like Ctrl+wheel. Its value is
+  // the change in scale since the previous update of the same pinch.
+  if (event->type() == QEvent::NativeGesture) {
+    auto *gesture = static_cast<QNativeGestureEvent *>(event);
+    if (gesture->gestureType() == Qt::ZoomNativeGesture) {
+      // The text draft is laid out for the view it opened in; hold still.
+      if (!busy_ && phase_ == Phase::Edit && !textEditing()) {
+        setViewZoom(viewZoom_ * (1.0 + gesture->value()), gesture->position());
+        showWheelZoomStatus();
+      }
+      event->accept();
+      return true;
+    }
+  }
+  return QWidget::event(event);
+}
+
 void CaptureEditor::wheelEvent(QWheelEvent *event) {
   if (busy_) {
     event->accept();
@@ -6376,7 +6405,6 @@ void CaptureEditor::wheelEvent(QWheelEvent *event) {
   // arrives as a horizontal delta, so reading only the vertical one left every
   // Alt-adjusted setting able to rise and never fall.
   const int notch = vertical != 0 ? vertical : horizontal;
-  const int step = notch > 0 ? 1 : -1;
   // A selected layer owns the plain wheel whatever tool is armed. Selecting a
   // layer to adjust it is the same gesture as selecting it to move it, and the
   // tool still in hand should not change the answer, and the color keys
@@ -6387,21 +6415,12 @@ void CaptureEditor::wheelEvent(QWheelEvent *event) {
                              selectedAnnotation_ < annotations_.size();
   const bool overLayer = layerSelected && tool_ != Tool::Spotlight &&
                          !modifiers.testFlag(Qt::AltModifier);
-  const auto showZoom = [&] {
-    setStatus(QStringLiteral("Zoom %1% · wheel scrolls · Ctrl+wheel zooms · "
-                             "arrows and middle-drag pan · Shift+wheel goes "
-                             "sideways · Ctrl+0 fits")
-                  .arg(qRound(viewZoom_ *
-                              (baseImageRect().width() /
-                               std::max<qreal>(canvasRect_.width(), 1)) *
-                              100)));
-  };
   // One notch is one step; a touchpad's finer increments are a fraction of
   // one, so a swipe glides instead of leaping a quarter at a time.
   const auto zoomByNotch = [&](const QPointF &focus) {
     const qreal steps = std::clamp(qreal(notch) / 120.0, -1.0, 1.0);
     setViewZoom(viewZoom_ * std::pow(1.25, steps), focus);
-    showZoom();
+    showWheelZoomStatus();
   };
   if (modifiers.testFlag(Qt::ControlModifier)) {
     zoomByNotch(event->position());
@@ -6439,6 +6458,20 @@ void CaptureEditor::wheelEvent(QWheelEvent *event) {
     event->accept();
     return;
   }
+  // Everything below moves a setting one discrete step. A mouse notch is one
+  // step, but a touchpad swipe is a stream of fractional increments; stepping
+  // on each of them flung a size from its minimum to its maximum in one flick.
+  // Spend whole notches only, and start over when a swipe begins or reverses.
+  if (event->phase() == Qt::ScrollBegin ||
+      (wheelStepRemainder_ > 0) != (notch > 0))
+    wheelStepRemainder_ = 0;
+  wheelStepRemainder_ += notch;
+  if (std::abs(wheelStepRemainder_) < 120) {
+    event->accept();
+    return;
+  }
+  const int step = wheelStepRemainder_ > 0 ? 1 : -1;
+  wheelStepRemainder_ = 0;
   // A selected layer owns Alt+wheel too: its ring, its corners.
   if (layerSelected && modifiers.testFlag(Qt::AltModifier) &&
       adjustSelectedAnnotationRing(step)) {
