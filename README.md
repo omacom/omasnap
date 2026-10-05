@@ -311,9 +311,10 @@ omasnap --file /path/to/capture.png
 
 New PNG exports retain their logical display size, so reopening a 2× capture
 from Omaroll or a file browser keeps its original size in the annotator while
-preserving every native pixel. This also covers cropped, framed, and scrolling
-captures. Images without this metadata use their pixel dimensions; print DPI
-alone is not treated as a screenshot's display scale.
+preserving every native pixel (unless `match_logical_size` shrunk the export
+itself; see Configuration below). This also covers cropped, framed, and
+scrolling captures. Images without this metadata use their pixel dimensions;
+print DPI alone is not treated as a screenshot's display scale.
 
 To open the image currently on the Wayland clipboard:
 
@@ -380,6 +381,14 @@ backdrop = opaque
 # Save fresh captures while still copying and showing the timed preview.
 # Default: true. Set false to opt out.
 autosave = true
+# A scaled monitor's export keeps its oversampled native pixel count by
+# default (e.g. 600px wide for a 300-logical-px selection at 2x), tagged
+# with its logical size for reopening. Set true to instead shrink the
+# exported pixels down to the logical size the selection was shown at,
+# trading native pixel headroom for a smaller, faster export that matches
+# what was visually selected. Loaded documents and OCR crops are unaffected
+# either way. Default: false.
+match_logical_size = false
 # Where saved screenshots go. Default: ~/Pictures/Screenshots
 directory = ~/Pictures/Captures
 # Filename pattern, without extension (.png is appended).

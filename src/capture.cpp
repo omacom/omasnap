@@ -1559,6 +1559,17 @@ QSize renderedCaptureLogicalSize(const CaptureData &capture,
                 renderedSize.height() / scale.height()).toSize();
 }
 
+QImage matchOutputToLogicalSize(const CaptureData &capture, QImage image,
+                                bool matchLogicalSize) {
+  if (!matchLogicalSize || image.isNull() || capture.preserveSourceResolution)
+    return image;
+  const QSize logical = renderedCaptureLogicalSize(capture, image.size());
+  if (logical.isEmpty() || logical == image.size())
+    return image;
+  return image.scaled(logical, Qt::IgnoreAspectRatio,
+                      Qt::SmoothTransformation);
+}
+
 QImage renderSelectionBase(const CaptureData &capture, const QRectF &selection,
                            const QSize &targetSize) {
   const QRect pixels = pixelSelection(capture, selection);

@@ -17,6 +17,12 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   preview. Set `[output] autosave = false` to opt out. Saved files survive preview
   expiry, and explicit copy-only output remains copy-only.
 
+- `[output] match_logical_size = true` shrinks a scaled monitor's export down to
+  the logical size the selection was shown at, instead of the oversampled native
+  pixel count every scaled capture saves by default. This trades the native pixel
+  headroom for a smaller, faster export that matches what was visually selected;
+  loaded documents and OCR crops are unaffected either way.
+
 - Save As (`Ctrl+Shift+S`): choose a PNG destination.
   The chooser follows the active theme, remembers its folder during editing,
   and saves lossless PNGs atomically on a worker.
