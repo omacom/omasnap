@@ -288,6 +288,10 @@ void describeFileCapture(CaptureData &capture, QImage image,
  *  using the same pixel scale as renderCapture. */
 [[nodiscard]] QSize renderedCaptureLogicalSize(const CaptureData &capture,
                                                 const QSize &renderedSize);
+/** Native source pixels the document carries per logical preview pixel, per
+ *  axis: its own density, independent of any display scale. `1x1` for a
+ *  document with no separate logical size (or an empty source). */
+[[nodiscard]] QSizeF sourcePixelDensity(const CaptureData &capture);
 /** Lowercase serialization name ("aurora", "custom", ...) for a backdrop
  *  style, used in the operation log and the `[background] default` config
  *  key. */

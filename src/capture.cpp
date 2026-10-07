@@ -1027,6 +1027,15 @@ QRect pixelSelection(const CaptureData &capture, const QRectF &selection) {
 
 } // namespace
 
+QSizeF sourcePixelDensity(const CaptureData &capture) {
+  if (capture.source.isNull() || capture.previewSize.isEmpty())
+    return {1.0, 1.0};
+  return {capture.source.width() /
+              static_cast<qreal>(capture.previewSize.width()),
+          capture.source.height() /
+              static_cast<qreal>(capture.previewSize.height())};
+}
+
 QRectF arrowVisualBounds(const Annotation &annotation, qreal displayScale) {
   return arrowVisualBoundsInternal(annotation, displayScale);
 }

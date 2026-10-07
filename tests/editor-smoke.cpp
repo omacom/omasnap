@@ -433,6 +433,292 @@ bool runSelectUndimHoleCheck(QString &error) {
 }
 
 /**
+ * A display denser than the document must not inflate it. When the screen's
+ * device ratio exceeds the pixels the capture actually carries — a
+ * fractional-scale monitor whose surface ratio Qt still reports rounded up, or
+ * a coarse capture reopened on a finer screen — fitting the frame to the screen
+ * resamples the source into invented pixels while the export keeps every native
+ * one. The frame must stop at one device pixel per document pixel, and each
+ * native pixel must read back as itself: no interpolated in-betweens anywhere
+ * in its footprint. Reopened 2x documents keep their existing presentation.
+ * This is one mechanism behind a soft preview, not the only one: a region
+ * dragged between pixels hits the same resample at any density, which
+ * runFractionalRegionPaintingCheck covers.
+ */
+bool runScaledSourcePaintingCheck(QString &error) {
+  const QSize native(300, 300);
+  const QSize logical(600, 600);
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("TEST");
+  capture.monitor.geometry = QRect(QPoint(), logical);
+  capture.monitor.pixelSize = native;
+  capture.monitor.scale = 0.5;
+  capture.previewSize = logical;
+  capture.source = QImage(native, QImage::Format_ARGB32_Premultiplied);
+  // Highest-frequency ink there is: one native pixel per device pixel is the
+  // only density at which this checkerboard can read back unchanged.
+  const QColor ink(QStringLiteral("#102040"));
+  const QColor marker(QStringLiteral("#ff40c0"));
+  for (int y = 0; y < native.height(); ++y)
+    for (int x = 0; x < native.width(); ++x)
+      capture.source.setPixelColor(x, y, (x + y) % 2 ? Qt::white : ink);
+  for (int y = 24; y < 40; ++y)
+    for (int x = 24; x < 40; ++x)
+      capture.source.setPixelColor(x, y, marker);
+
+  CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+  editor.setSuppressSnapshots(true);
+  editor.resize(1200, 1200);
+  editor.show();
+  QApplication::processEvents();
+  const QRectF frame = editor.sourceFrameWidgetRectForTest();
+  const QImage ui = editor.grab().toImage();
+  // Map the widget-logical frame into the grab exactly as the suite's other
+  // pixel probes do: a grab can be denser than the widget it came from.
+  const qreal grabScaleX =
+      ui.width() / static_cast<qreal>(std::max(1, editor.width()));
+  const qreal grabScaleY =
+      ui.height() / static_cast<qreal>(std::max(1, editor.height()));
+  const QRect deviceFrame(qRound(frame.left() * grabScaleX),
+                          qRound(frame.top() * grabScaleY),
+                          qRound(frame.width() * grabScaleX),
+                          qRound(frame.height() * grabScaleY));
+  if (deviceFrame.width() > native.width() ||
+      deviceFrame.height() > native.height()) {
+    error = QStringLiteral("A %1x%2 source was enlarged into a %3x%4 frame")
+                .arg(native.width()).arg(native.height())
+                .arg(deviceFrame.width()).arg(deviceFrame.height());
+    return false;
+  }
+  // A display denser than the document may still resolve every native pixel.
+  if (deviceFrame.size() != native) {
+    error = QStringLiteral("A %1x%2 source was drawn at %3x%4")
+                .arg(native.width()).arg(native.height())
+                .arg(deviceFrame.width()).arg(deviceFrame.height());
+    return false;
+  }
+  const auto matches = [](const QColor &actual, const QColor &wanted) {
+    return std::abs(actual.red() - wanted.red()) <= 2 &&
+           std::abs(actual.green() - wanted.green()) <= 2 &&
+           std::abs(actual.blue() - wanted.blue()) <= 2;
+  };
+  // Every device pixel in a native pixel's footprint has to read back as that
+  // native pixel. At one device pixel each this is identity; at any other
+  // density the surroundings blend, which is exactly the soft preview this
+  // guard exists to catch.
+  const qreal stepX =
+      deviceFrame.width() / static_cast<qreal>(native.width());
+  const qreal stepY =
+      deviceFrame.height() / static_cast<qreal>(native.height());
+  const auto blendedSourcePixel = [&](const QPoint &point) {
+    const QColor wanted = capture.source.pixelColor(point);
+    const int firstX = int(std::floor(point.x() * stepX));
+    const int lastX =
+        std::max(firstX, int(std::ceil((point.x() + 1) * stepX)) - 1);
+    const int firstY = int(std::floor(point.y() * stepY));
+    const int lastY =
+        std::max(firstY, int(std::ceil((point.y() + 1) * stepY)) - 1);
+    for (int y = firstY; y <= lastY; ++y)
+      for (int x = firstX; x <= lastX; ++x) {
+        const QColor got =
+            ui.pixelColor(deviceFrame.left() + x, deviceFrame.top() + y);
+        if (!matches(got, wanted))
+          return got;
+      }
+    return QColor();
+  };
+  // Inside the checkerboard, then across the marker block: a blend anywhere
+  // means the editor resampled the source instead of showing it.
+  for (int y = 2; y < native.height() - 3; y += 23) {
+    for (int x = 2; x < native.width() - 3; x += 23) {
+      if (const QColor got = blendedSourcePixel(QPoint(x, y)); got.isValid()) {
+        error = QStringLiteral("Native pixel %1,%2 painted as %3, not %4")
+                    .arg(x).arg(y).arg(got.name(),
+                                       capture.source.pixelColor(x, y).name());
+        return false;
+      }
+    }
+  }
+  // The display path is the only thing the density limit may touch: the
+  // document still exports its own pixels.
+  if (editor.renderCurrentOutput().convertToFormat(capture.source.format()) !=
+      capture.source) {
+    error = QStringLiteral("The source density limit changed the exported pixels");
+    return false;
+  }
+  editor.close();
+
+  // A reopened 2x document is at least as dense as the screen, so it keeps
+  // its logical presentation and exports every captured pixel.
+  const QSize captured(300, 240);
+  CaptureData scaled;
+  scaled.monitor.name = QStringLiteral("TEST");
+  scaled.monitor.geometry = QRect(QPoint(), captured);
+  scaled.monitor.pixelSize = captured * 2;
+  scaled.monitor.scale = 2.0;
+  scaled.previewSize = captured;
+  scaled.source = QImage(captured * 2, QImage::Format_ARGB32_Premultiplied);
+  scaled.source.fill(QColor(QStringLiteral("#527196")));
+  CaptureEditor reopened(scaled, CaptureEditor::CaptureMode::File);
+  reopened.setSuppressSnapshots(true);
+  reopened.resize(1000, 900);
+  reopened.show();
+  QApplication::processEvents();
+  const QRectF reopenedFrame = reopened.sourceFrameWidgetRectForTest();
+  if (reopenedFrame.size() != QSizeF(captured) ||
+      reopened.renderCurrentOutput() != scaled.source) {
+    error = QStringLiteral("A reopened scaled capture changed size or pixels");
+    return false;
+  }
+  reopened.close();
+  return true;
+}
+
+/**
+ * A region drag normally ends between source pixels: Wayland reports pointer
+ * coordinates as fixed point, so the selection is fractional and the crop
+ * pixelSelection takes is up to a pixel wider than the selection itself. That
+ * crop is what the export carries, and the annotator has to show exactly those
+ * pixels at one device pixel each. Drawing the fractional selection instead
+ * resampled the whole preview through a sub-pixel scale: soft on screen while
+ * the PNG kept every native pixel, which is the low-resolution annotator
+ * preview the reporter in issue #170 described. The editor's own export is the
+ * reference here: what is on screen is the image the export carries, pixel for
+ * pixel.
+ */
+bool runFractionalRegionPaintingCheck(QString &error) {
+  const QSize monitor(1400, 1000);
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("TEST");
+  capture.monitor.geometry = QRect(QPoint(), monitor);
+  capture.monitor.pixelSize = monitor;
+  capture.monitor.scale = 1.0;
+  capture.previewSize = monitor;
+  capture.source = QImage(monitor, QImage::Format_ARGB32_Premultiplied);
+  // Highest-frequency ink there is: one native pixel per device pixel is the
+  // only density at which this checkerboard reads back unchanged.
+  const QColor ink(QStringLiteral("#102040"));
+  const QColor marker(QStringLiteral("#ff40c0"));
+  for (int y = 0; y < monitor.height(); ++y)
+    for (int x = 0; x < monitor.width(); ++x)
+      capture.source.setPixelColor(x, y, (x + y) % 2 ? Qt::white : ink);
+  for (int y = 598; y < 640; ++y)
+    for (int x = 498; x < 560; ++x)
+      capture.source.setPixelColor(x, y, marker);
+
+  CaptureEditor editor(capture, CaptureEditor::CaptureMode::Region);
+  editor.setSuppressSnapshots(true);
+  editor.resize(monitor);
+  editor.show();
+  QApplication::processEvents();
+
+  const auto drag = [](CaptureEditor &target, const QPointF &from,
+                       const QPointF &to) {
+    const auto send = [&target](QEvent::Type type, const QPointF &point,
+                                Qt::MouseButton button,
+                                Qt::MouseButtons buttons) {
+      QMouseEvent event(type, point, target.mapToGlobal(point.toPoint()),
+                        button, buttons, Qt::NoModifier);
+      QApplication::sendEvent(&target, &event);
+    };
+    send(QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+    send(QEvent::MouseMove, to, Qt::NoButton, Qt::LeftButton);
+    send(QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+    QApplication::processEvents();
+  };
+
+  // The pointer lands between pixels: 300.37 x 180.21 logical units cover
+  // 301 x 181 source pixels, which is what the export keeps.
+  drag(editor, QPointF(500.35, 600.42), QPointF(800.72, 780.63));
+  if (!editor.editingForTest()) {
+    error = QStringLiteral("A fractional region drag did not reach the editor");
+    return false;
+  }
+  const QImage reference = editor.renderCurrentOutput().convertToFormat(
+      QImage::Format_ARGB32_Premultiplied);
+  if (reference.size() != QSize(301, 181)) {
+    error = QStringLiteral("A fractional region exported %1x%2, not 301x181")
+                .arg(reference.width())
+                .arg(reference.height());
+    return false;
+  }
+  const QRectF frame = editor.sourceFrameWidgetRectForTest();
+  const QImage ui = editor.grab().toImage();
+  const qreal grabScaleX =
+      ui.width() / static_cast<qreal>(std::max(1, editor.width()));
+  const qreal grabScaleY =
+      ui.height() / static_cast<qreal>(std::max(1, editor.height()));
+  const QSize frameDevice(qRound(frame.width() * grabScaleX),
+                          qRound(frame.height() * grabScaleY));
+  if (frameDevice != reference.size()) {
+    error = QStringLiteral("A %1x%2 preview showed %3x%4 of the exported image")
+                .arg(reference.width())
+                .arg(reference.height())
+                .arg(frameDevice.width())
+                .arg(frameDevice.height());
+    return false;
+  }
+  // Child widgets (the shortcut guide) paint over the image, and the dashed
+  // boundary guide plus the crop handles own the outermost pixels: check what
+  // is left, which is still nearly the whole frame.
+  QRegion chrome;
+  for (QWidget *child : editor.findChildren<QWidget *>()) {
+    if (child->isVisible() && child->geometry().isValid())
+      chrome += child->geometry();
+  }
+  constexpr int kBoundaryMargin = 2;
+  const QRect inspected(
+      kBoundaryMargin, kBoundaryMargin,
+      std::max(0, frameDevice.width() - 2 * kBoundaryMargin),
+      std::max(0, frameDevice.height() - 2 * kBoundaryMargin));
+  int checked = 0;
+  for (int y = inspected.top(); y <= inspected.bottom(); ++y) {
+    for (int x = inspected.left(); x <= inspected.right(); ++x) {
+      const QPoint at(qRound(frame.left() * grabScaleX) + x,
+                      qRound(frame.top() * grabScaleY) + y);
+      if (chrome.contains(at))
+        continue;
+      const QColor wanted = reference.pixelColor(x, y);
+      const QColor actual = ui.pixelColor(at);
+      ++checked;
+      if (std::abs(actual.red() - wanted.red()) > 2 ||
+          std::abs(actual.green() - wanted.green()) > 2 ||
+          std::abs(actual.blue() - wanted.blue()) > 2) {
+        error = QStringLiteral(
+                    "The preview resampled a fractional region: device pixel "
+                    "%1,%2 reads %3, the export carries %4")
+                    .arg(x)
+                    .arg(y)
+                    .arg(actual.name(), wanted.name());
+        return false;
+      }
+    }
+  }
+  if (checked < frameDevice.width() * frameDevice.height() / 2) {
+    error = QStringLiteral("The fractional region preview was never painted");
+    return false;
+  }
+  editor.close();
+
+  // The same region dragged between whole pixels is the control: it matched
+  // before this rule existed too, so a failure here is the fixture, not the
+  // fractional path.
+  CaptureEditor whole(capture, CaptureEditor::CaptureMode::Region);
+  whole.setSuppressSnapshots(true);
+  whole.resize(monitor);
+  whole.show();
+  QApplication::processEvents();
+  drag(whole, QPointF(500, 600), QPointF(801, 781));
+  if (!whole.editingForTest() ||
+      whole.sourceFrameWidgetRectForTest().size() != QSizeF(301, 181)) {
+    error = QStringLiteral("A whole-pixel region did not keep its frame size");
+    return false;
+  }
+  whole.close();
+  return true;
+}
+
+/**
  * The pointer readout reports native export pixels, not the logical units the
  * pointer travels through. On a 2x monitor a 450x310 drag exports 900x620, and
  * quoting the logical number would make the overlay useless as a ruler.
@@ -12355,6 +12641,14 @@ int main(int argc, char **argv) {
   if (!runSelectUndimHoleCheck(snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 96;
+  }
+  if (!runScaledSourcePaintingCheck(snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 226;
+  }
+  if (!runFractionalRegionPaintingCheck(snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 227;
   }
   if (!runCreationConstraintCheck(snapshotError)) {
     qWarning().noquote() << snapshotError;
