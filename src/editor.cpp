@@ -145,16 +145,21 @@ private:
 namespace {
 constexpr std::array<qreal, 3> kTextSizes{2.0, 5.0, 9.0};
 constexpr std::array<const char *, 3> kTextSizeNames{"S", "M", "L"};
-constexpr qreal kToolbarWidth = 840;
+/// Icon buttons are a touch narrower than the 36px row is tall, which keeps
+/// 22 buttons inside the long-standing ~840px envelope: the toolbar's scale,
+/// and with it the canvas fit geometry, stays what it was before the Label
+/// tool joined the row.
+constexpr qreal kToolbarButtonWidth = 34;
+/// Exactly the row's contents: 21 icon buttons and the 40px Copy + Save, the
+/// 21 ordinary gaps between them, and the three group gaps.
+constexpr qreal kToolbarWidth = 21 * kToolbarButtonWidth + 40 + 21 * 2.5 + 30;
 // Toolbar row to the top of the image below it.
 constexpr qreal kToolbarImageGap = 18.0;
 // Preserve the editor's established top inset without capture-mode chrome.
 constexpr qreal kToolbarTop = 39.0;
 /// Extra spacing between toolbar groups (history / style / tools / actions),
 /// so the row reads as clusters rather than one flat strip. Ordinary gaps are
-/// tightened from 4px to 2.5px; across the 20 gaps that exactly pays for these
-/// three 10px additions, keeping the existing 840px toolbar envelope and,
-/// crucially, the canvas fit geometry derived from its scale.
+/// tightened from 4px to 2.5px to pay for these three 10px additions.
 constexpr qreal kToolbarGroupGap = 10;
 constexpr qreal kMinimumRedactionExtent = 5.0;
 constexpr int kBackdropDim = 143;
@@ -445,12 +450,14 @@ bool supportsCreationConstraint(CaptureEditor::Tool tool) {
   return tool == CaptureEditor::Tool::Arrow ||
          tool == CaptureEditor::Tool::Line ||
          tool == CaptureEditor::Tool::Rectangle ||
+         tool == CaptureEditor::Tool::Label ||
          tool == CaptureEditor::Tool::Ellipse ||
          tool == CaptureEditor::Tool::Spotlight;
 }
 
 bool supportsCenteredCreation(CaptureEditor::Tool tool) {
   return tool == CaptureEditor::Tool::Rectangle ||
+         tool == CaptureEditor::Tool::Label ||
          tool == CaptureEditor::Tool::Ellipse ||
          tool == CaptureEditor::Tool::Spotlight;
 }
@@ -464,6 +471,7 @@ bool supportsOffCanvasCreation(CaptureEditor::Tool tool) {
   case CaptureEditor::Tool::Spotlight:
   case CaptureEditor::Tool::Marker:
   case CaptureEditor::Tool::Rectangle:
+  case CaptureEditor::Tool::Label:
   case CaptureEditor::Tool::Ellipse:
   case CaptureEditor::Tool::Text:
     return true;
@@ -501,6 +509,8 @@ QString toolAction(CaptureEditor::Tool tool) {
     return QStringLiteral("tool-marker");
   case CaptureEditor::Tool::Rectangle:
     return QStringLiteral("tool-rectangle");
+  case CaptureEditor::Tool::Label:
+    return QStringLiteral("tool-label");
   case CaptureEditor::Tool::Ellipse:
     return QStringLiteral("tool-ellipse");
   case CaptureEditor::Tool::Redact:
@@ -522,6 +532,7 @@ QString toolAction(CaptureEditor::Tool tool) {
 Annotation::Kind dragShapeKind(CaptureEditor::Tool tool) {
   switch (tool) {
   case CaptureEditor::Tool::Rectangle:
+  case CaptureEditor::Tool::Label:
   case CaptureEditor::Tool::Ocr:
     return Annotation::Kind::Rectangle;
   case CaptureEditor::Tool::Ellipse:
@@ -753,6 +764,7 @@ QPointF constrainedCreationEndpoint(CaptureEditor::Tool tool,
                                     const QPointF &start, const QPointF &end) {
   const QPointF delta = end - start;
   if (tool == CaptureEditor::Tool::Rectangle ||
+      tool == CaptureEditor::Tool::Label ||
       tool == CaptureEditor::Tool::Ellipse ||
       tool == CaptureEditor::Tool::Spotlight) {
     const qreal extent = std::max(std::abs(delta.x()), std::abs(delta.y()));
@@ -1137,7 +1149,8 @@ bool CaptureEditor::eventFilter(QObject *watched, QEvent *event) {
       return true;
     }
     if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
-      if (key->modifiers().testFlag(Qt::ControlModifier)) {
+      // A label is one line on its tab, so every Enter places it.
+      if (labelTarget_ || key->modifiers().testFlag(Qt::ControlModifier)) {
         acceptText();
         return true;
       }
@@ -1530,6 +1543,10 @@ QString CaptureEditor::toolStatus() const {
     return QStringLiteral("Rectangle · size %1 · wheel resizes · Shift keeps "
                           "it square")
         .arg(size);
+  case Tool::Label:
+    return QStringLiteral("Label · size %1 · drag a box, then type its "
+                          "label · Alt+wheel rounds corners")
+        .arg(size);
   case Tool::Ellipse:
     return QStringLiteral("Ellipse · size %1 · wheel resizes · Shift keeps "
                           "it circular")
@@ -1607,6 +1624,9 @@ bool CaptureEditor::annotationContains(const Annotation &annotation,
     } else {
       const QRectF bounds = annotationBounds(annotation);
       if (annotation.kind == Annotation::Kind::Rectangle) {
+        // Its label tab is solid, and grabs the box like its edge does.
+        if (rectangleLabelBounds(annotation).contains(point))
+          return true;
         // Filled rectangles hit anywhere inside unless this is an edge-only
         // grab; hollow ones only on the stroke band.
         const qreal tolerance =
@@ -2679,46 +2699,50 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
   };
 
   // History: undo/redo together, leading the bar.
-  add(36, QStringLiteral("undo"), {}, QStringLiteral("Undo · Ctrl+Z"));
-  add(36, QStringLiteral("redo"), {},
+  add(kToolbarButtonWidth, QStringLiteral("undo"), {}, QStringLiteral("Undo · Ctrl+Z"));
+  add(kToolbarButtonWidth, QStringLiteral("redo"), {},
       QStringLiteral("Redo · Ctrl+Shift+Z / Ctrl+Y"));
   endGroup();
 
   // Style: canvas backdrop and annotation color.
-  add(36, QStringLiteral("background"), {},
+  add(kToolbarButtonWidth, QStringLiteral("background"), {},
       QStringLiteral("Cycle backdrop · B"));
-  add(36, QStringLiteral("palette"), {}, QStringLiteral("Annotation color"),
+  add(kToolbarButtonWidth, QStringLiteral("palette"), {}, QStringLiteral("Annotation color"),
       annotationColor());
   endGroup();
 
   // Tools: everything that acts on the image via the cursor.
-  add(36, QStringLiteral("tool-select"), {},
+  add(kToolbarButtonWidth, QStringLiteral("tool-select"), {},
       QStringLiteral("Select/move · V · Ctrl+wheel zoom · outer handles crop"));
-  add(36, arrowToolAction(arrowStyle_), {},
+  add(kToolbarButtonWidth, arrowToolAction(arrowStyle_), {},
       QStringLiteral("Arrow · %1 · A cycles · Shift snaps 45° / centers "
                      "bend · Size %2 · Wheel")
           .arg(arrowStyleName(arrowStyle_))
           .arg(qRound(annotationSize_)));
-  add(36, QStringLiteral("tool-line"), {},
+  add(kToolbarButtonWidth, QStringLiteral("tool-line"), {},
       QStringLiteral("Line · L · Shift snaps 45° · Size %1 · Wheel")
           .arg(qRound(annotationSize_)));
-  add(36, QStringLiteral("tool-freehand"), {},
+  add(kToolbarButtonWidth, QStringLiteral("tool-freehand"), {},
       QStringLiteral("Freehand · F · Size %1 · Wheel · Smoothing %2/%3 · "
                      "Alt+Wheel")
           .arg(qRound(annotationSize_))
           .arg(freehandSmoothingLevel_)
           .arg(stroke::maximumSmoothingLevel));
-  add(36, QStringLiteral("tool-highlighter"), {}, highlighterTooltip());
-  add(36, QStringLiteral("tool-marker"), {},
+  add(kToolbarButtonWidth, QStringLiteral("tool-highlighter"), {}, highlighterTooltip());
+  add(kToolbarButtonWidth, QStringLiteral("tool-marker"), {},
       QStringLiteral("Number marker · C · Size %1 · Wheel")
           .arg(qRound(annotationSize_)));
   const QString fillHint = fillShapes_ ? QStringLiteral("filled") : QString();
   const bool ellipseSelected = tool_ == Tool::Ellipse;
-  add(36, ellipseSelected ? QStringLiteral("tool-ellipse")
+  add(kToolbarButtonWidth, ellipseSelected ? QStringLiteral("tool-ellipse")
                           : QStringLiteral("tool-rectangle"),
       fillHint,
       QStringLiteral("Shapes · R rectangle · E ellipse · hover for fill"));
-  add(36, QStringLiteral("tool-spotlight"), {},
+  add(kToolbarButtonWidth, QStringLiteral("tool-label"), {},
+      QStringLiteral("Label · Shift+R · drag a box, then type its label · "
+                     "Size %1 · Wheel")
+          .arg(qRound(annotationSize_)));
+  add(kToolbarButtonWidth, QStringLiteral("tool-spotlight"), {},
       QStringLiteral("Spotlight · S · %1 · %2× · S cycles shape")
           .arg(spotlightShape_ == SpotlightShape::Ellipse
                    ? QStringLiteral("ellipse")
@@ -2726,31 +2750,31 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
                          ? QStringLiteral("rectangle")
                          : QStringLiteral("rounded"))
           .arg(spotlightMagnification_, 0, 'f', 1));
-  add(36, QStringLiteral("tool-redact"), {},
+  add(kToolbarButtonWidth, QStringLiteral("tool-redact"), {},
       QStringLiteral("Redact · D · %1 · D again toggles")
           .arg(redactionStyleName(redactionStyle_)));
-  add(36, QStringLiteral("tool-cut"), {},
+  add(kToolbarButtonWidth, QStringLiteral("tool-cut"), {},
       cutInsertHint()
           ? QStringLiteral("Insert a band · drag across")
           : QStringLiteral("Cut out a band · X · drag across"));
-  add(36, QStringLiteral("tool-text"), {},
+  add(kToolbarButtonWidth, QStringLiteral("tool-text"), {},
       QStringLiteral("%1 text · T · %2 · %3 · T again cycles style · "
                      "Shift+T cycles font · Wheel")
           .arg(annotationTextFontName(textFont_))
           .arg(QString::fromLatin1(
               kTextSizeNames.at(static_cast<std::size_t>(textSizeIndex_))))
           .arg(textBackgroundName(textBackground_)));
-  add(36, QStringLiteral("tool-ocr"), {},
+  add(kToolbarButtonWidth, QStringLiteral("tool-ocr"), {},
       QStringLiteral("Copy all text in the image · O"));
   endGroup();
 
   // Actions: pin and finish/exit the capture.
-  add(36, QStringLiteral("pin"), {},
+  add(kToolbarButtonWidth, QStringLiteral("pin"), {},
       QStringLiteral("Keep on screen · Ctrl+P / P · Ctrl+C on the pin copies it"));
-  add(36, QStringLiteral("copy"), {}, QStringLiteral("Copy only · Ctrl+C"));
+  add(kToolbarButtonWidth, QStringLiteral("copy"), {}, QStringLiteral("Copy only · Ctrl+C"));
   add(40, QStringLiteral("both"), {}, QStringLiteral("Copy and save · Enter"));
-  add(36, QStringLiteral("save"), {}, QStringLiteral("Save only · Ctrl+S"));
-  add(36, QStringLiteral("close"), {}, QStringLiteral("Close · Esc"));
+  add(kToolbarButtonWidth, QStringLiteral("save"), {}, QStringLiteral("Save only · Ctrl+S"));
+  add(kToolbarButtonWidth, QStringLiteral("close"), {}, QStringLiteral("Close · Esc"));
 
   if (includeSubmenus && shapeMenuOpen_) {
     const QRectF menu = shapeMenuRect();
@@ -2875,6 +2899,7 @@ void CaptureEditor::applyEditState(const EditState &state) {
   }
   refreshCanvasRect();
   editingAnnotation_ = -1;
+  labelTarget_.reset();
   interaction_ = Interaction::None;
   freehandPoints_.clear();
   highlighterLock_.reset();
@@ -3759,7 +3784,10 @@ void CaptureEditor::layoutTextEditor() {
   const QString text = textEditor_->toPlainText();
   const QSignalBlocker blocker(textEditor_);
   const qreal scale = editScale();
-  QFont displayFont = annotationTextFont(textSize_, textEditFont_);
+  // A label is one line on its tab: it never wraps at the canvas edge.
+  const bool label = labelTarget_.has_value();
+  QFont displayFont = label ? rectangleLabelFont(labelTarget_->size)
+                            : annotationTextFont(textSize_, textEditFont_);
   displayFont.setPointSizeF(displayFont.pixelSize() * scale * 72.0 / logicalDpiY());
   textEditor_->setFont(displayFont);
   const QFontMetrics metrics(displayFont);
@@ -3779,7 +3807,7 @@ void CaptureEditor::layoutTextEditor() {
       : std::max(48, widestLine + sidePadding * 2);
   // Match the committed layout's image-space minimum. A draft with too
   // little room stays unbounded and grows the canvas when committed.
-  const int width = textEditWrapWidth_ <= 0.0 &&
+  const int width = !label && textEditWrapWidth_ <= 0.0 &&
                             remaining >= kMinimumTextWrapWidth
                         ? std::min(desiredWidth,
                                    qRound(remaining * editScale()) + sidePadding * 2)
@@ -3791,7 +3819,7 @@ void CaptureEditor::layoutTextEditor() {
   logical.size = textSize_;
   logical.textFont = textEditFont_;
   logical.textWidth = textEditWrapWidth_;
-  textEditor_->setLogicalWrap(logical, canvasRect_.right());
+  textEditor_->setLogicalWrap(logical, label ? 0.0 : canvasRect_.right());
   // QPlainTextEdit needs a little more than QFontMetrics::height(): its
   // block layout keeps leading/descent outside the nominal line box.
   // Wrapped lines are not the newline count either, so the laid-out
@@ -3813,6 +3841,13 @@ bool CaptureEditor::textEditing() const {
 }
 
 Annotation CaptureEditor::draftTextAnnotation() const {
+  if (labelTarget_) {
+    Annotation rectangle = *labelTarget_;
+    rectangle.text = textEditor_->toPlainText();
+    if (rectangle.text.isEmpty())
+      rectangle.text = QStringLiteral(" ");
+    return rectangle;
+  }
   Annotation draft;
   draft.kind = Annotation::Kind::Text;
   draft.size = textSize_;
@@ -3836,6 +3871,7 @@ Annotation CaptureEditor::draftTextAnnotation() const {
 void CaptureEditor::beginText(const QPointF &point, int annotationIndex,
                               int lineCapacity) {
   ensureTextEditor();
+  labelTarget_.reset();
   editingAnnotation_ = annotationIndex;
   QString existingText;
   if (annotationIndex >= 0 && annotationIndex < annotations_.size()) {
@@ -3873,12 +3909,34 @@ void CaptureEditor::beginText(const QPointF &point, int annotationIndex,
       annotationIndex >= 0 && annotationIndex < annotations_.size()
           ? annotations_.at(annotationIndex).textWidth
           : 0.0;
+  showTextEditor(existingText, textColor_);
+}
+
+void CaptureEditor::beginLabel(Annotation rectangle, int annotationIndex) {
+  ensureTextEditor();
+  editingAnnotation_ = annotationIndex;
+  const QString existingText = rectangle.text;
+  textColor_ = rectangle.color;
+  textPoint_ =
+      rectangleLabelTextOrigin(rectangle) -
+      QPointF(0, QFontMetricsF(rectangleLabelFont(rectangle.size)).ascent());
+  textLineCapacity_ = 1;
+  textEditPill_ = false;
+  textEditWrapWidth_ = 0.0;
+  labelTarget_ = std::move(rectangle);
+  setStatus(QStringLiteral("Type the label · Enter places it · left empty, "
+                           "the rectangle stays plain"));
+  showTextEditor(existingText, rectangleLabelInk(textColor_));
+}
+
+void CaptureEditor::showTextEditor(const QString &existingText,
+                                   const QColor &ink) {
   textEditor_->setStyleSheet(
       QStringLiteral(
           "QPlainTextEdit { color: %1; background: transparent; "
           "border: none; margin: 0; padding: 0;"
           " }")
-          .arg(textColor_.name()));
+          .arg(ink.name()));
   textEditor_->setPlainText(existingText);
   layoutTextEditor();
   textEditor_->show();
@@ -3894,6 +3952,12 @@ void CaptureEditor::beginText(const QPointF &point, int annotationIndex,
 void CaptureEditor::acceptText(bool keepSelected) {
   if (!textEditor_)
     return;
+  if (labelTarget_) {
+    Annotation rectangle = std::move(*labelTarget_);
+    labelTarget_.reset();
+    acceptLabel(std::move(rectangle), keepSelected);
+    return;
+  }
   const QString text = textEditor_->toPlainText().trimmed();
   if (!text.isEmpty()) {
     Annotation annotation;
@@ -3963,6 +4027,51 @@ void CaptureEditor::acceptText(bool keepSelected) {
   textEditor_->hide();
   textCaretTimer_.stop();
   setFocus(Qt::OtherFocusReason);
+  updatePointerCursor();
+  update();
+}
+
+void CaptureEditor::acceptLabel(Annotation rectangle, bool keepSelected) {
+  const int index = editingAnnotation_;
+  editingAnnotation_ = -1;
+  // A label is a single line on its tab; a pasted break joins the words.
+  rectangle.text = textEditor_->toPlainText()
+                       .replace(QLatin1Char('\n'), QLatin1Char(' '))
+                       .trimmed();
+  textEditor_->clear();
+  textEditor_->hide();
+  textCaretTimer_.stop();
+  setFocus(Qt::OtherFocusReason);
+  if (index >= 0 && index < annotations_.size()) {
+    // Only the label changes: the layer keeps whatever else it has now.
+    selectedAnnotation_ = index;
+    selectedAnnotations_ = {index};
+    tool_ = Tool::Select;
+    setStatus(rectangle.text.isEmpty()
+                  ? QStringLiteral("Label removed · Shift+R adds one again")
+                  : QStringLiteral("Label updated · Enter edits again · drag "
+                                   "to move"));
+    if (annotations_.at(index).text != rectangle.text) {
+      annotations_[index].text = rectangle.text;
+      commitPatch({index});
+    }
+  } else {
+    // The box was drawn before its label was typed; it is kept either way,
+    // and both land in the log together as one undoable layer.
+    selectedAnnotation_ = -1;
+    selectedAnnotations_.clear();
+    setStatus(rectangle.text.isEmpty()
+                  ? QStringLiteral("Rectangle added without a label · "
+                                   "double-click it to add one")
+                  : QStringLiteral("Labeled rectangle added · double-click "
+                                   "to edit the label"));
+    commitAnnotate(std::move(rectangle));
+    if (keepSelected && !annotations_.isEmpty()) {
+      selectedAnnotation_ = static_cast<int>(annotations_.size()) - 1;
+      selectedAnnotations_ = {selectedAnnotation_};
+      tool_ = Tool::Select;
+    }
+  }
   updatePointerCursor();
   update();
 }
@@ -4320,10 +4429,12 @@ void CaptureEditor::handleToolbar(const QString &action) {
     activateHighlighter();
   else if (action == QStringLiteral("tool-marker"))
     tool_ = Tool::Marker;
-  else if (action == QStringLiteral("tool-rectangle") ||
-           action == QStringLiteral("tool-ellipse") ||
-           action == QStringLiteral("shape-rectangle") ||
-           action == QStringLiteral("shape-ellipse")) {
+  else if (action == QStringLiteral("tool-label")) {
+    tool_ = Tool::Label;
+  } else if (action == QStringLiteral("tool-rectangle") ||
+             action == QStringLiteral("tool-ellipse") ||
+             action == QStringLiteral("shape-rectangle") ||
+             action == QStringLiteral("shape-ellipse")) {
     const Tool shape = action.endsWith(QStringLiteral("rectangle"))
                            ? Tool::Rectangle
                            : Tool::Ellipse;
@@ -4639,15 +4750,24 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     return;
   } else if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
     // Enter on a selected label reopens it for editing; anywhere else it
-    // finishes the capture.
+    // finishes the capture. A rectangle counts once it has a label: an
+    // unlabeled one stays out of the way of Enter's copy and save.
     if (selectedAnnotation_ >= 0 && selectedAnnotation_ < annotations_.size() &&
-        selectedAnnotations_.size() <= 1 &&
-        annotations_.at(selectedAnnotation_).kind == Annotation::Kind::Text &&
-        !dragging_ && !textEditing()) {
-      tool_ = Tool::Select;
-      beginText({}, selectedAnnotation_);
-      update();
-      return;
+        selectedAnnotations_.size() <= 1 && !dragging_ && !textEditing()) {
+      const Annotation &selected = annotations_.at(selectedAnnotation_);
+      if (selected.kind == Annotation::Kind::Text) {
+        tool_ = Tool::Select;
+        beginText({}, selectedAnnotation_);
+        update();
+        return;
+      }
+      if (selected.kind == Annotation::Kind::Rectangle &&
+          !selected.text.isEmpty()) {
+        tool_ = Tool::Select;
+        beginLabel(selected, selectedAnnotation_);
+        update();
+        return;
+      }
     }
     finish(OutputMode::Both);
     return;
@@ -4710,6 +4830,19 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     activateHighlighter();
   } else if (event->key() == Qt::Key_C || event->key() == Qt::Key_M) {
     tool_ = Tool::Marker;
+  } else if (event->key() == Qt::Key_R &&
+             event->modifiers() == Qt::ShiftModifier) {
+    if (!dragging_ && selectedAnnotation_ >= 0 &&
+        selectedAnnotation_ < annotations_.size() &&
+        selectedAnnotations_.size() <= 1 &&
+        annotations_.at(selectedAnnotation_).kind ==
+            Annotation::Kind::Rectangle) {
+      tool_ = Tool::Select;
+      beginLabel(annotations_.at(selectedAnnotation_), selectedAnnotation_);
+      update();
+      return;
+    }
+    tool_ = Tool::Label;
   } else if (event->key() == Qt::Key_R || event->key() == Qt::Key_E) {
     const bool rectangle = event->key() == Qt::Key_R;
     const Tool shape = rectangle ? Tool::Rectangle : Tool::Ellipse;
@@ -4891,13 +5024,25 @@ CaptureEditor::liveLayers(const QPointF &pointer) const {
                              !pointerGrabsLayer();
   LiveLayers live;
   live.annotations.reserve(annotations_.size() + 1);
+  // A rectangle whose label is being typed stays in its place, bare: its
+  // tab is painted under the inline editor, which draws the label itself.
+  const auto bareLabelTarget = [this] {
+    Annotation rectangle = *labelTarget_;
+    rectangle.text.clear();
+    return rectangle;
+  };
   for (int index = 0; index < annotations_.size(); ++index) {
-    if (index == editingAnnotation_)
+    if (index == editingAnnotation_) {
+      if (labelTarget_)
+        live.annotations.push_back(bareLabelTarget());
       continue;
+    }
     if (annotationLayer(annotations_.at(index).kind) ==
         AnnotationLayer::Default)
       live.annotations.push_back(annotations_.at(index));
   }
+  if (labelTarget_ && editingAnnotation_ < 0 && textEditing())
+    live.annotations.push_back(bareLabelTarget());
   if (dragging_ && interaction_ == Interaction::None &&
       tool_ != Tool::Select && tool_ != Tool::Redact &&
       tool_ != Tool::Cut) {
@@ -4919,9 +5064,10 @@ CaptureEditor::liveLayers(const QPointF &pointer) const {
         preview.kind = dragShapeKind(tool_);
         if (tool_ == Tool::Arrow)
           preview.arrowStyle = arrowStyle_;
+        // A label frames what it names, so its box is always an outline.
         if (tool_ == Tool::Rectangle || tool_ == Tool::Ellipse)
           preview.filled = fillShapes_;
-        if (tool_ == Tool::Rectangle)
+        if (tool_ == Tool::Rectangle || tool_ == Tool::Label)
           preview.cornerRadius = cornerRadius_;
       }
       const QLineF span =
@@ -5690,11 +5836,17 @@ void CaptureEditor::mouseDoubleClickEvent(QMouseEvent *event) {
       !visibleEditImageRect().contains(event->position()))
     return;
   const int index = annotationAt(toAnnotationPoint(event->position()));
-  if (index < 0 || annotations_.at(index).kind != Annotation::Kind::Text)
+  if (index < 0 ||
+      (annotations_.at(index).kind != Annotation::Kind::Text &&
+       annotations_.at(index).kind != Annotation::Kind::Rectangle))
     return;
   selectedAnnotation_ = index;
+  selectedAnnotations_ = {index};
   tool_ = Tool::Select;
-  beginText({}, index);
+  if (annotations_.at(index).kind == Annotation::Kind::Rectangle)
+    beginLabel(annotations_.at(index), index);
+  else
+    beginText({}, index);
   event->accept();
   update();
 }
@@ -6363,7 +6515,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
         annotation.arrowStyle = arrowStyle_;
       if (tool_ == Tool::Rectangle || tool_ == Tool::Ellipse)
         annotation.filled = fillShapes_;
-      if (tool_ == Tool::Rectangle)
+      if (tool_ == Tool::Rectangle || tool_ == Tool::Label)
         annotation.cornerRadius = cornerRadius_;
     }
     annotation.start = start;
@@ -6374,6 +6526,12 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
     annotation.size =
         tool_ == Tool::Spotlight ? spotlightBorder_ : annotationSize_;
     selectedAnnotation_ = -1;
+    if (tool_ == Tool::Label) {
+      dragging_ = false;
+      beginLabel(std::move(annotation));
+      update();
+      return;
+    }
     const bool redacted = tool_ == Tool::Redact;
     setStatus(redacted
                   ? QStringLiteral("%1 redaction added · V for select mode")
@@ -6546,7 +6704,7 @@ void CaptureEditor::wheelEvent(QWheelEvent *event) {
       setStatus(spotlightStatus(spotlightShape_, spotlightMagnification_,
                                 spotlightBorder_));
     }
-  } else if (tool_ == Tool::Rectangle &&
+  } else if ((tool_ == Tool::Rectangle || tool_ == Tool::Label) &&
              event->modifiers().testFlag(Qt::AltModifier)) {
     // Alt+wheel is the rectangle's secondary control: corner rounding.
     cornerRadius_ = std::clamp(cornerRadius_ + step * kCornerRadiusStep, 0.0,
@@ -6556,7 +6714,7 @@ void CaptureEditor::wheelEvent(QWheelEvent *event) {
   } else if (tool_ == Tool::Arrow || tool_ == Tool::Line ||
              tool_ == Tool::Freehand || tool_ == Tool::Highlighter ||
              tool_ == Tool::Marker || tool_ == Tool::Rectangle ||
-             tool_ == Tool::Ellipse) {
+             tool_ == Tool::Label || tool_ == Tool::Ellipse) {
     annotationSize_ = std::clamp(annotationSize_ + step, 2.0, 12.0);
     setStatus(tool_ == Tool::Highlighter
                   ? highlighterStatus()
@@ -6863,6 +7021,7 @@ void CaptureEditor::adoptImage(QImage image, OperationLog log, CaptureMode kind,
     textCaretTimer_.stop();
   }
   editingAnnotation_ = -1;
+  labelTarget_.reset();
   dragging_ = false;
   interaction_ = Interaction::None;
   const MonitorInfo live = liveMonitor_;
@@ -6906,6 +7065,7 @@ void CaptureEditor::returnToSelect() {
     textCaretTimer_.stop();
   }
   editingAnnotation_ = -1;
+  labelTarget_.reset();
   dragging_ = false;
   cutDragActive_ = false;
   marqueeSelecting_ = false;
@@ -7362,9 +7522,10 @@ QVector<QPair<QString, QString>> editorHotkeyEntries() {
           {QStringLiteral("F / H"), QStringLiteral("Freehand / Highlighter")},
           {QStringLiteral("C"), QStringLiteral("Marker")},
           {QStringLiteral("R / E"), QStringLiteral("Rectangle / Ellipse")},
+          {QStringLiteral("Shift+R"), QStringLiteral("Label a box")},
           {QStringLiteral("X"), QStringLiteral("Cut out a band · Ctrl inserts")},
           {QStringLiteral("T"), QStringLiteral("Text")},
-          {QStringLiteral("Double click"), QStringLiteral("Edit text layer")},
+          {QStringLiteral("Double click"), QStringLiteral("Edit text / label")},
           {QStringLiteral("1–8"), QStringLiteral("Color")},
           {QStringLiteral("Wheel"), QStringLiteral("Zoom selected / tool size")},
           {QStringLiteral("D / O"), QStringLiteral("Redact / OCR text")},
@@ -7803,6 +7964,16 @@ void CaptureEditor::paintEdit(QPainter &painter) {
       painter.drawRoundedRect(pill, radius, radius);
       painter.restore();
     }
+    if (labelTarget_) {
+      // Likewise the label's tab, rebuilt from the draft so it grows with
+      // every keystroke exactly as the committed one will.
+      painter.save();
+      painter.translate(sourceFrameWidgetRect().topLeft());
+      painter.scale(editScale(), editScale());
+      painter.setRenderHint(QPainter::Antialiasing);
+      paintRectangleLabel(painter, draftTextAnnotation(), false);
+      painter.restore();
+    }
     if (textCaretOn_ && textEditor_->hasFocus()) {
       const QFontMetricsF metrics(textEditor_->font());
       const QRectF cursor =
@@ -7814,7 +7985,9 @@ void CaptureEditor::paintEdit(QPainter &painter) {
       // Scale the pen to one line, not the widget: the multiline editor grows
       // taller with every Return, and the caret must not thicken with it.
       const qreal lineBox = metrics.lineSpacing() + metrics.descent() + 4.0;
-      painter.setPen(QPen(textColor_, std::max(1.0, lineBox / 18.0)));
+      painter.setPen(QPen(labelTarget_ ? rectangleLabelInk(textColor_)
+                                       : textColor_,
+                          std::max(1.0, lineBox / 18.0)));
       painter.drawLine(QPointF(cursor.center().x(), top),
                        QPointF(cursor.center().x(), bottom));
     }
@@ -7967,8 +8140,8 @@ void CaptureEditor::paintEdit(QPainter &painter) {
   } else if (tool_ == Tool::Arrow || tool_ == Tool::Line ||
              tool_ == Tool::Freehand || tool_ == Tool::Highlighter ||
              tool_ == Tool::Marker || tool_ == Tool::Redact ||
-             tool_ == Tool::Rectangle || tool_ == Tool::Ellipse ||
-             tool_ == Tool::Text) {
+             tool_ == Tool::Rectangle || tool_ == Tool::Label ||
+             tool_ == Tool::Ellipse || tool_ == Tool::Text) {
     const QString selectedAction = toolAction(tool_);
     for (const ToolbarButton &button : buttons) {
       if (button.action == selectedAction ||
@@ -7992,6 +8165,11 @@ void CaptureEditor::paintEdit(QPainter &painter) {
           tooltip = QStringLiteral("Rectangle · %1 · Size %2 · Scroll wheel · "
                                    "Alt+Wheel %3")
                         .arg(fillName(fillShapes_))
+                        .arg(qRound(annotationSize_))
+                        .arg(cornerName(cornerRadius_));
+        } else if (tool_ == Tool::Label) {
+          tooltip = QStringLiteral("Label · Size %1 · Scroll wheel · "
+                                   "Alt+Wheel %2")
                         .arg(qRound(annotationSize_))
                         .arg(cornerName(cornerRadius_));
         } else if (tool_ == Tool::Ellipse) {

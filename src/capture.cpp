@@ -164,6 +164,86 @@ qreal annotationPenWidth(const Annotation &annotation) {
   }
 }
 
+namespace {
+/// Room around a label inside its tab: a little more across than down, like
+/// a printed tag.
+QPointF rectangleLabelPadding(const QFontMetricsF &metrics) {
+  return {std::round(metrics.height() * 0.4),
+          std::round(metrics.height() * 0.15)};
+}
+} // namespace
+
+QFont rectangleLabelFont(qreal size) {
+  // Only the regular face is bundled. A requested bold would be synthesized
+  // or not depending on the font backend, and the inline editor and the
+  // export must set the label identically.
+  QFont font = annotationTextFont(size, TextFont::JetBrainsMono);
+  font.setPixelSize(qRound(std::clamp(11.0 + size * 1.5, 14.0, 40.0)));
+  return font;
+}
+
+QPointF rectangleLabelTextOrigin(const Annotation &annotation) {
+  const QFontMetricsF metrics(rectangleLabelFont(annotation.size));
+  const QPointF padding = rectangleLabelPadding(metrics);
+  const QRectF box = QRectF(annotation.start, annotation.end).normalized();
+  const qreal halfStroke = annotationPenWidth(annotation) / 2.0;
+  // The tab stands on the outside of the top stroke, flush with its left
+  // edge, so the label never covers what the box is drawn around.
+  const qreal tabTop = box.top() - halfStroke - metrics.height() -
+                       padding.y() * 2.0;
+  return {box.left() - halfStroke + padding.x(),
+          tabTop + padding.y() + metrics.ascent()};
+}
+
+QRectF rectangleLabelBounds(const Annotation &annotation) {
+  if (annotation.kind != Annotation::Kind::Rectangle ||
+      annotation.text.isEmpty())
+    return {};
+  const QFontMetricsF metrics(rectangleLabelFont(annotation.size));
+  const QPointF padding = rectangleLabelPadding(metrics);
+  const QPointF origin = rectangleLabelTextOrigin(annotation);
+  const QPointF topLeft = origin - padding - QPointF(0, metrics.ascent());
+  // Its foot reaches down to the stroke's centerline: the tab overlaps the
+  // stroke instead of meeting its outer edge, so no antialiased seam can
+  // open between the two at a fractional position.
+  const qreal bottom =
+      QRectF(annotation.start, annotation.end).normalized().top();
+  return {topLeft,
+          QPointF(topLeft.x() + metrics.horizontalAdvance(annotation.text) +
+                      padding.x() * 2.0,
+                  std::max(bottom, topLeft.y() + 1.0))};
+}
+
+QColor rectangleLabelInk(const QColor &fill) {
+  // Rec. 709 luma of the encoded channels is plenty to pick the legible side.
+  const qreal luma = 0.2126 * fill.redF() + 0.7152 * fill.greenF() +
+                     0.0722 * fill.blueF();
+  return luma > 0.55 ? QColor(18, 18, 22) : QColor(Qt::white);
+}
+
+void paintRectangleLabel(QPainter &painter, const Annotation &annotation,
+                         bool withText) {
+  const QRectF tab = rectangleLabelBounds(annotation);
+  if (tab.isEmpty())
+    return;
+  // Rounded on top and square at the foot, where it joins the box.
+  const qreal radius = std::min<qreal>(4.0, tab.height() / 4.0);
+  QPainterPath shape;
+  shape.addRoundedRect(tab, radius, radius);
+  QPainterPath foot;
+  foot.addRect(tab.adjusted(0, tab.height() - radius, 0, 0));
+  painter.save();
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(annotation.color);
+  painter.drawPath(shape.united(foot));
+  if (withText) {
+    painter.setFont(rectangleLabelFont(annotation.size));
+    painter.setPen(rectangleLabelInk(annotation.color));
+    painter.drawText(rectangleLabelTextOrigin(annotation), annotation.text);
+  }
+  painter.restore();
+}
+
 QRectF annotationPaintedBounds(const Annotation &annotation) {
   const auto pointBounds = [](const QVector<QPointF> &points) {
     if (points.isEmpty())
@@ -211,7 +291,10 @@ QRectF annotationPaintedBounds(const Annotation &annotation) {
     return visual.isEmpty() ? QRectF() : visual.adjusted(-1, -1, 1, 1);
   }
   const qreal extent = annotationPenWidth(annotation) / 2.0 + 1.0;
-  return bounds.adjusted(-extent, -extent, extent, extent);
+  bounds = bounds.adjusted(-extent, -extent, extent, extent);
+  if (const QRectF tab = rectangleLabelBounds(annotation); !tab.isEmpty())
+    bounds = bounds.united(tab.adjusted(-1, -1, 1, 1));
+  return bounds;
 }
 
 QRectF captureCanvasRect(const QSizeF &sourceFrameSize,
@@ -748,6 +831,7 @@ void drawAnnotation(QPainter &painter, const Annotation &annotation,
     } else {
       painter.drawRect(bounds);
     }
+    paintRectangleLabel(painter, annotation);
     return;
   }
 
