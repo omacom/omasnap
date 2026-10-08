@@ -49,8 +49,8 @@ preview keeps it on screen.
 - Standard, pointy, curved, and double-headed arrows; straight lines; smoothed
   freehand strokes; and translucent highlighter
   strokes that automatically match and stay straight across screenshot text (with
-  freehand fallback), plus hollow or filled rectangles (optionally rounded) and
-  ellipses, numbered markers, editable text in Neucha, JetBrains Mono, or Inter
+  freehand fallback), plus hollow or filled rectangles (optionally rounded and
+  optionally labeled with a tag on their top-left edge) and ellipses, numbered markers, editable text in Neucha, JetBrains Mono, or Inter
   Display (plain, outlined, or on a readability pill), and secure redaction with
   opaque or randomized non-spatial mosaic output.
 - Per-layer preset or custom colors (including highlighter ink), undo/redo history,
@@ -485,6 +485,7 @@ region after changing the display layout.
 | `I` | Eyedropper in the color popover · sample the image as the custom color |
 | `C` | Numbered marker |
 | `R` | Rectangle; hover the shape button for rectangle, ellipse, and fill controls; `Alt`+wheel rounds corners |
+| `Shift+R` | Label tool (the toolbar button beside the shapes): drag a box, type its label, and press Enter; the label rides on a solid tab in the box's color and moves, resizes, and undoes with it as one layer. Leave it empty for a plain rectangle; `Alt`+wheel rounds corners. With a rectangle selected, `Shift+R` adds or edits its label instead |
 | `E` | Ellipse; shares the shape submenu and filled/hollow toggle |
 | `D` | Redact; press again to toggle randomized pixelation or solid redaction |
 | `X` | Cut out a band; drag to preview the crossed-out strip, then release to remove and collapse it. **Ctrl** (with Cut armed, or **Ctrl+X**) inserts a band instead; the cut icon becomes a split-plus |
@@ -504,6 +505,7 @@ region after changing the display layout.
 | Hold `Alt` while dragging | Center rectangles, ellipses, and spotlights on the press point; add `Shift` for a centered square/circle |
 | `←` `↑` `→` `↓` | Nudge the selected layer 1 px; hold `Shift` for 10 px (a held key is one undo step). With nothing selected, pan a zoomed capture |
 | Double-click text · `Enter` on a selected text | Reopen text editing |
+| Double-click a rectangle · `Enter` on a selected labeled rectangle | Add or edit its label; clear it to remove the tab |
 | `Delete` | Delete selected layer |
 | `Alt+D` | Duplicate selected layer (offset down-left, or away from a nearby edge); the copy becomes the selection |
 | `Ctrl+Z` | Undo |
@@ -511,7 +513,7 @@ region after changing the display layout.
 | `Ctrl+C` | Copy PNG only |
 | `Ctrl+S` | Save PNG only |
 | `Ctrl+Shift+S` | Save As: choose a PNG destination (`.png` is added when omitted; other formats are rejected) |
-| `Enter` | Copy and save (with a text layer selected: edit it) |
+| `Enter` | Copy and save (with a text layer or labeled rectangle selected: edit it) |
 | `Ctrl+P` / `P` | Keep the capture pinned on screen and close the editor |
 | `Esc` / `Super+W` | Dismiss the annotator; keep an originating pin in place with its edits and undo history |
 | Right-click | Return to Select; cancel active drawing |

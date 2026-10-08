@@ -7,6 +7,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Added
 
+- Label tool (`Shift+R`, or its toolbar button beside the shapes): drag a
+  box, type its label, and press Enter. Label sits on top of the rectangled
+  area. Double click a rectangle to add label.
+
 - Hold `Ctrl` while dragging with Cut (`X`) to insert a transparent band.
   Annotations shift with the image, and insertion supports undo and redo.
 

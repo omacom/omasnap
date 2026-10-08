@@ -173,6 +173,8 @@ public:
     Spotlight,
     Marker,
     Rectangle,
+    /// A rectangle that asks for a label as it is released (see beginLabel).
+    Label,
     Ellipse,
     Redact,
     Cut,
@@ -576,6 +578,14 @@ private:
   /// last one; Shift+Enter always adds a line's room.
   void beginText(const QPointF &point, int annotationIndex = -1,
                  int lineCapacity = 1);
+  /// Opens the inline editor on `rectangle`'s label tab. `annotationIndex`
+  /// is the layer being relabeled, or -1 for a rectangle just drawn, which
+  /// commits (labeled or not) together with its label as one layer.
+  void beginLabel(Annotation rectangle, int annotationIndex = -1);
+  /// Shows the inline editor holding `existingText`, typed in `ink`.
+  void showTextEditor(const QString &existingText, const QColor &ink);
+  /// Commits `rectangle` with the label typed for it (see beginLabel).
+  void acceptLabel(Annotation rectangle, bool keepSelected);
   void chooseWindow(int index);
   void setScrollMode(bool enabled);
   void selectFullscreen();
@@ -704,7 +714,9 @@ private:
   };
   [[nodiscard]] LiveCanvas liveCanvas(const LiveLayers &live) const;
   /** The text layer the inline editor would commit right now, laid out as
-   *  its cream pill shows it. Only meaningful while textEditing(). */
+   *  its cream pill shows it, or, while a label is typed, the rectangle
+   *  wearing it (an empty label keeps a caret's room in its tab). Only
+   *  meaningful while textEditing(). */
   [[nodiscard]] Annotation draftTextAnnotation() const;
   /** Pixels that depend on the pointer at `point`. `canvas`, when given,
    *  receives liveCanvas() for the same state. */
@@ -966,6 +978,9 @@ private:
   /// Wrap width of the text being typed, in image px; 0 wraps at the canvas
   /// edge. Carried onto the layer when the text is committed.
   qreal textEditWrapWidth_ = 0.0;
+  /// The rectangle whose label the inline editor is typing; empty while it
+  /// types an ordinary text layer.
+  std::optional<Annotation> labelTarget_;
   bool textCaretOn_ = true;
   QTimer textCaretTimer_;
   QElapsedTimer nudgeTimer_;

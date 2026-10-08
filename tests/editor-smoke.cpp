@@ -4887,6 +4887,263 @@ bool runTextEnterSemanticsCheck(QApplication &application, QString &error) {
   return true;
 }
 
+/**
+ * The Label tool (its toolbar button or Shift+R) draws a rectangle and types
+ * its label as one layer: a single undo step whether or not anything was
+ * typed. Double-click, Enter, or Shift+R on
+ * the selected box reopens the label; the tab is painted, hit, and counted as
+ * part of the box; and the operation log keeps it.
+ */
+bool runLabeledRectangleCheck(QApplication &application, QString &error) {
+  Annotation box;
+  box.kind = Annotation::Kind::Rectangle;
+  box.start = {200, 150};
+  box.end = {320, 200};
+  box.color = QColor(QStringLiteral("#ffd60a"));
+  box.size = 4.0;
+  if (!rectangleLabelBounds(box).isEmpty()) {
+    error = QStringLiteral("An unlabeled rectangle grew a label tab");
+    return false;
+  }
+  box.text = QStringLiteral("UNDERSIZED");
+  const QRectF tab = rectangleLabelBounds(box);
+  const qreal halfStroke = annotationPenWidth(box) / 2.0;
+  if (tab.isEmpty() || !qFuzzyCompare(tab.left(), box.start.x() - halfStroke) ||
+      !qFuzzyCompare(tab.bottom(), box.start.y()) ||
+      tab.top() >= box.start.y() - halfStroke ||
+      !annotationPaintedBounds(box).contains(tab)) {
+    error = QStringLiteral("The label tab is not on the box's top-left edge");
+    return false;
+  }
+  if (rectangleLabelInk(QColor(QStringLiteral("#ffd60a"))).value() > 60 ||
+      rectangleLabelInk(QColor(QStringLiteral("#0a84ff"))) !=
+          QColor(Qt::white)) {
+    error = QStringLiteral("Label ink does not contrast with its tab");
+    return false;
+  }
+
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("TEST");
+  capture.monitor.geometry = {0, 0, 800, 600};
+  capture.monitor.pixelSize = {800, 600};
+  capture.monitor.scale = 1.0;
+  capture.source = QImage(800, 600, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(QColor(QStringLiteral("#182030")));
+  capture.previewSize = capture.source.size();
+
+  // The export paints the tab in the box's color with the label inked on it.
+  const QImage rendered =
+      renderCapture(capture, QRectF(QPointF(), capture.previewSize), {box},
+                    BackgroundStyle::None);
+  const auto pixel = [&rendered](const QPointF &point) {
+    return rendered.pixelColor(point.toPoint());
+  };
+  int inked = 0;
+  for (int y = qCeil(tab.top()) + 1; y < qFloor(tab.bottom()) - 1; ++y) {
+    for (int x = qCeil(tab.left()) + 1; x < qFloor(tab.right()) - 1; ++x)
+      inked += rendered.pixelColor(x, y).value() < 90 ? 1 : 0;
+  }
+  if (!colorNear(pixel({tab.left() + 2.0, tab.center().y()}), box.color) ||
+      !colorNear(pixel({tab.center().x(), tab.top() - 3.0}),
+                 QColor(QStringLiteral("#182030"))) ||
+      inked < 20) {
+    error = QStringLiteral("The exported label tab or its text is missing");
+    return false;
+  }
+
+  CaptureEditor editor(capture);
+  editor.setSuppressSnapshots(true);
+  editor.resize(800, 600);
+  editor.show();
+  application.processEvents();
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+  QTest::mouseMove(&editor, QPoint(650, 470), 20);
+  QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(650, 470));
+  application.processEvents();
+  const QPointF imageOrigin = editor.editImageRectForTest().topLeft();
+  const qreal editScale = editor.editScaleForTest();
+  const auto toScreen = [&](const QPointF &annotationPoint) {
+    return (imageOrigin + annotationPoint * editScale).toPoint();
+  };
+  const auto inlineEditor = [] {
+    return qobject_cast<QPlainTextEdit *>(QApplication::focusWidget());
+  };
+  const auto drag = [&](const QPointF &from, const QPointF &to) {
+    QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, toScreen(from));
+    QTest::mouseMove(&editor, toScreen((from + to) / 2.0), 10);
+    QTest::mouseMove(&editor, toScreen(to), 10);
+    QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, toScreen(to));
+    application.processEvents();
+  };
+  const auto layerWithText = [&editor](const QString &text) -> const Annotation * {
+    for (const Annotation &layer : editor.currentAnnotationsForTest()) {
+      if (layer.kind == Annotation::Kind::Rectangle && layer.text == text)
+        return &layer;
+    }
+    return nullptr;
+  };
+
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier,
+                    editor.toolbarButtonCenterForTest(QStringLiteral("tool-label")));
+  application.processEvents();
+  if (editor.armedToolForTest() != CaptureEditor::Tool::Label ||
+      !editor.statusForTest().startsWith(QStringLiteral("Label"))) {
+    error = QStringLiteral("The Label toolbar button did not arm its tool");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_V);
+  QTest::keyClick(&editor, Qt::Key_R, Qt::ShiftModifier);
+  if (editor.armedToolForTest() != CaptureEditor::Tool::Label) {
+    error = QStringLiteral("Shift+R did not arm the Label tool");
+    return false;
+  }
+  const int beforeLabeled = editor.operationIndex();
+  drag({150, 150}, {260, 210});
+  if (!inlineEditor() || editor.annotationCountForTest() != 0) {
+    error = QStringLiteral("Releasing a labeled box did not ask for its label");
+    return false;
+  }
+  const QString label = QStringLiteral("UNDERSIZED FUNCTIONAL TEXT");
+  QTest::keyClicks(inlineEditor(), label);
+  QTest::keyClick(inlineEditor(), Qt::Key_Return, Qt::ShiftModifier);
+  application.processEvents();
+  if (inlineEditor() || editor.annotationCountForTest() != 1 ||
+      editor.operationIndex() != beforeLabeled + 1 || !layerWithText(label) ||
+      layerWithText(label)->filled ||
+      editor.armedToolForTest() != CaptureEditor::Tool::Label) {
+    error = QStringLiteral("Enter did not commit the box and its label as "
+                           "one layer");
+    return false;
+  }
+  const quint64 labeledId = layerWithText(label)->id;
+  QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+  application.processEvents();
+  if (editor.annotationCountForTest() != 0) {
+    error = QStringLiteral("One undo did not remove the box with its label");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_Y, Qt::ControlModifier);
+  application.processEvents();
+  if (!layerWithText(label)) {
+    error = QStringLiteral("Redo did not restore the labeled box");
+    return false;
+  }
+
+  // Nothing typed still keeps the box that was drawn, without a tab.
+  drag({300, 250}, {400, 320});
+  if (!inlineEditor()) {
+    error = QStringLiteral("Second labeled box did not ask for its label");
+    return false;
+  }
+  QTest::keyClick(inlineEditor(), Qt::Key_Return);
+  application.processEvents();
+  if (inlineEditor() || editor.annotationCountForTest() != 2 ||
+      !layerWithText(QString())) {
+    error = QStringLiteral("An empty label did not leave a plain rectangle");
+    return false;
+  }
+
+  // Shift+R on a selected plain rectangle gives it a label.
+  QTest::keyClick(&editor, Qt::Key_V);
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier,
+                    toScreen({300, 285}));
+  application.processEvents();
+  if (editor.selectedCountForTest() != 1) {
+    error = QStringLiteral("The plain rectangle could not be selected");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_R, Qt::ShiftModifier);
+  application.processEvents();
+  if (!inlineEditor()) {
+    error = QStringLiteral("Shift+R on a selected box did not open its label");
+    return false;
+  }
+  QTest::keyClicks(inlineEditor(), QStringLiteral("ADDED"));
+  QTest::keyClick(inlineEditor(), Qt::Key_Return);
+  application.processEvents();
+  if (editor.annotationCountForTest() != 2 ||
+      !layerWithText(QStringLiteral("ADDED")) || layerWithText(QString())) {
+    error = QStringLiteral("Shift+R did not label the selected rectangle");
+    return false;
+  }
+
+  // Double-clicking the tab reopens the label with its text selected, so
+  // typing replaces it; the layer keeps its identity.
+  const QRectF labeledTab = rectangleLabelBounds(*layerWithText(label));
+  QTest::mouseDClick(&editor, Qt::LeftButton, Qt::NoModifier,
+                     toScreen(labeledTab.center()));
+  application.processEvents();
+  if (!inlineEditor() || inlineEditor()->toPlainText() != label) {
+    error = QStringLiteral("Double-clicking the tab did not reopen the label");
+    return false;
+  }
+  const int beforeRename = editor.operationIndex();
+  QTest::keyClicks(inlineEditor(), QStringLiteral("RENAMED"));
+  QTest::keyClick(inlineEditor(), Qt::Key_Return);
+  application.processEvents();
+  const Annotation *renamed = layerWithText(QStringLiteral("RENAMED"));
+  if (!renamed || renamed->id != labeledId ||
+      editor.annotationCountForTest() != 2 ||
+      editor.operationIndex() != beforeRename + 1) {
+    error = QStringLiteral("Relabeling did not patch the same layer");
+    return false;
+  }
+
+  // Enter on the selected labeled box reopens it; emptying it removes the
+  // tab but keeps the box.
+  QTest::keyClick(&editor, Qt::Key_Return);
+  application.processEvents();
+  if (!inlineEditor() ||
+      inlineEditor()->toPlainText() != QStringLiteral("RENAMED")) {
+    error = QStringLiteral("Enter on a labeled box did not reopen its label");
+    return false;
+  }
+  QTest::keyClick(inlineEditor(), Qt::Key_Backspace);
+  QTest::keyClick(inlineEditor(), Qt::Key_Return);
+  application.processEvents();
+  if (editor.annotationCountForTest() != 2 || !layerWithText(QString()) ||
+      !editor.statusForTest().startsWith(QStringLiteral("Label removed"))) {
+    error = QStringLiteral("Emptying a label did not leave a plain box");
+    return false;
+  }
+
+  // The Rectangle tool is untouched: its boxes commit on release. (With a
+  // box still selected R would toggle that box's fill instead.)
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier,
+                    toScreen({500, 340}));
+  QTest::keyClick(&editor, Qt::Key_R);
+  if (editor.armedToolForTest() != CaptureEditor::Tool::Rectangle) {
+    error = QStringLiteral("R did not arm the Rectangle tool");
+    return false;
+  }
+  drag({420, 60}, {500, 120});
+  if (inlineEditor() || editor.annotationCountForTest() != 3) {
+    error = QStringLiteral("A plain rectangle asked for a label");
+    return false;
+  }
+
+  const QTemporaryDir directory;
+  if (!directory.isValid()) {
+    error = QStringLiteral("Could not create labeled-rectangle log directory");
+    return false;
+  }
+  OperationLog saved;
+  saved.ops = editor.operationLog();
+  saved.index = editor.operationIndex();
+  saved.previewSize = capture.previewSize;
+  const QString path =
+      QDir(directory.path()).filePath(QStringLiteral("labels.json"));
+  OperationLog loaded;
+  if (!saveOperationLog(path, saved, error) ||
+      !loadOperationLog(path, loaded, error) || loaded != saved) {
+    error = QStringLiteral("Labels did not survive operation-log reload: %1")
+                .arg(error);
+    return false;
+  }
+  editor.close();
+  return true;
+}
+
 bool showsSecretRed(const QColor &color) {
   return color.red() > 180 && color.green() < 70 && color.blue() < 70;
 }
@@ -12606,6 +12863,10 @@ int main(int argc, char **argv) {
   if (!runTextEnterSemanticsCheck(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 121;
+  }
+  if (!runLabeledRectangleCheck(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 228;
   }
   if (!runAnnotationLayerChecks(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
