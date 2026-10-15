@@ -5922,6 +5922,10 @@ bool runOpLogSmoke(QApplication &application, QString &error) {
     error = QStringLiteral("Redo did not replay the op log");
     return false;
   }
+  if (!editor.waitForSnapshot()) {
+    error = QStringLiteral("Redone op-log working document did not persist");
+    return false;
+  }
 
   QTemporaryDir directory;
   if (!directory.isValid()) {
