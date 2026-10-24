@@ -4247,15 +4247,13 @@ void CaptureEditor::finish(OutputMode mode) {
         result.error = error;
         return;
       }
+      // The toast is the completion UI for every saved capture: its
+      // thumbnail and Edit and Open buttons replace a timed preview.
+      sendCaptureNotification(mode == OutputMode::Save
+                                  ? QStringLiteral("Screenshot saved")
+                                  : QStringLiteral("Screenshot saved and copied"),
+                              result.saved, launcher);
       if (savedPreview || autosave) {
-        const QString preview = launchPinnedCapture(
-            image, renderedCaptureLogicalSize(captureCopy, image.size()), false,
-            PinLifetime::Timed, result.error, launcher, log.recentId, result.saved);
-        if (preview.isEmpty()) {
-          result.error = QStringLiteral("Saved to %1, but could not show its preview: %2")
-                             .arg(result.saved, result.error);
-          return;
-        }
         result.savedPreview = true;
         if (document)
           document->finishSavedPreview(log, result.saved);
@@ -4281,23 +4279,15 @@ void CaptureEditor::completeFinish(const FinishResult &result) {
   }
   snapshotPath_.clear();
   if (result.savedPreview) {
-    // The saved preview is the completion UI, and its originating preview
-    // has already been retired by the worker.
+    // The worker's toast is the completion UI, and the originating preview
+    // already records the saved path.
     close();
     return;
   }
-  if (result.mode == OutputMode::CopyAndPreview) {
-    // The pin is the completion UI; a second notification would repeat it.
-    dismissEditor(false);
-    return;
-  }
+  // A copy-only preview's pin, or a saved capture's toast from the worker,
+  // is the completion UI; only a plain copy still needs telling.
   if (result.mode == OutputMode::Copy)
     sendCaptureNotification(QStringLiteral("Screenshot copied to clipboard"));
-  else if (result.mode == OutputMode::Save)
-    sendCaptureNotification(QStringLiteral("Screenshot saved"), result.saved);
-  else
-    sendCaptureNotification(QStringLiteral("Screenshot saved and copied"),
-                            result.saved);
   dismissEditor(false);
 }
 

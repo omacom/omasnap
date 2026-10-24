@@ -111,6 +111,8 @@ public:
   [[nodiscard]] QRectF currentSelection() const { return selection_; }
   /** Annotation-space canvas, including any strips grown past the source. */
   [[nodiscard]] QRectF currentCanvasForTest() const { return canvasRect_; }
+  /// The recent-shots entry this capture is remembered under.
+  [[nodiscard]] QString recentIdForTest() const { return recentId_; }
   /** Canvas the edit view shows right now: the settled one, or the preview a
    *  carried layer or a label being typed gives it. */
   [[nodiscard]] QRectF liveCanvasForTest() const {

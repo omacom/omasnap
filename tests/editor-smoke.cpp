@@ -58,6 +58,7 @@
 #include <QPlainTextEdit>
 #include <QPixmap>
 #include <QScrollBar>
+#include <QLocale>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QWheelEvent>
@@ -2435,6 +2436,40 @@ bool runTextDraftNeverScrollsSmoke(QApplication &application, QString &error) {
   return true;
 }
 
+/// What an editor launched once its output finished: a timed preview pin, or
+/// the toast for a saved capture.
+struct OutputLaunches {
+  QString pin;
+  QStringList toast;
+  bool onWorker = true;
+};
+
+std::function<bool(const QString &, const QStringList &)>
+recordOutputLaunches(OutputLaunches &launches) {
+  return [&launches](const QString &program, const QStringList &args) {
+    if (QThread::currentThread() == qApp->thread())
+      launches.onWorker = false;
+    if (program == QStringLiteral("omarchy-notification-send")) {
+      launches.toast = args;
+      return true;
+    }
+    if (args.size() != 2 || args.first() != QStringLiteral("--preview"))
+      return false;
+    launches.pin = args.last();
+    return true;
+  };
+}
+
+/// Whether a toast shows this saved file and hands it to Edit and Open.
+bool toastShowsFile(const QStringList &toast, const QString &file) {
+  const qsizetype image = toast.indexOf(QStringLiteral("--image"));
+  return !file.isEmpty() && image >= 0 && image + 1 < toast.size() &&
+         toast.at(image + 1) == file && toast.contains(QStringLiteral("Edit")) &&
+         toast.contains(QStringLiteral("Open")) && toast.size() >= 2 &&
+         toast.at(toast.size() - 2) == QStringLiteral("--with") &&
+         toast.last() == file;
+}
+
 bool runScrollScaleChecks(QString &error) {
   const QTemporaryDir directory;
   if (!directory.isValid())
@@ -2584,15 +2619,9 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
     if (mode == Mode::Region && !slowHistory.tryLock(0))
       return false;
     const auto releaseHistory = qScopeGuard([&] { slowHistory.unlock(); });
-    QString pin;
-    bool launchedOnWorker = false;
-    editor.setProcessLauncherForTest([&](const QString &, const QStringList &args) {
-      launchedOnWorker = QThread::currentThread() != qApp->thread();
-      if (args.size() != 2 || args.first() != QStringLiteral("--preview"))
-        return false;
-      pin = args.last();
-      return true;
-    });
+    OutputLaunches launches;
+    const QString &pin = launches.pin;
+    editor.setProcessLauncherForTest(recordOutputLaunches(launches));
     editor.resize(800, 600);
     editor.show();
     if (mode == Mode::Region) {
@@ -2621,10 +2650,13 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
       return false;
     }
     if (mode == Mode::Region) {
-      if (!QTest::qWaitFor([&] { return !editor.isVisible(); }, 2000) || pin.isEmpty()) {
-        error = QStringLiteral("History persistence held up the corner preview or overlay dismissal");
+      if (!QTest::qWaitFor([&] { return !editor.isVisible(); }, 2000) ||
+          (autosave ? launches.toast.isEmpty() : pin.isEmpty())) {
+        error = QStringLiteral("History persistence held up the completion UI or overlay dismissal");
         return false;
       }
+    }
+    if (mode == Mode::Region && !autosave) {
       auto reopening = QtConcurrent::run([pin] {
         QString openError;
         auto document = copyPinDocument(pin, openError);
@@ -2643,6 +2675,7 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
         return false;
       }
     } else {
+      slowHistory.unlock();
       editor.waitForExport();
     }
     const auto cleanup = qScopeGuard([&] {
@@ -2651,19 +2684,32 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
       QFile::remove(PinSnapshotFile::thumbnailPath(pin));
     });
     OperationLog log;
-    if (editor.isVisible() || pin.isEmpty() || !launchedOnWorker ||
-        QImage(pin).convertToFormat(expected.format()) != expected ||
-        QImage(PinSnapshotFile::thumbnailPath(pin)).isNull() ||
-        QImage(clipboard).convertToFormat(expected.format()) != expected ||
-        !loadOperationLog(operationLogPath(pin), log, error) ||
-        log.previewSize != logicalSize) {
+    QString savedFile;
+    if (autosave) {
+      // A saved capture's toast replaces the timed preview: it shows the
+      // saved PNG and hands that file to its Edit and Open buttons.
+      savedFile = launches.toast.isEmpty() ? QString() : launches.toast.last();
+      const auto remembered = findRecentSnap(editor.recentIdForTest());
+      if (editor.isVisible() || !pin.isEmpty() || !launches.onWorker ||
+          QFileInfo(savedFile).absolutePath() != directory.filePath(QStringLiteral("saved")) ||
+          !toastShowsFile(launches.toast, savedFile) ||
+          QImage(savedFile).convertToFormat(expected.format()) != expected ||
+          QImage(clipboard).convertToFormat(expected.format()) != expected ||
+          !remembered || !loadOperationLog(remembered->logPath, log, error)) {
+        error = QStringLiteral("Autosave did not save, copy, and announce the capture (mode %1): %2")
+                    .arg(static_cast<int>(mode))
+                    .arg(launches.toast.join(QStringLiteral(" | ")));
+        return false;
+      }
+    } else if (editor.isVisible() || pin.isEmpty() || !launches.onWorker ||
+               !launches.toast.isEmpty() ||
+               QImage(pin).convertToFormat(expected.format()) != expected ||
+               QImage(PinSnapshotFile::thumbnailPath(pin)).isNull() ||
+               QImage(clipboard).convertToFormat(expected.format()) != expected ||
+               !loadOperationLog(operationLogPath(pin), log, error) ||
+               log.previewSize != logicalSize || !log.savedPath.isEmpty()) {
       error = QStringLiteral("Post-capture output lost pixels, scale, or async pin launch (mode %1)")
                   .arg(static_cast<int>(mode));
-      return false;
-    }
-    if (log.savedPath.isEmpty() == autosave ||
-        (autosave && QImage(log.savedPath).convertToFormat(expected.format()) != expected)) {
-      error = QStringLiteral("Autosave did not preserve the capture and preview's saved path");
       return false;
     }
     const auto recent = findRecentSnap(log.recentId);
@@ -2675,13 +2721,13 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
     }
     // The temporary preview's last owner deletes it on close or expiry.
     // Its independent recent entry must still reopen the exact native crop.
-    {
+    if (!autosave) {
       PinSnapshotFile preview(pin);
       if (!preview.isLocked())
         return false;
     }
-    if (QFile::exists(pin) || !QFile::exists(recent->sourcePath) ||
-        (autosave && !QFile::exists(log.savedPath))) {
+    if ((!pin.isEmpty() && QFile::exists(pin)) || !QFile::exists(recent->sourcePath) ||
+        (autosave && !QFile::exists(savedFile))) {
       error = QStringLiteral("Preview expiry removed its recent capture");
       return false;
     }
@@ -2820,13 +2866,9 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
     if (!clipboardBefore.save(clipboard))
       return false;
     CaptureEditor editor(capture, Mode::Region, output);
-    QString pin;
-    editor.setProcessLauncherForTest([&](const QString &, const QStringList &args) {
-      if (args.size() != 2 || args.first() != QStringLiteral("--preview"))
-        return false;
-      pin = args.last();
-      return true;
-    });
+    OutputLaunches launches;
+    const QString &pin = launches.pin;
+    editor.setProcessLauncherForTest(recordOutputLaunches(launches));
     const auto cleanup = qScopeGuard([&] {
       if (!pin.isEmpty()) {
         QFile::remove(pin);
@@ -2851,7 +2893,10 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
     const QImage expectedClipboard =
         output == QuickOutputMode::Save ? clipboardBefore : expected;
     if (editor.isVisible() || editor.editingForTest() ||
-        pin.isEmpty() != (output != QuickOutputMode::CopyAndPreview) ||
+        pin.isEmpty() != (output != QuickOutputMode::CopyAndPreview || autosave) ||
+        launches.toast.isEmpty() == shouldSave ||
+        (shouldSave && !toastShowsFile(launches.toast,
+                                       savedDirectory.filePath(saved.value(0)))) ||
         saved.size() != (shouldSave ? 1 : 0) ||
         (shouldSave && QImage(savedDirectory.filePath(saved.first()))
                            .convertToFormat(expected.format()) != expected) ||
@@ -2862,8 +2907,8 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
     }
   }
 
-  // Explicit editor Save and Copy + Save close into an unpinned preview that
-  // points Reveal at the saved PNG. Only Copy + Save changes the clipboard.
+  // Explicit editor Save and Copy + Save close into the saved capture's toast,
+  // whose buttons open the saved PNG. Only Copy + Save changes the clipboard.
   for (const auto key : {Qt::Key_S, Qt::Key_Return}) {
     const QTemporaryDir savedDirectory;
     const QByteArray oldOutputDir = qgetenv("OMASNAP_SCREENSHOT_DIR");
@@ -2873,34 +2918,21 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
     });
     qputenv("OMASNAP_SCREENSHOT_DIR", savedDirectory.path().toUtf8());
     const QImage previousClipboard(clipboard);
-    QString preview;
-    const auto cleanup = qScopeGuard([&] {
-      if (!preview.isEmpty()) {
-        const PinSnapshotFile owned(preview);
-      }
-    });
     CaptureEditor editor(capture, Mode::File);
-    bool launchedOnWorker = false;
-    editor.setProcessLauncherForTest([&](const QString &, const QStringList &args) {
-      launchedOnWorker = QThread::currentThread() != qApp->thread();
-      if (args.size() != 2 || args.first() != QStringLiteral("--preview"))
-        return false;
-      preview = args.last();
-      return true;
-    });
+    OutputLaunches launches;
+    editor.setProcessLauncherForTest(recordOutputLaunches(launches));
     editor.show();
     const QImage expected = editor.renderCurrentOutput();
     QTest::keyClick(&editor, key, key == Qt::Key_S ? Qt::ControlModifier : Qt::NoModifier);
     editor.waitForExport();
-    OperationLog metadata;
+    const QString saved = launches.toast.isEmpty() ? QString() : launches.toast.last();
     const QImage expectedClipboard = key == Qt::Key_S ? previousClipboard : expected;
-    if (editor.isVisible() || !launchedOnWorker || preview.isEmpty() ||
-        !loadOperationLog(operationLogPath(preview), metadata, error) ||
-        QFileInfo(metadata.savedPath).absolutePath() != savedDirectory.path() ||
-        QImage(metadata.savedPath).convertToFormat(expected.format()) != expected ||
-        QImage(preview).convertToFormat(expected.format()) != expected ||
+    if (editor.isVisible() || !launches.onWorker || !launches.pin.isEmpty() ||
+        !toastShowsFile(launches.toast, saved) ||
+        QFileInfo(saved).absolutePath() != savedDirectory.path() ||
+        QImage(saved).convertToFormat(expected.format()) != expected ||
         QImage(clipboard).convertToFormat(expectedClipboard.format()) != expectedClipboard) {
-      error = QStringLiteral("Saving from the editor did not return the correct unpinned preview");
+      error = QStringLiteral("Saving from the editor did not announce the saved PNG");
       return false;
     }
   }
@@ -2970,9 +3002,13 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
                                edits);
         editor.setSuppressSnapshots(true);
         editor.setPinDocument(document);
+        QStringList toast;
         editor.setProcessLauncherForTest(
-            [&](const QString &, const QStringList &args) {
-              pin = args.last();
+            [&](const QString &program, const QStringList &args) {
+              if (program == QStringLiteral("omarchy-notification-send"))
+                toast = args;
+              else
+                pin = args.last();
               return true;
             });
         editor.resize(800, 600);
@@ -2985,6 +3021,22 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
                                       ? Qt::Key_P : Qt::Key_Escape);
           for (int attempt = 0; attempt < 500 && editor.isVisible(); ++attempt)
             QTest::qWait(10);
+        }
+        if (pin.isEmpty() && !toast.isEmpty()) {
+          // An autosaved capture is announced instead of previewed; its PNG
+          // must still carry the backdrop and grown canvas dimensions.
+          const QString saved = toast.last();
+          const auto removeSaved = qScopeGuard([&] { QFile::remove(saved); });
+          CaptureData savedCapture;
+          describeFileCapture(savedCapture, QImage(saved), {});
+          if (editor.isVisible() ||
+              savedCapture.previewSize != (QSizeF(expected.size()) / scale).toSize() ||
+              QImage(saved).convertToFormat(expected.format()) != expected) {
+            error = QStringLiteral("Saved output reopened layout %1 at the wrong size at scale %2")
+                        .arg(layout).arg(scale);
+            return false;
+          }
+          continue;
         }
         OperationLog sidecar;
         if (editor.isVisible() || pin.isEmpty() ||
@@ -3078,20 +3130,23 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
   }
   // Failures preserve the captured pixels in an editable recovery surface
   // and leave no abandoned pin document. Clipboard failure never launches.
+  // A saved capture's toast failing to start loses nothing, so it closes.
   for (const bool clipboardFailure : {true, false}) {
     qputenv("OMASNAP_TEST_COPY_FAIL", clipboardFailure ? "1" : "");
     const QDir runtime(secureRuntimeDirectory());
     const auto before = runtime.entryList({QStringLiteral("pin-*")}, QDir::Files);
     CaptureEditor editor(capture, Mode::Fullscreen, QuickOutputMode::CopyAndPreview);
     bool launchCalled = false;
-    editor.setProcessLauncherForTest([&](const QString &, const QStringList &) {
+    bool toasted = false;
+    editor.setProcessLauncherForTest([&](const QString &program, const QStringList &) {
       launchCalled = true;
+      toasted = program == QStringLiteral("omarchy-notification-send");
       return false;
     });
     editor.show();
     editor.waitForExport();
-    if (!editor.isVisible() || !editor.editingForTest() ||
-        launchCalled == clipboardFailure ||
+    const bool recovered = editor.isVisible() && editor.editingForTest();
+    if (recovered == toasted || launchCalled == clipboardFailure ||
         runtime.entryList({QStringLiteral("pin-*")}, QDir::Files) != before) {
       error = QStringLiteral("Post-capture failure lost recovery or leaked a pin");
       return false;
@@ -6239,18 +6294,17 @@ bool runRecentsShelfSmoke(QApplication &application, QString &error) {
 }
 
 /**
- * omarchy-notification-send treats everything after --exec as the click
- * command's argv and runs it without shell parsing. The saved-capture
- * notification must therefore put --exec last and pass the program and the
- * file URL as separate words; a quoted single string or a trailing -t would
- * make the click try to run a program that does not exist.
+ * omarchy-notification-send runs each --action's words as argv without shell
+ * parsing and appends the --with words to every one of them. The saved
+ * capture's toast must therefore end in --with and the path as one word, so
+ * Edit and Open each receive the file however its name is spelled.
  */
 bool runNotificationArgvCheck(QString &error) {
   const QStringList plain =
       captureNotificationArguments(QStringLiteral("Screenshot copied"));
-  if (plain.contains(QStringLiteral("--exec")) ||
+  if (plain.contains(QStringLiteral("--action")) ||
       plain.contains(QStringLiteral("--image"))) {
-    error = QStringLiteral("image-less notification carried --exec/--image");
+    error = QStringLiteral("image-less notification carried --action/--image");
     return false;
   }
   if (plain.last() != QStringLiteral("Screenshot copied") ||
@@ -6262,40 +6316,37 @@ bool runNotificationArgvCheck(QString &error) {
     return false;
   }
 
-  const QString imagePath = QStringLiteral("/tmp/it's a/shot 1.png");
+  QTemporaryDir directory;
+  const QString imagePath = directory.filePath(QStringLiteral("it's a shot 1.png"));
+  QImage shot(1920, 1080, QImage::Format_RGB32);
+  shot.fill(Qt::darkCyan);
+  if (!directory.isValid() || !shot.save(imagePath))
+    return false;
   const QStringList saved = captureNotificationArguments(
       QStringLiteral("Screenshot saved"), imagePath);
-  const qsizetype exec = saved.indexOf(QStringLiteral("--exec"));
-  if (exec < 0 || saved.size() != exec + 3) {
-    error = QStringLiteral("--exec must be followed by exactly program and "
-                           "URL, got: %1")
+  const qsizetype edit = saved.indexOf(QStringLiteral("Edit"));
+  const qsizetype open = saved.indexOf(QStringLiteral("Open"));
+  if (saved.contains(QStringLiteral("--exec")) || edit < 1 || open < 1 ||
+      saved.at(edit - 1) != QStringLiteral("--action") ||
+      saved.at(open - 1) != QStringLiteral("--action") ||
+      !saved.at(edit + 1).endsWith(QStringLiteral("omasnap")) ||
+      saved.at(edit + 1).contains(QLatin1Char(' ')) ||
+      saved.at(open + 1) != QStringLiteral("xdg-open") ||
+      !toastShowsFile(saved, imagePath)) {
+    error = QStringLiteral("saved toast does not hand the file to Edit and Open: %1")
                 .arg(saved.join(QStringLiteral(" | ")));
     return false;
   }
-  const QString &program = saved.at(exec + 1);
-  const QString &url = saved.at(exec + 2);
-  if (program.isEmpty() || program.contains(QStringLiteral("'")) ||
-      program.contains(QStringLiteral(" ")) ||
-      !program.endsWith(QStringLiteral("omasnap"))) {
-    error = QStringLiteral("click program is not a bare omasnap path: %1")
-                .arg(program);
-    return false;
-  }
-  if (url != QUrl::fromLocalFile(imagePath).toString(QUrl::FullyEncoded) ||
-      !url.startsWith(QStringLiteral("file:///")) ||
-      QUrl(url).toLocalFile() != imagePath) {
-    error = QStringLiteral("click URL does not round-trip the image: %1")
-                .arg(url);
+  const qsizetype headline = saved.indexOf(QStringLiteral("Screenshot saved"));
+  if (headline < 0 || !saved.at(headline + 1).startsWith(
+                          QLocale().toString(1920) + QStringLiteral(" × ") +
+                          QLocale().toString(1080) + QStringLiteral(" · "))) {
+    error = QStringLiteral("saved toast does not describe the image's size");
     return false;
   }
   const qsizetype timeout = saved.indexOf(QStringLiteral("-t"));
-  if (timeout < 0 || timeout > exec) {
-    error = QStringLiteral("-t must precede --exec");
-    return false;
-  }
-  const qsizetype image = saved.indexOf(QStringLiteral("--image"));
-  if (image < 0 || saved.at(image + 1) != imagePath) {
-    error = QStringLiteral("--image does not carry the saved path");
+  if (timeout < 0 || saved.at(timeout + 1) != QStringLiteral("10000")) {
+    error = QStringLiteral("saved toast does not stay up as long as the preview did");
     return false;
   }
   sendCaptureNotification(QStringLiteral("smoke"));

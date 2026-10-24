@@ -1,4 +1,4 @@
-/** @fileoverview Save As atomically exports PNG and returns a saved preview. */
+/** @fileoverview Save As atomically exports PNG and announces it in a toast. */
 #include "save-as-smoke.hpp"
 #include "capture.hpp"
 #include "editor.hpp"
@@ -98,11 +98,12 @@ bool runSaveAsSmoke(QString &error) {
       const PinSnapshotFile owned(path);
     }
   });
+  QList<QStringList> toasts;
   const auto preparePreview = [&](CaptureEditor &editor) {
-    editor.setProcessLauncherForTest([&](const QString &, const QStringList &args) {
-      if (args.size() != 2 || args.first() != QStringLiteral("--preview"))
+    editor.setProcessLauncherForTest([&](const QString &program, const QStringList &args) {
+      if (program != QStringLiteral("omarchy-notification-send"))
         return false;
-      previews.push_back(args.last());
+      toasts.push_back(args);
       return true;
     });
   };
@@ -234,16 +235,21 @@ bool runSaveAsSmoke(QString &error) {
       error = QStringLiteral("Save As did not retain its editable capture");
       return false;
     }
-    OperationLog previewLog;
-    if (previews.isEmpty() ||
-        !loadOperationLog(operationLogPath(previews.last()), previewLog, error) ||
-        previewLog.savedPath != output || previewLog.recentId != savedLog.recentId ||
-        QImage(previews.last()) != QImage(output)) {
-      error = QStringLiteral("Saved preview lost its file, pixels, or capture identity");
+    if (toasts.isEmpty() || !toasts.last().contains(QStringLiteral("Edit")) ||
+        toasts.last().at(toasts.last().indexOf(QStringLiteral("--image")) + 1) != output ||
+        toasts.last().last() != output) {
+      error = QStringLiteral("Save As did not announce its file with Edit and Open");
       return false;
     }
+    // Editing a pinned capture and saving it again records the new file on
+    // that originating pin.
     editor.show();
-    const auto document = copyPinDocument(previews.last(), error);
+    const QString pinned = pinnedSnapshotPath(1);
+    if (!savePinnedSnapshot(QImage(output), pinned, reopened.previewSize, error,
+                            savedLog.recentId, output))
+      return false;
+    previews.push_back(pinned);
+    const auto document = copyPinDocument(pinned, error);
     if (!document)
       return false;
     editor.setPinDocument(document);
@@ -264,7 +270,7 @@ bool runSaveAsSmoke(QString &error) {
     OperationLog completedDocument;
     if (!loadOperationLog(operationLogPath(document->path()), completedDocument, error) ||
         completedDocument.savedPath != nudged || editor.isVisible()) {
-      error = QStringLiteral("Save As did not retire the originating preview and close");
+      error = QStringLiteral("Save As did not update the originating pin and close");
       return false;
     }
     const auto updatedRecent = findRecentSnap(editor.recentId_, &error);
@@ -282,15 +288,6 @@ bool runSaveAsSmoke(QString &error) {
         editor.operationIndex() != savedIndex ||
         !editor.statusForTest().contains(QStringLiteral("Could not"))) {
       error = QStringLiteral("Failed Save As changed or closed the editor");
-      return false;
-    }
-    const QString failedPreview = directory.filePath(QStringLiteral("preview-failed.png"));
-    editor.setProcessLauncherForTest([](const QString &, const QStringList &) { return false; });
-    editor.saveAsToPath(failedPreview);
-    if (!waitUntil([&] { return !editor.busy_; }) || !editor.isVisible() ||
-        QImage(failedPreview).isNull() ||
-        !editor.statusForTest().contains(QStringLiteral("could not show its preview"))) {
-      error = QStringLiteral("A failed preview launch lost its saved PNG or closed the editor");
       return false;
     }
     editor.close();

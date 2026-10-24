@@ -17,11 +17,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLinearGradient>
+#include <QLocale>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPointF>
@@ -2637,26 +2639,44 @@ QStringList captureNotificationArguments(const QString &message,
                                          const QString &imagePath) {
   QStringList arguments{QStringLiteral("-g"), QStringLiteral(""),
                         QStringLiteral("--app-name"), QStringLiteral("omasnap"),
-                        QStringLiteral("-t"), QStringLiteral("4500"), message};
+                        QStringLiteral("-t"),
+                        imagePath.isEmpty() ? QStringLiteral("4500")
+                                            : QStringLiteral("10000"),
+                        message};
   if (!imagePath.isEmpty()) {
-    const QString imageUrl =
-        QUrl::fromLocalFile(imagePath).toString(QUrl::FullyEncoded);
+    const QSize size = QImageReader(imagePath).size();
+    const QFileInfo file(imagePath);
+    if (size.isValid() && file.exists()) {
+      const QLocale locale;
+      arguments << QStringLiteral("%1 × %2 · %3")
+                       .arg(locale.toString(size.width()),
+                            locale.toString(size.height()),
+                            locale.formattedDataSize(file.size(), 1,
+                                                     QLocale::DataSizeSIFormat));
+    }
     QString omasnap = QDir(QCoreApplication::applicationDirPath())
                           .filePath(QStringLiteral("omasnap"));
     if (!QFileInfo::exists(omasnap))
       omasnap = QStringLiteral("omasnap");
-    // --exec consumes the rest of the command line as the click command's
-    // argv, which omarchy-notification-send runs without shell parsing. It
-    // must come last and be given as separate words, never one quoted string.
-    arguments << QStringLiteral("Click to edit") << QStringLiteral("--image")
-              << imagePath << QStringLiteral("--exec") << omasnap << imageUrl;
+    // Each action's argv runs without shell parsing, with the --with words
+    // appended, so the path stays one word however it is spelled.
+    arguments << QStringLiteral("--image") << imagePath
+              << QStringLiteral("--action") << QStringLiteral("Edit") << omasnap
+              << QStringLiteral("--action") << QStringLiteral("Open")
+              << QStringLiteral("xdg-open") << QStringLiteral("--with")
+              << imagePath;
   }
   return arguments;
 }
 
-void sendCaptureNotification(const QString &message, const QString &imagePath) {
-  QProcess::startDetached(QStringLiteral("omarchy-notification-send"),
-                          captureNotificationArguments(message, imagePath));
+void sendCaptureNotification(
+    const QString &message, const QString &imagePath,
+    const std::function<bool(const QString &, const QStringList &)> &launcher) {
+  const QString program = QStringLiteral("omarchy-notification-send");
+  const QStringList arguments = captureNotificationArguments(message, imagePath);
+  if (!(launcher ? launcher(program, arguments)
+                 : QProcess::startDetached(program, arguments)))
+    qWarning("Could not start %s", qPrintable(program));
 }
 
 void describeFileCapture(CaptureData &capture, QImage image,

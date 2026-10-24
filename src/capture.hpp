@@ -448,11 +448,15 @@ bool removeEditorHandoff(const QString &path, const QString &token);
 [[nodiscard]] bool saveTemporarySnapshot(const QImage &image, QString path,
                                          QString &error);
 [[nodiscard]] QString recognizeText(const QImage &image, QString &error);
-/** Builds the omarchy-notification-send argv. With an image, the click command
- *  follows --exec as separate words (program, then file URL) and nothing else
- *  comes after it, since --exec consumes the rest of the line unparsed. */
+/** Builds the omarchy-notification-send argv. A saved image becomes the
+ *  toast's thumbnail, with its size as the description and Edit and Open
+ *  buttons that each receive the image path through --with. */
 [[nodiscard]] QStringList
 captureNotificationArguments(const QString &message,
                              const QString &imagePath = {});
-void sendCaptureNotification(const QString &message,
-                             const QString &imagePath = {});
+/** Starts omarchy-notification-send through the launcher when one is given.
+ *  Reading the saved image's size touches the disk, so call it on a worker
+ *  whenever imagePath is set. */
+void sendCaptureNotification(
+    const QString &message, const QString &imagePath = {},
+    const std::function<bool(const QString &, const QStringList &)> &launcher = {});
