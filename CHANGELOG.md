@@ -9,7 +9,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 - `--notify` announces saved captures in a notification with the capture's
   thumbnail and size and **Open** and **Edit** buttons, like Omarchy's saved
-  screen recordings, instead of a timed preview. It covers fresh and scroll
+  screen recordings, instead of a timed preview, worded in Omarchy's language
+  through `omarchy-i18n`. It covers fresh and scroll
   captures and saving from the editor or Save As. Omarchy passes it once its
   `omarchy-notification-send` takes `--action` buttons.
 

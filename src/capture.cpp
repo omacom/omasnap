@@ -17,6 +17,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QHash>
 #include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -36,6 +37,7 @@
 #include <QUrl>
 #include <algorithm>
 #include <array>
+#include <utility>
 #include <cerrno>
 #include <cmath>
 #include <fcntl.h>
@@ -2639,15 +2641,53 @@ bool notifySavedCaptures() {
   return qEnvironmentVariableIntValue("OMASNAP_NOTIFY") == 1;
 }
 
-QStringList captureNotificationArguments(const QString &message,
-                                         const QString &imagePath,
-                                         bool actions) {
+namespace {
+
+// The --notify toast's wording lives in Omarchy's catalog under these keys.
+constexpr std::array<std::pair<const char *, const char *>, 4> kOmarchyText{{
+    {"Screenshot saved", "capture.screenshotSaved"},
+    {"Screenshot saved and copied", "capture.screenshotSavedCopied"},
+    {"Open", "capture.screenshotOpen"},
+    {"Edit", "capture.screenshotEdit"},
+}};
+
+/// Looks up the toast's wording with omarchy-i18n, all at once. English
+/// stays wherever a lookup fails or Omarchy has no entry and echoes the key.
+std::function<QString(const QString &)> omarchyText() {
+  std::array<QProcess, kOmarchyText.size()> lookups;
+  for (std::size_t index = 0; index < kOmarchyText.size(); ++index)
+    lookups[index].start(QStringLiteral("omarchy-i18n"),
+                         {QString::fromLatin1(kOmarchyText[index].second)});
+  QHash<QString, QString> words;
+  for (std::size_t index = 0; index < kOmarchyText.size(); ++index) {
+    QProcess &lookup = lookups[index];
+    if (!lookup.waitForFinished(1000)) {
+      lookup.kill();
+      lookup.waitForFinished(100);
+      continue;
+    }
+    const QString word = QString::fromUtf8(lookup.readAllStandardOutput()).trimmed();
+    if (lookup.exitCode() == 0 && !word.isEmpty() &&
+        word != QLatin1String(kOmarchyText[index].second))
+      words.insert(QString::fromLatin1(kOmarchyText[index].first), word);
+  }
+  return [words](const QString &english) { return words.value(english, english); };
+}
+
+} // namespace
+
+QStringList captureNotificationArguments(
+    const QString &message, const QString &imagePath, bool actions,
+    const std::function<QString(const QString &)> &text) {
   const bool toast = actions && !imagePath.isEmpty();
+  const auto word = [&](const QString &english) {
+    return toast && text ? text(english) : english;
+  };
   QStringList arguments{QStringLiteral("-g"), QStringLiteral(""),
                         QStringLiteral("--app-name"), QStringLiteral("omasnap"),
                         QStringLiteral("-t"),
                         toast ? QStringLiteral("10000") : QStringLiteral("4500"),
-                        message};
+                        word(message)};
   if (imagePath.isEmpty())
     return arguments;
   QString omasnap = QDir(QCoreApplication::applicationDirPath())
@@ -2676,9 +2716,9 @@ QStringList captureNotificationArguments(const QString &message,
   // Each action's argv runs without shell parsing, with the --with words
   // appended, so the path stays one word however it is spelled.
   arguments << QStringLiteral("--image") << imagePath
-            << QStringLiteral("--action") << QStringLiteral("Open")
+            << QStringLiteral("--action") << word(QStringLiteral("Open"))
             << QStringLiteral("xdg-open")
-            << QStringLiteral("--action") << QStringLiteral("Edit") << omasnap
+            << QStringLiteral("--action") << word(QStringLiteral("Edit")) << omasnap
             << QStringLiteral("--with")
             << imagePath;
   return arguments;
@@ -2688,8 +2728,10 @@ void sendCaptureNotification(
     const QString &message, const QString &imagePath,
     const std::function<bool(const QString &, const QStringList &)> &launcher) {
   const QString program = QStringLiteral("omarchy-notification-send");
+  const bool toast = notifySavedCaptures() && !imagePath.isEmpty();
   const QStringList arguments = captureNotificationArguments(
-      message, imagePath, notifySavedCaptures());
+      message, imagePath, toast,
+      toast ? omarchyText() : std::function<QString(const QString &)>{});
   if (!(launcher ? launcher(program, arguments)
                  : QProcess::startDetached(program, arguments)))
     qWarning("Could not start %s", qPrintable(program));

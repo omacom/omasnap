@@ -454,18 +454,21 @@ bool removeEditorHandoff(const QString &path, const QString &token);
  *  editors that process starts. */
 [[nodiscard]] bool notifySavedCaptures();
 /** Builds the omarchy-notification-send argv. With actions, a saved image
- *  becomes the toast's thumbnail, with its size as the description and Edit
- *  and Open buttons that each receive the image path through --with. Without
+ *  becomes the toast's thumbnail, with its size as the description and Open
+ *  and Edit buttons that each receive the image path through --with; text,
+ *  when given, words the toast's headline and buttons. Without
  *  them, clicking the toast edits the image: --exec comes last, followed by
  *  the program and file URL as separate words, since it consumes the rest of
  *  the line unparsed. */
 [[nodiscard]] QStringList
-captureNotificationArguments(const QString &message,
-                             const QString &imagePath = {},
-                             bool actions = false);
+captureNotificationArguments(
+    const QString &message, const QString &imagePath = {}, bool actions = false,
+    const std::function<QString(const QString &)> &text = {});
 /** Starts omarchy-notification-send through the launcher when one is given,
- *  with Open and Edit buttons under --notify. Reading the saved image's size
- *  touches the disk, so call it on a worker whenever imagePath is set. */
+ *  with Open and Edit buttons under --notify, worded in Omarchy's language.
+ *  Reading the saved image's size and looking up that wording start
+ *  processes and touch the disk, so call it on a worker whenever imagePath
+ *  is set. */
 void sendCaptureNotification(
     const QString &message, const QString &imagePath = {},
     const std::function<bool(const QString &, const QStringList &)> &launcher = {});

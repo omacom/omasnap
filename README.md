@@ -272,8 +272,9 @@ fullscreen captures output immediately. Quick output cannot be combined with `--
 
 Add `--notify` to announce every saved capture in a notification instead of a preview,
 like Omarchy's saved screen recordings: the capture's thumbnail and size, with **Open**
-to view the saved PNG and **Edit** to annotate it. Omarchy passes it once its
-`omarchy-notification-send` takes `--action` buttons. Pins and editors opened from that
+to view the saved PNG and **Edit** to annotate it, worded in Omarchy's language through
+`omarchy-i18n`. Omarchy passes it once its `omarchy-notification-send` takes `--action`
+buttons. Pins and editors opened from that
 capture keep the option. Copy-only captures still show their preview, since there is
 no file to open.
 

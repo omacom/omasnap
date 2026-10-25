@@ -6370,6 +6370,37 @@ bool runNotificationArgvCheck(QString &error) {
                 .arg(toast.join(QStringLiteral(" | ")));
     return false;
   }
+  // Under --notify the wording comes from Omarchy's catalog, and an entry
+  // Omarchy lacks (omarchy-i18n echoes its key) stays English.
+  QFile i18n(directory.filePath(QStringLiteral("omarchy-i18n")));
+  if (!i18n.open(QIODevice::WriteOnly) ||
+      i18n.write("#!/bin/sh\ncase \"$1\" in\n"
+                 "  capture.screenshotSaved) printf 'Sk\303\246rmbillede gemt' ;;\n"
+                 "  capture.screenshotOpen) printf '\303\205bn' ;;\n"
+                 "  *) printf '%s' \"$1\" ;;\nesac\n") < 0 ||
+      !i18n.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner))
+    return false;
+  i18n.close();
+  const QByteArray oldPath = qgetenv("PATH");
+  const auto restore = qScopeGuard([&] {
+    qputenv("PATH", oldPath);
+    qunsetenv("OMASNAP_NOTIFY");
+  });
+  qputenv("PATH", directory.path().toUtf8() + ':' + oldPath);
+  qputenv("OMASNAP_NOTIFY", "1");
+  QStringList worded;
+  sendCaptureNotification(QStringLiteral("Screenshot saved"), shotPath,
+                          [&](const QString &, const QStringList &args) {
+                            worded = args;
+                            return true;
+                          });
+  if (!worded.contains(QStringLiteral("Skærmbillede gemt")) ||
+      !worded.contains(QStringLiteral("Åbn")) ||
+      !worded.contains(QStringLiteral("Edit"))) {
+    error = QStringLiteral("--notify toast did not use Omarchy's wording: %1")
+                .arg(worded.join(QStringLiteral(" | ")));
+    return false;
+  }
   sendCaptureNotification(QStringLiteral("smoke"));
   return true;
 }
