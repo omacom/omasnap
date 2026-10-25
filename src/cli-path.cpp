@@ -90,6 +90,12 @@ void configureCaptureCommandLine(QCommandLineParser &parser, bool beforeQt) {
       QStringLiteral("Save the capture without opening an editor or pin."));
   parser.addOption(copyOption);
   parser.addOption(saveOption);
+  const QCommandLineOption notifyOption(
+      QStringLiteral("notify"),
+      QStringLiteral("Announce saved captures in a notification with Open and "
+                     "Edit buttons instead of a preview. Needs an "
+                     "omarchy-notification-send that takes --action."));
+  parser.addOption(notifyOption);
   const QCommandLineOption fileOption(
       QStringLiteral("file"),
       QStringLiteral("Open an existing image file in the annotation editor "

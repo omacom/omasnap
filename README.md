@@ -7,9 +7,11 @@ It captures the focused monitor before mapping an exclusive layer-shell surface,
 editor never appears in its own screenshot. The editor retains annotations as movable,
 resizable vector layers and preserves the monitor's native pixels on scaled displays.
 
-Select a capture and it saves to `~/Pictures/Screenshots` and copies straight to the
-clipboard, then shows a notification with its thumbnail and **Edit** and **Open**
-buttons, like Omarchy's saved screen recordings.
+Select a capture and it copies straight to the clipboard, with a floating preview for
+copying again, dragging into another app, or opening the editor on demand.
+The preview fades after 10 seconds of idle time. Hovering and unfinished actions
+pause its countdown. The pin button, `Ctrl+P`, `T` while hovered, or dragging the
+preview keeps it on screen.
 
 [![Looping Omasnap demonstration](assets/omasnap.gif)](assets/omasnap.mp4)
 
@@ -18,11 +20,10 @@ buttons, like Omarchy's saved screen recordings.
 - Smart selection by default: drag a freeform region, click a window to crop
   it, or click open monitor space for the full monitor. Explicit region,
   window, fullscreen, and scrolling-region modes remain available.
-- Fresh captures save, copy to the clipboard, and show a notification for 10 seconds
-  with the capture's thumbnail, size, and **Edit** and **Open** buttons for the saved
-  PNG. With autosave off, or on an Omarchy before 4.5 whose notifications have no
-  buttons, a floating preview with Pin, Edit, Copy, file drag, and Close controls
-  takes its place.
+- Fresh captures save, copy to the clipboard, and show a floating preview for 10 seconds
+  without taking keyboard focus. Hover for Pin, Edit, Copy, file drag, and Close
+  controls. Use the pin button, `Ctrl+P`, `T` while hovered, or drag the preview to
+  keep it on screen.
 - A pointer-side readout that turns any drag into a ruler: the pointer position
   while the crosshair is idle, then the frame size in native export pixels while a
   region, a hovered window, or a crop handle is being sized. Crosshair guides
@@ -236,9 +237,9 @@ omasnap --scroll
 Drag a region, then pick a direction: **Scroll ↓ / →** scrolls the page
 yourself while omasnap captures each step, and **Auto ↓ / →** scrolls it for
 you, one acknowledged notch at a time, stopping when the page stops moving.
-The frames are aligned and stitched into one image, saved, copied, and announced
-like any other capture; its notification's **Edit** button opens the stitched PNG
-for annotation.
+The frames are aligned and stitched into one image, copied, and shown in a timed
+preview. Keep it with the pin button, `Ctrl+P`, or `T` while hovered, or open its
+editor to annotate it; `Ctrl`+wheel zooms and the wheel scrolls it.
 
 Positional capture modes are also accepted:
 
@@ -250,24 +251,31 @@ omasnap smart
 ```
 
 These options choose what is initially selected. Completing a selection saves it, copies it,
-and shows its notification. Pins are ordinary compositor windows and remain visible
-in later screen captures; close or move them aside when they cover the next capture area.
+and shows a preview that fades after 10 seconds of idle time unless kept. Existing
+previews and pins are ordinary compositor windows and remain visible in later
+screen captures; close or move them aside when they cover the next capture area.
 
 For annotation before any output, add `--editor overlay` or `--editor window`.
 You can also press `E` (edit) or `A` (annotate) in the capture picker to keep
 the annotator open after the capture. Press either key again to turn it off.
 The editor then controls whether the result is copied, saved, or both.
 
-Fresh captures automatically save as well as copying to the clipboard, and the
-notification's **Edit** opens the saved PNG in the editor while **Open** hands it to
-your image viewer. Set `[output] autosave = false` to opt out; captures are then only
-copied and shown in a timed floating preview instead. Explicit `--copy` remains
-copy-only; annotation before output still waits for your chosen Copy or Save action.
+Fresh captures automatically save as well as copying to the clipboard and
+showing a preview. Set `[output] autosave = false` to opt out. Preview expiry leaves the saved PNG intact. Explicit
+`--copy` remains copy-only; annotation before output still waits for your chosen
+Copy or Save action.
 
-Quick output skips the annotation editor. Add `--copy` to copy
+Quick output skips the preview as well as the annotation editor. Add `--copy` to copy
 only, `--save` to save only, or both flags to copy and save. Region and window captures output after selection;
 fullscreen captures output immediately. Quick output cannot be combined with `--file`,
 `--clipboard`, or `--pin`.
+
+Add `--notify` to announce every saved capture in a notification instead of a preview,
+like Omarchy's saved screen recordings: the capture's thumbnail and size, with **Open**
+to view the saved PNG and **Edit** to annotate it. Omarchy passes it once its
+`omarchy-notification-send` takes `--action` buttons. Pins and editors opened from that
+capture keep the option. Copy-only captures still show their preview, since there is
+no file to open.
 
 ### One instance, toggled by the same hotkey
 
@@ -366,7 +374,7 @@ change where screenshots land or what they are called, create
 # W switches a live editor between the two either way, and --editor
 # window|overlay overrides this per invocation.
 # This chooses the on-demand editor's presentation; fresh captures still
-# output straight away unless --editor is explicitly passed.
+# copy and show a timed preview unless --editor is explicitly passed.
 mode = overlay
 # floating (default): a windowed editor asks the compositor to float it at
 # the capture's natural size. tiled: it joins the tiling layout instead.
@@ -376,9 +384,8 @@ window = floating
 backdrop = opaque
 
 [output]
-# Save fresh captures while still copying them, and announce the saved PNG
-# with Edit and Open buttons. Default: true. Set false to copy only and show
-# a timed preview instead.
+# Save fresh captures while still copying and showing the timed preview.
+# Default: true. Set false to opt out.
 autosave = true
 # Where saved screenshots go. Default: ~/Pictures/Screenshots
 directory = ~/Pictures/Captures
@@ -517,15 +524,16 @@ region after changing the display layout.
 | Right-click | Return to Select; cancel active drawing |
 
 Save As opens a centered file chooser. Saving from the editor with Save, Save As,
-or Copy + Save closes it and shows a notification for the exact PNG you saved,
-with **Edit** and **Open** buttons. An originating pin stays where it was.
+or Copy + Save closes it and shows an unpinned preview in the lower-right stack,
+replacing an originating preview or pin. The preview has the usual 10-second idle
+timeout; its folder and Copy path buttons refer to the exact PNG you saved.
 Cancel or a failed save keeps the editor open. Recent captures retain the editable
 layers and undo history.
 
 ### Capture previews and pins
 
-With autosave off, normal captures show a preview that fades after 10 seconds of
-idle time, replacing the completion notification. Hovering the stack and in-progress
+Normal captures show a preview that fades after 10 seconds of idle time, replacing
+the completion notification. Hovering the stack and in-progress
 actions pause the countdown; it resumes when the preview is idle again. Clicking,
 scrolling, copying, or editing does not pin the preview. The pin button,
 `Ctrl+P` on a focused preview, or `T` ("tack") while hovered keeps it until closed.

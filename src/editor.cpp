@@ -4247,10 +4247,9 @@ void CaptureEditor::finish(OutputMode mode) {
         result.error = error;
         return;
       }
-      // With action buttons, the toast is the completion UI for every saved
-      // capture. An older Omarchy keeps the timed preview instead.
-      const bool preview = (savedPreview || autosave) &&
-                           !notificationActionsSupported();
+      // Under --notify, the toast is the completion UI for every saved
+      // capture; otherwise a fresh or edited capture keeps its timed preview.
+      const bool preview = (savedPreview || autosave) && !notifySavedCaptures();
       if (preview) {
         const QString pin = launchPinnedCapture(
             image, renderedCaptureLogicalSize(captureCopy, image.size()), false,

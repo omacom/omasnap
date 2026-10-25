@@ -5,15 +5,13 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
-### Changed
+### Added
 
-- Saved captures are announced in a notification with the capture's thumbnail
-  and size and **Edit** and **Open** buttons, like Omarchy's saved screen
-  recordings, instead of a timed floating preview. This covers fresh captures,
-  scroll captures, and saving from the editor or Save As. With
-  `[output] autosave = false`, copy-only captures keep the timed preview, and
-  so does an Omarchy whose `omarchy-notification-send` has no `--action`
-  buttons yet (before 4.5).
+- `--notify` announces saved captures in a notification with the capture's
+  thumbnail and size and **Open** and **Edit** buttons, like Omarchy's saved
+  screen recordings, instead of a timed preview. It covers fresh and scroll
+  captures and saving from the editor or Save As. Omarchy passes it once its
+  `omarchy-notification-send` takes `--action` buttons.
 
 ## 1.22.0
 

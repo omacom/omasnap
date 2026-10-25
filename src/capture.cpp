@@ -2635,12 +2635,8 @@ QString recognizeText(const QImage &image, QString &error) {
   return text;
 }
 
-bool notificationActionsSupported() {
-  QFile script(QStandardPaths::findExecutable(
-      QStringLiteral("omarchy-notification-send")));
-  // Omarchy 4.5 added action buttons, and its usage line names them.
-  return !script.fileName().isEmpty() && script.open(QIODevice::ReadOnly) &&
-         script.read(64 * 1024).contains("--action <label>");
+bool notifySavedCaptures() {
+  return qEnvironmentVariableIntValue("OMASNAP_NOTIFY") == 1;
 }
 
 QStringList captureNotificationArguments(const QString &message,
@@ -2680,9 +2676,10 @@ QStringList captureNotificationArguments(const QString &message,
   // Each action's argv runs without shell parsing, with the --with words
   // appended, so the path stays one word however it is spelled.
   arguments << QStringLiteral("--image") << imagePath
-            << QStringLiteral("--action") << QStringLiteral("Edit") << omasnap
             << QStringLiteral("--action") << QStringLiteral("Open")
-            << QStringLiteral("xdg-open") << QStringLiteral("--with")
+            << QStringLiteral("xdg-open")
+            << QStringLiteral("--action") << QStringLiteral("Edit") << omasnap
+            << QStringLiteral("--with")
             << imagePath;
   return arguments;
 }
@@ -2692,7 +2689,7 @@ void sendCaptureNotification(
     const std::function<bool(const QString &, const QStringList &)> &launcher) {
   const QString program = QStringLiteral("omarchy-notification-send");
   const QStringList arguments = captureNotificationArguments(
-      message, imagePath, !imagePath.isEmpty() && notificationActionsSupported());
+      message, imagePath, notifySavedCaptures());
   if (!(launcher ? launcher(program, arguments)
                  : QProcess::startDetached(program, arguments)))
     qWarning("Could not start %s", qPrintable(program));

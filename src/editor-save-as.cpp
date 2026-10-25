@@ -202,9 +202,9 @@ void CaptureEditor::saveAsToPath(const QString &path) {
                                        background, shadow, boundary, backdrop);
     QString error;
     if (savePngFile(image, path, error)) {
-      // An Omarchy without notification actions keeps the saved preview.
+      // Without --notify, the saved file keeps its timed preview.
       bool announced = true;
-      if (notificationActionsSupported()) {
+      if (notifySavedCaptures()) {
         sendCaptureNotification(QStringLiteral("Screenshot saved"), path, launcher);
       } else if (launchPinnedCapture(
                      image, renderedCaptureLogicalSize(capture, image.size()), false,
