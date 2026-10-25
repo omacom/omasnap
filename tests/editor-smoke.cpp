@@ -2750,6 +2750,10 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
   if (autosave) {
     qputenv("OMASNAP_NOTIFY", "1");
     const auto restoreNotify = qScopeGuard([] { qunsetenv("OMASNAP_NOTIFY"); });
+    // Keep the wording English whatever this desktop's language is.
+    if (!executable(QStringLiteral("omarchy-i18n"),
+                    QByteArrayLiteral("#!/bin/sh\nprintf '%s' \"$1\"\n")))
+      return false;
     for (const bool fresh : {true, false}) {
       CaptureEditor editor(capture, fresh ? Mode::Region : Mode::File,
                            fresh ? QuickOutputMode::CopyAndPreview
@@ -2777,8 +2781,11 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
       editor.waitForExport();
       const QString saved = toast.isEmpty() ? QString() : toast.last();
       const auto removeSaved = qScopeGuard([&] { QFile::remove(saved); });
+      // Edit reopens the capture's layers from the recent shelf.
+      const qsizetype recent = toast.indexOf(QStringLiteral("--recent"));
       if (editor.isVisible() || !pin.isEmpty() ||
-          !toast.contains(QStringLiteral("Open")) ||
+          !toast.contains(QStringLiteral("Open")) || recent < 0 ||
+          !findRecentSnap(toast.value(recent + 1)) ||
           QImage(saved).convertToFormat(expected.format()) != expected) {
         error = QStringLiteral("--notify did not announce the saved %1 capture: %2")
                     .arg(fresh ? QStringLiteral("fresh") : QStringLiteral("edited"),
@@ -6351,7 +6358,7 @@ bool runNotificationArgvCheck(QString &error) {
   if (!directory.isValid() || !shot.save(shotPath))
     return false;
   const QStringList toast = captureNotificationArguments(
-      QStringLiteral("Screenshot saved"), shotPath, true);
+      QStringLiteral("Screenshot saved"), shotPath, {}, true);
   const qsizetype open = toast.indexOf(QStringLiteral("Open"));
   const qsizetype edit = toast.indexOf(QStringLiteral("Edit"));
   const qsizetype headline = toast.indexOf(QStringLiteral("Screenshot saved"));
@@ -6389,7 +6396,7 @@ bool runNotificationArgvCheck(QString &error) {
   qputenv("PATH", directory.path().toUtf8() + ':' + oldPath);
   qputenv("OMASNAP_NOTIFY", "1");
   QStringList worded;
-  sendCaptureNotification(QStringLiteral("Screenshot saved"), shotPath,
+  sendCaptureNotification(QStringLiteral("Screenshot saved"), shotPath, {},
                           [&](const QString &, const QStringList &args) {
                             worded = args;
                             return true;

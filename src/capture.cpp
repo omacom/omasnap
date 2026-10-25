@@ -35,6 +35,7 @@
 #include <QStandardPaths>
 
 #include <QUrl>
+#include <QUuid>
 #include <algorithm>
 #include <array>
 #include <utility>
@@ -1692,6 +1693,7 @@ bool quickOutput(QImage image, QuickOutputMode mode, QString &error,
   }
   OperationLog log;
   log.previewSize = logicalSize.isEmpty() ? image.size() : logicalSize;
+  log.recentId = QUuid::createUuid().toString(QUuid::Id128);
   setPngLogicalSize(image, log.previewSize);
   QString recentError;
   if (!recordRecentSnap(image, log, image, recentError))
@@ -1717,10 +1719,11 @@ bool quickOutput(QImage image, QuickOutputMode mode, QString &error,
     if (saved.isEmpty())
       return false;
     if (mode == QuickOutputMode::Save)
-      sendCaptureNotification(QStringLiteral("Screenshot saved"), saved);
+      sendCaptureNotification(QStringLiteral("Screenshot saved"), saved,
+                              log.recentId);
     else
       sendCaptureNotification(QStringLiteral("Screenshot saved and copied"),
-                              saved);
+                              saved, log.recentId);
   } else {
     QFile::remove(path);
     sendCaptureNotification(QStringLiteral("Screenshot copied to clipboard"));
@@ -2677,8 +2680,8 @@ std::function<QString(const QString &)> omarchyText() {
 } // namespace
 
 QStringList captureNotificationArguments(
-    const QString &message, const QString &imagePath, bool actions,
-    const std::function<QString(const QString &)> &text) {
+    const QString &message, const QString &imagePath, const QString &recentId,
+    bool actions, const std::function<QString(const QString &)> &text) {
   const bool toast = actions && !imagePath.isEmpty();
   const auto word = [&](const QString &english) {
     return toast && text ? text(english) : english;
@@ -2718,19 +2721,24 @@ QStringList captureNotificationArguments(
   arguments << QStringLiteral("--image") << imagePath
             << QStringLiteral("--action") << word(QStringLiteral("Open"))
             << QStringLiteral("xdg-open")
-            << QStringLiteral("--action") << word(QStringLiteral("Edit")) << omasnap
-            << QStringLiteral("--with")
+            << QStringLiteral("--action") << word(QStringLiteral("Edit")) << omasnap;
+  // Edit reopens the capture's layers and undo history from the recent
+  // shelf; the saved image, appended by --with, is the fallback once the
+  // shelf has dropped it.
+  if (!recentId.isEmpty())
+    arguments << QStringLiteral("--recent") << recentId;
+  arguments << QStringLiteral("--with")
             << imagePath;
   return arguments;
 }
 
 void sendCaptureNotification(
-    const QString &message, const QString &imagePath,
+    const QString &message, const QString &imagePath, const QString &recentId,
     const std::function<bool(const QString &, const QStringList &)> &launcher) {
   const QString program = QStringLiteral("omarchy-notification-send");
   const bool toast = notifySavedCaptures() && !imagePath.isEmpty();
   const QStringList arguments = captureNotificationArguments(
-      message, imagePath, toast,
+      message, imagePath, recentId, toast,
       toast ? omarchyText() : std::function<QString(const QString &)>{});
   if (!(launcher ? launcher(program, arguments)
                  : QProcess::startDetached(program, arguments)))

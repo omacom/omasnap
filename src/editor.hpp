@@ -139,6 +139,8 @@ public:
   void setPinDocument(std::shared_ptr<PinSnapshotFile> document) {
     pinDocument_ = std::move(document);
   }
+  /// Saving updates this recent capture in place instead of adding another.
+  void setEditingRecent(RecentSnap recent) { editingRecent_ = std::move(recent); }
 
   /**
    * Disables working-snapshot persistence. The hidden editor behind instant

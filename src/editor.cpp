@@ -4263,7 +4263,7 @@ void CaptureEditor::finish(OutputMode mode) {
         sendCaptureNotification(mode == OutputMode::Save
                                     ? QStringLiteral("Screenshot saved")
                                     : QStringLiteral("Screenshot saved and copied"),
-                                result.saved, launcher);
+                                result.saved, log.recentId, launcher);
       }
       if (savedPreview || autosave) {
         result.savedPreview = true;

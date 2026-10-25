@@ -96,6 +96,10 @@ void configureCaptureCommandLine(QCommandLineParser &parser, bool beforeQt) {
                      "Edit buttons instead of a preview. Needs an "
                      "omarchy-notification-send that takes --action."));
   parser.addOption(notifyOption);
+  QCommandLineOption recentOption(QStringLiteral("recent"), QString(),
+                                  QStringLiteral("id"));
+  recentOption.setFlags(QCommandLineOption::HiddenFromHelp);
+  parser.addOption(recentOption);
   const QCommandLineOption fileOption(
       QStringLiteral("file"),
       QStringLiteral("Open an existing image file in the annotation editor "

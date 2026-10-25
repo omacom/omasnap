@@ -269,6 +269,15 @@ int main(int argc, char **argv) {
     qCritical() << "Clipboard input cannot be combined with another target";
     return 2;
   }
+  // A --notify toast's Edit reopens its capture's layers from the recent
+  // shelf, like the overlay's recent cards; the image given alongside is the
+  // fallback once the shelf has dropped that capture.
+  std::optional<RecentSnap> reopenedRecent;
+  if (parser.isSet(QStringLiteral("recent"))) {
+    reopenedRecent = findRecentSnap(parser.value(QStringLiteral("recent")));
+    if (reopenedRecent)
+      filePath = reopenedRecent->sourcePath;
+  }
   const bool editingImage = clipboardInput || !filePath.isEmpty();
   if (editingImage && quickOutputMode != QuickOutputMode::None) {
     qCritical()
@@ -429,6 +438,8 @@ int main(int argc, char **argv) {
   CaptureEditor editor(std::move(capture), captureMode, quickOutputMode,
                        restoredLog, nullptr, editorWindowMode && !editingImage);
   editor.setPinDocument(std::move(pinDocument));
+  if (reopenedRecent)
+    editor.setEditingRecent(std::move(*reopenedRecent));
   startupTimingMark("CaptureEditor constructed");
   editor.setScreen(targetScreen);
   if (windowedEditorProcess && editingImage) {

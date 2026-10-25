@@ -300,6 +300,16 @@ bool runSaveAsSmoke(QString &error) {
   {
     qputenv("OMASNAP_NOTIFY", "1");
     const auto restoreNotify = qScopeGuard([] { qunsetenv("OMASNAP_NOTIFY"); });
+    // Keep the wording English whatever this desktop's language is.
+    QFile i18n(directory.filePath(QStringLiteral("omarchy-i18n")));
+    if (!i18n.open(QIODevice::WriteOnly) ||
+        i18n.write("#!/bin/sh\nprintf '%s' \"$1\"\n") < 0 ||
+        !i18n.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner))
+      return false;
+    i18n.close();
+    const QByteArray oldPath = qgetenv("PATH");
+    const auto restorePath = qScopeGuard([&] { qputenv("PATH", oldPath); });
+    qputenv("PATH", directory.path().toUtf8() + ':' + oldPath);
     CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
     QStringList toast;
     bool previewed = false;

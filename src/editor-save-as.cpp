@@ -205,7 +205,8 @@ void CaptureEditor::saveAsToPath(const QString &path) {
       // Without --notify, the saved file keeps its timed preview.
       bool announced = true;
       if (notifySavedCaptures()) {
-        sendCaptureNotification(QStringLiteral("Screenshot saved"), path, launcher);
+        sendCaptureNotification(QStringLiteral("Screenshot saved"), path,
+                                log.recentId, launcher);
       } else if (launchPinnedCapture(
                      image, renderedCaptureLogicalSize(capture, image.size()), false,
                      PinLifetime::Timed, error, launcher, log.recentId, path)
