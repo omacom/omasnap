@@ -92,6 +92,18 @@ bool runSaveAsSmoke(QString &error) {
   }
   error.clear();
 
+  // Announce saves the way an Omarchy with notification actions does.
+  QTemporaryDir commands;
+  QFile notify(commands.filePath(QStringLiteral("omarchy-notification-send")));
+  if (!commands.isValid() || !notify.open(QIODevice::WriteOnly) ||
+      notify.write("#!/bin/sh\n# --action <label> <program>\n") < 0 ||
+      !notify.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner))
+    return false;
+  notify.close();
+  const QByteArray oldPath = qgetenv("PATH");
+  const auto restorePath = qScopeGuard([&] { qputenv("PATH", oldPath); });
+  qputenv("PATH", commands.path().toUtf8() + ':' + oldPath);
+
   QStringList previews;
   const auto cleanupPreviews = qScopeGuard([&] {
     for (const QString &path : previews) {

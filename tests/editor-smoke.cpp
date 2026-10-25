@@ -2436,6 +2436,15 @@ bool runTextDraftNeverScrollsSmoke(QApplication &application, QString &error) {
   return true;
 }
 
+/// Usage lines of omarchy-notification-send before and after Omarchy 4.5
+/// added action buttons; omasnap reads them to choose toast or preview.
+const QByteArray kActionNotificationScript = QByteArrayLiteral(
+    "#!/bin/sh\n# Usage: omarchy-notification-send <headline> [--exec <program> "
+    "[args...] | --action <label> <program> [words...]... [--with <args...>]]\n");
+const QByteArray kExecNotificationScript = QByteArrayLiteral(
+    "#!/bin/sh\n# Usage: omarchy-notification-send <headline> [--exec <program> "
+    "[args...]]\n");
+
 /// What an editor launched once its output finished: a timed preview pin, or
 /// the toast for a saved capture.
 struct OutputLaunches {
@@ -2567,7 +2576,9 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
           "if [ -n \"$OMASNAP_TEST_COPY_FAIL\" ]; then echo unavailable >&2; exit 1; fi\n"
           "cat > \"$OMASNAP_TEST_PIN_CLIPBOARD\"\n")) ||
       !executable(QStringLiteral("wl-paste"), QByteArrayLiteral(
-          "#!/bin/sh\ncat \"$OMASNAP_TEST_PIN_CLIPBOARD\"\n")))
+          "#!/bin/sh\ncat \"$OMASNAP_TEST_PIN_CLIPBOARD\"\n")) ||
+      !executable(QStringLiteral("omarchy-notification-send"),
+                  kActionNotificationScript))
     return false;
   const QByteArray oldPath = qgetenv("PATH");
   const QByteArray oldClipboard = qgetenv("OMASNAP_TEST_PIN_CLIPBOARD");
@@ -2786,6 +2797,39 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
     if (reopened.annotationCountForTest() != 1 ||
         reopened.renderCurrentOutput() != next.renderCurrentOutput()) {
       error = QStringLiteral("The recent capture did not retain its editable annotation");
+      return false;
+    }
+  }
+  // An Omarchy whose notifications have no action buttons keeps the timed
+  // preview for an autosaved capture, pointing at the saved PNG.
+  if (autosave) {
+    if (!executable(QStringLiteral("omarchy-notification-send"),
+                    kExecNotificationScript))
+      return false;
+    const auto restoreActions = qScopeGuard([&] {
+      static_cast<void>(executable(QStringLiteral("omarchy-notification-send"),
+                                   kActionNotificationScript));
+    });
+    CaptureEditor editor(capture, Mode::Region, QuickOutputMode::CopyAndPreview);
+    OutputLaunches launches;
+    editor.setProcessLauncherForTest(recordOutputLaunches(launches));
+    editor.resize(800, 600);
+    editor.show();
+    QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, {100, 100});
+    QTest::mouseMove(&editor, {400, 300});
+    QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, {400, 300});
+    const QImage expected = editor.renderCurrentOutput();
+    editor.waitForExport();
+    const auto cleanup = qScopeGuard([&] {
+      QFile::remove(launches.pin);
+      QFile::remove(operationLogPath(launches.pin));
+      QFile::remove(PinSnapshotFile::thumbnailPath(launches.pin));
+    });
+    OperationLog log;
+    if (editor.isVisible() || launches.pin.isEmpty() || !launches.toast.isEmpty() ||
+        !loadOperationLog(operationLogPath(launches.pin), log, error) ||
+        QImage(log.savedPath).convertToFormat(expected.format()) != expected) {
+      error = QStringLiteral("Without notification actions, autosave lost its saved preview");
       return false;
     }
   }
@@ -6297,7 +6341,8 @@ bool runRecentsShelfSmoke(QApplication &application, QString &error) {
  * omarchy-notification-send runs each --action's words as argv without shell
  * parsing and appends the --with words to every one of them. The saved
  * capture's toast must therefore end in --with and the path as one word, so
- * Edit and Open each receive the file however its name is spelled.
+ * Edit and Open each receive the file however its name is spelled. An older
+ * Omarchy has only --exec, which consumes the rest of the line unparsed.
  */
 bool runNotificationArgvCheck(QString &error) {
   const QStringList plain =
@@ -6316,6 +6361,23 @@ bool runNotificationArgvCheck(QString &error) {
     return false;
   }
 
+  // Without action buttons, the click edits: --exec comes last, followed by
+  // the program and the file URL as separate words.
+  const QString oldPath = QStringLiteral("/tmp/it's a/shot 1.png");
+  const QStringList clickToEdit = captureNotificationArguments(
+      QStringLiteral("Screenshot saved"), oldPath, false);
+  const qsizetype exec = clickToEdit.indexOf(QStringLiteral("--exec"));
+  if (exec < 0 || clickToEdit.size() != exec + 3 ||
+      clickToEdit.contains(QStringLiteral("--action")) ||
+      !clickToEdit.at(exec + 1).endsWith(QStringLiteral("omasnap")) ||
+      clickToEdit.at(exec + 2) !=
+          QUrl::fromLocalFile(oldPath).toString(QUrl::FullyEncoded) ||
+      clickToEdit.at(clickToEdit.indexOf(QStringLiteral("--image")) + 1) != oldPath) {
+    error = QStringLiteral("click-to-edit notification argv is wrong: %1")
+                .arg(clickToEdit.join(QStringLiteral(" | ")));
+    return false;
+  }
+
   QTemporaryDir directory;
   const QString imagePath = directory.filePath(QStringLiteral("it's a shot 1.png"));
   QImage shot(1920, 1080, QImage::Format_RGB32);
@@ -6323,7 +6385,7 @@ bool runNotificationArgvCheck(QString &error) {
   if (!directory.isValid() || !shot.save(imagePath))
     return false;
   const QStringList saved = captureNotificationArguments(
-      QStringLiteral("Screenshot saved"), imagePath);
+      QStringLiteral("Screenshot saved"), imagePath, true);
   const qsizetype edit = saved.indexOf(QStringLiteral("Edit"));
   const qsizetype open = saved.indexOf(QStringLiteral("Open"));
   if (saved.contains(QStringLiteral("--exec")) || edit < 1 || open < 1 ||

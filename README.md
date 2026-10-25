@@ -20,8 +20,9 @@ buttons, like Omarchy's saved screen recordings.
   window, fullscreen, and scrolling-region modes remain available.
 - Fresh captures save, copy to the clipboard, and show a notification for 10 seconds
   with the capture's thumbnail, size, and **Edit** and **Open** buttons for the saved
-  PNG. With autosave off, a floating preview with Pin, Edit, Copy, file drag, and
-  Close controls takes its place.
+  PNG. With autosave off, or on an Omarchy before 4.5 whose notifications have no
+  buttons, a floating preview with Pin, Edit, Copy, file drag, and Close controls
+  takes its place.
 - A pointer-side readout that turns any drag into a ruler: the pointer position
   while the crosshair is idle, then the frame size in native export pixels while a
   region, a hovered window, or a crop handle is being sized. Crosshair guides

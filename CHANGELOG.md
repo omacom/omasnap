@@ -11,8 +11,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   and size and **Edit** and **Open** buttons, like Omarchy's saved screen
   recordings, instead of a timed floating preview. This covers fresh captures,
   scroll captures, and saving from the editor or Save As. With
-  `[output] autosave = false`, copy-only captures keep the timed preview.
-  Needs an Omarchy whose `omarchy-notification-send` supports `--action`.
+  `[output] autosave = false`, copy-only captures keep the timed preview, and
+  so does an Omarchy whose `omarchy-notification-send` has no `--action`
+  buttons yet (before 4.5).
 
 ## 1.22.0
 

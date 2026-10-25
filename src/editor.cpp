@@ -4247,12 +4247,25 @@ void CaptureEditor::finish(OutputMode mode) {
         result.error = error;
         return;
       }
-      // The toast is the completion UI for every saved capture: its
-      // thumbnail and Edit and Open buttons replace a timed preview.
-      sendCaptureNotification(mode == OutputMode::Save
-                                  ? QStringLiteral("Screenshot saved")
-                                  : QStringLiteral("Screenshot saved and copied"),
-                              result.saved, launcher);
+      // With action buttons, the toast is the completion UI for every saved
+      // capture. An older Omarchy keeps the timed preview instead.
+      const bool preview = (savedPreview || autosave) &&
+                           !notificationActionsSupported();
+      if (preview) {
+        const QString pin = launchPinnedCapture(
+            image, renderedCaptureLogicalSize(captureCopy, image.size()), false,
+            PinLifetime::Timed, result.error, launcher, log.recentId, result.saved);
+        if (pin.isEmpty()) {
+          result.error = QStringLiteral("Saved to %1, but could not show its preview: %2")
+                             .arg(result.saved, result.error);
+          return;
+        }
+      } else {
+        sendCaptureNotification(mode == OutputMode::Save
+                                    ? QStringLiteral("Screenshot saved")
+                                    : QStringLiteral("Screenshot saved and copied"),
+                                result.saved, launcher);
+      }
       if (savedPreview || autosave) {
         result.savedPreview = true;
         if (document)
@@ -4279,8 +4292,8 @@ void CaptureEditor::completeFinish(const FinishResult &result) {
   }
   snapshotPath_.clear();
   if (result.savedPreview) {
-    // The worker's toast is the completion UI, and the originating preview
-    // already records the saved path.
+    // The worker's toast or saved preview is the completion UI, and the
+    // originating preview already records the saved path.
     close();
     return;
   }
