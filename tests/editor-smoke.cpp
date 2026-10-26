@@ -3414,22 +3414,32 @@ bool runCrashSnapshotChecks(const CaptureData &capture, QString &error) {
           "Working document did not keep the source image and op log");
       return false;
     }
-    QByteArray reference;
-    QBuffer referenceBuffer(&reference);
-    referenceBuffer.open(QIODevice::WriteOnly);
-    current.save(&referenceBuffer, "PNG");
     editor.setProcessLauncherForTest([](const QString &, const QStringList &) { return true; });
     QTest::keyClick(&editor, Qt::Key_S, Qt::ControlModifier);
     editor.waitForExport();
     const QStringList files =
         QDir(directory.path())
             .entryList({QStringLiteral("*.png")}, QDir::Files);
-    if (files.size() != 1 || QFile::exists(snapshotPath) ||
-        QFile::exists(logPath) ||
-        QFileInfo(QDir(directory.path()).filePath(files.constFirst())).size() >
-            reference.size() * 3 / 2) {
-      error = QStringLiteral(
-          "Save did not leave exactly one default-encoded screenshot");
+    if (files.size() != 1) {
+      error = QStringLiteral("Save left %1 screenshots instead of one")
+                  .arg(files.size());
+      return false;
+    }
+    if (QFile::exists(snapshotPath) || QFile::exists(logPath)) {
+      error = QStringLiteral("Save did not remove the working document");
+      return false;
+    }
+    // PNG sizes vary with the system compression library; verify the decoded
+    // output instead of comparing it with another encoder's compressed size.
+    const QImage saved(QDir(directory.path()).filePath(files.constFirst()), "PNG");
+    if (saved.isNull()) {
+      error = QStringLiteral("Saved screenshot could not be decoded as PNG");
+      return false;
+    }
+    if (saved.size() != current.size() ||
+        saved.convertToFormat(QImage::Format_ARGB32) !=
+            current.convertToFormat(QImage::Format_ARGB32)) {
+      error = QStringLiteral("Saved screenshot dimensions or pixels changed");
       return false;
     }
   }
