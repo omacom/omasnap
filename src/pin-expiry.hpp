@@ -4,7 +4,7 @@
 #include <QTimer>
 #include <QVariantAnimation>
 
-/// A preview gets ten seconds of idle time, then a short fade. Keeping it
+/// A preview gets seven seconds of idle time, then a short fade. Keeping it
 /// cancels expiry; browsing the stack pauses the remaining time.
 class PinExpiry final : public QObject {
   Q_OBJECT
@@ -23,7 +23,7 @@ private:
   void updateCountdown();
   QTimer timer_;
   QVariantAnimation fade_;
-  int remainingMs_ = 10000;
+  int remainingMs_ = 7000;
   bool kept_;
   bool started_ = false;
   bool paused_ = false;

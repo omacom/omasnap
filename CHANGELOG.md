@@ -5,6 +5,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Changed
+
+- Capture previews and `--notify` notifications fade after 7 seconds of idle time instead of 10.
+
 ## 1.23.0
 
 ### Added

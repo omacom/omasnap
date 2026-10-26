@@ -1567,7 +1567,7 @@ private:
     expiry_.setKept(!expiry_.kept());
     QToolTip::hideText();
     showToast(expiry_.kept() ? QStringLiteral("Pinned")
-                             : QStringLiteral("Fades after 10 seconds"));
+                             : QStringLiteral("Fades after 7 seconds"));
   }
 
   QPainterPath cardPath() const {

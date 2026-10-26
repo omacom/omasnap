@@ -9,7 +9,7 @@ resizable vector layers and preserves the monitor's native pixels on scaled disp
 
 Select a capture and it copies straight to the clipboard, with a floating preview for
 copying again, dragging into another app, or opening the editor on demand.
-The preview fades after 10 seconds of idle time. Hovering and unfinished actions
+The preview fades after 7 seconds of idle time. Hovering and unfinished actions
 pause its countdown. The pin button, `Ctrl+P`, `T` while hovered, or dragging the
 preview keeps it on screen.
 
@@ -20,7 +20,7 @@ preview keeps it on screen.
 - Smart selection by default: drag a freeform region, click a window to crop
   it, or click open monitor space for the full monitor. Explicit region,
   window, fullscreen, and scrolling-region modes remain available.
-- Fresh captures save, copy to the clipboard, and show a floating preview for 10 seconds
+- Fresh captures save, copy to the clipboard, and show a floating preview for 7 seconds
   without taking keyboard focus. Hover for Pin, Edit, Copy, file drag, and Close
   controls. Use the pin button, `Ctrl+P`, `T` while hovered, or drag the preview to
   keep it on screen.
@@ -251,7 +251,7 @@ omasnap smart
 ```
 
 These options choose what is initially selected. Completing a selection saves it, copies it,
-and shows a preview that fades after 10 seconds of idle time unless kept. Existing
+and shows a preview that fades after 7 seconds of idle time unless kept. Existing
 previews and pins are ordinary compositor windows and remain visible in later
 screen captures; close or move them aside when they cover the next capture area.
 
@@ -526,14 +526,14 @@ region after changing the display layout.
 
 Save As opens a centered file chooser. Saving from the editor with Save, Save As,
 or Copy + Save closes it and shows an unpinned preview in the lower-right stack,
-replacing an originating preview or pin. The preview has the usual 10-second idle
+replacing an originating preview or pin. The preview has the usual 7-second idle
 timeout; its folder and Copy path buttons refer to the exact PNG you saved.
 Cancel or a failed save keeps the editor open. Recent captures retain the editable
 layers and undo history.
 
 ### Capture previews and pins
 
-Normal captures show a preview that fades after 10 seconds of idle time, replacing
+Normal captures show a preview that fades after 7 seconds of idle time, replacing
 the completion notification. Hovering the stack and in-progress
 actions pause the countdown; it resumes when the preview is idle again. Clicking,
 scrolling, copying, or editing does not pin the preview. The pin button,
@@ -542,7 +542,7 @@ Dragging the preview also pins it, even if the drag only reorders the stack.
 `T` remains the Text shortcut in the editor. Kept shots show a
 pin icon in the active window-border color, even when the other controls are
 hidden. Unpinning starts a fresh
-10-second countdown.
+7-second countdown.
 New captures always go in front of the existing stack, including kept shots.
 Opening Edit leaves the preview's expiry policy unchanged; pin it first to keep
 the preview available throughout annotation.
