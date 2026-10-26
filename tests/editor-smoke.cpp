@@ -1036,19 +1036,55 @@ bool runShortcutGuideSmoke(QApplication &application, QString &error) {
     }
     QTest::keyClick(&editor, Qt::Key_Question, Qt::ShiftModifier);
     application.processEvents();
-    if (guide->expanded() || guide->height() > 40) {
-      error = QStringLiteral("Question mark did not collapse the shortcut card");
+    if (guide->expanded() || guide->isVisible()) {
+      error = QStringLiteral("Question mark did not hide the shortcut card");
       return false;
     }
     const QImage collapsed = editor.grab().toImage();
     const QRect toolbar(0, 0, shown.width(), qRound(90 * shown.devicePixelRatio()));
     if (shown.copy(toolbar) != collapsed.copy(toolbar)) {
-      error = QStringLiteral("Collapsing the shortcut card changed the toolbar");
+      error = QStringLiteral("Hiding the shortcut card changed the toolbar");
       return false;
     }
-    QTest::mouseClick(guide, Qt::LeftButton, Qt::NoModifier, guide->rect().center());
-    if (!guide->expanded()) {
-      error = QStringLiteral("Shortcuts button did not reopen the card");
+    const QString hiddenMarker =
+        QDir(QStandardPaths::writableLocation(QStandardPaths::StateLocation))
+            .filePath(QStringLiteral("shortcuts-hidden"));
+    if (!QTest::qWaitFor([&] { return QFile::exists(hiddenMarker); })) {
+      error = QStringLiteral("Closing the shortcut card was not remembered");
+      return false;
+    }
+    {
+      CaptureEditor next(capture, mode);
+      next.setSuppressSnapshots(true);
+      next.resize(1200, 800);
+      next.show();
+      if (!QTest::qWaitForWindowExposed(&next)) {
+        error = QStringLiteral("Second shortcut guide window was not exposed");
+        return false;
+      }
+      auto *nextGuide = next.findChild<ShortcutGuide *>();
+      if (!nextGuide || nextGuide->expanded() || nextGuide->isVisible()) {
+        error = QStringLiteral("A closed shortcut card reopened on the next capture");
+        return false;
+      }
+      next.close();
+    }
+    QTest::keyClick(&editor, Qt::Key_Question, Qt::ShiftModifier);
+    if (!guide->expanded() || !QTest::qWaitFor([&] { return guide->isVisible(); }) ||
+        !QTest::qWaitFor([&] { return !QFile::exists(hiddenMarker); })) {
+      error = QStringLiteral("Question mark did not bring the shortcut card back");
+      return false;
+    }
+    QTest::mouseClick(guide, Qt::LeftButton, Qt::NoModifier,
+                      QPoint(guide->width() / 2, guide->height() - 18));
+    if (guide->expanded() || guide->isVisible()) {
+      error = QStringLiteral("Closing the Shortcuts header did not hide the card");
+      return false;
+    }
+    QTest::keyClick(&editor, Qt::Key_Question, Qt::ShiftModifier);
+    if (!QTest::qWaitFor([&] { return guide->isVisible(); }) ||
+        !QTest::qWaitFor([&] { return !QFile::exists(hiddenMarker); })) {
+      error = QStringLiteral("Question mark did not reopen a card closed from its header");
       return false;
     }
     if (mode == CaptureEditor::CaptureMode::File) {
@@ -12350,6 +12386,12 @@ int main(int argc, char **argv) {
   if (!smokeShelf.isValid())
     return 18;
   qputenv("OMASNAP_RECENT_DIR", smokeShelf.path().toUtf8());
+  // Remembered UI state, such as a closed shortcuts card, stays out of the
+  // developer's own.
+  QTemporaryDir smokeState;
+  if (!smokeState.isValid())
+    return 18;
+  qputenv("XDG_STATE_HOME", smokeState.path().toUtf8());
   // Outputs notify through omarchy-notification-send. Answer those with a
   // no-op so a run on a desktop does not post notifications for temporary
   // PNGs that are gone before the daemon loads them.

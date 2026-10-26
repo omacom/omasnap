@@ -4466,7 +4466,7 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
   if (event->key() == Qt::Key_Question &&
       !(event->modifiers() & (Qt::ControlModifier | Qt::AltModifier |
                               Qt::MetaModifier)) &&
-      !textEditing() && shortcutGuide_->isVisible()) {
+      !textEditing() && shortcutGuideAllowed()) {
     if (!event->isAutoRepeat())
       shortcutGuide_->setExpanded(!shortcutGuide_->expanded());
     event->accept();
@@ -8018,13 +8018,16 @@ void CaptureEditor::paintEdit(QPainter &painter) {
   drawMeasureBadge(painter, rect(), cursor_, measurementText());
 }
 
+bool CaptureEditor::shortcutGuideAllowed() const {
+  return !windowedPresentation_ && !scrollPanel_ && phase_ != Phase::Export;
+}
+
 void CaptureEditor::paintEvent(QPaintEvent *event) {
-  const bool showGuide = !windowedPresentation_ && !scrollPanel_ &&
-                         phase_ != Phase::Export;
+  const bool showGuide = shortcutGuideAllowed();
   if (showGuide)
     shortcutGuide_->setEntries(phase_ == Phase::Edit ? editorHotkeyEntries()
                                                    : captureHotkeyEntries());
-  shortcutGuide_->setVisible(showGuide);
+  shortcutGuide_->setVisible(showGuide && shortcutGuide_->expanded());
   const bool firstPaint = !firstPaintReported_;
   if (firstPaint)
     startupTimingMark("first overlay paint started");

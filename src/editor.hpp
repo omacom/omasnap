@@ -640,6 +640,8 @@ private:
   void ensureTextEditor();
   void layoutTextEditor();
   [[nodiscard]] bool textEditing() const;
+  /// The shortcuts card belongs to this presentation, open or closed.
+  [[nodiscard]] bool shortcutGuideAllowed() const;
 public:
 
 private:
