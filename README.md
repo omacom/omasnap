@@ -9,7 +9,7 @@ resizable vector layers and preserves the monitor's native pixels on scaled disp
 
 Select a capture and it copies straight to the clipboard, with a floating preview for
 copying again, dragging into another app, or opening the editor on demand.
-The preview fades after 10 seconds of idle time. Hovering and unfinished actions
+The preview fades after 7 seconds of idle time. Hovering and unfinished actions
 pause its countdown. The pin button, `Ctrl+P`, `T` while hovered, or dragging the
 preview keeps it on screen.
 
@@ -20,10 +20,10 @@ preview keeps it on screen.
 - Smart selection by default: drag a freeform region, click a window to crop
   it, or click open monitor space for the full monitor. Explicit region,
   window, fullscreen, and scrolling-region modes remain available.
-- Fresh captures save, copy to the clipboard, and show a floating preview for 10 seconds
+- Fresh captures save, copy to the clipboard, and show a floating preview for 7 seconds
   without taking keyboard focus. Hover for Pin, Edit, Copy, file drag, and Close
   controls. Use the pin button, `Ctrl+P`, `T` while hovered, or drag the preview to
-  keep it on screen.
+  keep it on screen. Edit opens on the preview's current monitor.
 - A pointer-side readout that turns any drag into a ruler: the pointer position
   while the crosshair is idle, then the frame size in native export pixels while a
   region, a hovered window, or a crop handle is being sized. Crosshair guides
@@ -65,6 +65,8 @@ preview keeps it on screen.
   brightens it and shows crop handles when no annotation is selected.
 - Cut tool: drag across a band of the image to remove it and collapse the gap, with a
   live preview and dashed seam marker while dragging; annotations shift to follow.
+  Hold **Ctrl** (or **Ctrl+X**) to insert a transparent band instead; the toolbar
+  icon swaps to a split-plus while Ctrl is down.
   Moving or resizing an existing layer suspends the armed tool's action until
   release, then leaves the tool ready for the next canvas gesture.
 - Pin a finished capture as a bottom-right floating compositor window, launched
@@ -249,7 +251,7 @@ omasnap smart
 ```
 
 These options choose what is initially selected. Completing a selection saves it, copies it,
-and shows a preview that fades after 10 seconds of idle time unless kept. Existing
+and shows a preview that fades after 7 seconds of idle time unless kept. Existing
 previews and pins are ordinary compositor windows and remain visible in later
 screen captures; close or move them aside when they cover the next capture area.
 
@@ -267,6 +269,14 @@ Quick output skips the preview as well as the annotation editor. Add `--copy` to
 only, `--save` to save only, or both flags to copy and save. Region and window captures output after selection;
 fullscreen captures output immediately. Quick output cannot be combined with `--file`,
 `--clipboard`, or `--pin`.
+
+Add `--notify` to announce every saved capture in a notification instead of a preview,
+like Omarchy's saved screen recordings: the capture's thumbnail and size, with **Open**
+to view the saved PNG and **Edit** to annotate it, worded in Omarchy's language through
+`omarchy-i18n`. Omarchy passes it once its `omarchy-notification-send` takes `--action`
+buttons. Pins and editors opened from that
+capture keep the option. Copy-only captures still show their preview, since there is
+no file to open.
 
 ### One instance, toggled by the same hotkey
 
@@ -431,8 +441,8 @@ Install the corresponding Tesseract language data before adding a language to
 ## Controls
 
 The capture picker and fullscreen annotator show a readable shortcuts card in
-the lower left. Press `?` or click its **Shortcuts** header to collapse or expand
-it. The card scrolls on shorter screens; `?` still types normally in a text
+the lower left. Press `?` or click its **Shortcuts** header to close it; it stays
+closed for later captures until `?` brings it back. The card scrolls on shorter screens; `?` still types normally in a text
 annotation. The windowed editor keeps its guide above the toolbar.
 
 ### Capture selection
@@ -485,7 +495,7 @@ region after changing the display layout.
 | `R` | Rectangle; hover the shape button for rectangle, ellipse, and fill controls; `Alt`+wheel rounds corners |
 | `E` | Ellipse; shares the shape submenu and filled/hollow toggle |
 | `D` | Redact; press again to toggle randomized pixelation or solid redaction |
-| `X` | Cut out a band; drag to preview the crossed-out strip, then release to remove and collapse it |
+| `X` | Cut out a band; drag to preview the crossed-out strip, then release to remove and collapse it. **Ctrl** (with Cut armed, or **Ctrl+X**) inserts a band instead; the cut icon becomes a split-plus |
 | `T` | Text on a cream readability pill, with Neucha as the default. Click for a one-line label, or drag a box to give it room for several lines: Enter moves to the next line while there is room and commits on the last one; `Shift+Enter` always adds a line; `Esc` commits the text and dismisses the annotator; long text wraps at the current canvas edge by default, while moving it or dragging its width handle beyond that edge expands the canvas; clicking away keeps the text; press T again to toggle the pill |
 | `Shift+T` | Cycle the next or selected text through Neucha, JetBrains Mono, and Inter Display |
 | `O` | Recognize and copy all text in the current image |
@@ -516,14 +526,14 @@ region after changing the display layout.
 
 Save As opens a centered file chooser. Saving from the editor with Save, Save As,
 or Copy + Save closes it and shows an unpinned preview in the lower-right stack,
-replacing an originating preview or pin. The preview has the usual 10-second idle
+replacing an originating preview or pin. The preview has the usual 7-second idle
 timeout; its folder and Copy path buttons refer to the exact PNG you saved.
 Cancel or a failed save keeps the editor open. Recent captures retain the editable
 layers and undo history.
 
 ### Capture previews and pins
 
-Normal captures show a preview that fades after 10 seconds of idle time, replacing
+Normal captures show a preview that fades after 7 seconds of idle time, replacing
 the completion notification. Hovering the stack and in-progress
 actions pause the countdown; it resumes when the preview is idle again. Clicking,
 scrolling, copying, or editing does not pin the preview. The pin button,
@@ -532,7 +542,7 @@ Dragging the preview also pins it, even if the drag only reorders the stack.
 `T` remains the Text shortcut in the editor. Kept shots show a
 pin icon in the active window-border color, even when the other controls are
 hidden. Unpinning starts a fresh
-10-second countdown.
+7-second countdown.
 New captures always go in front of the existing stack, including kept shots.
 Opening Edit leaves the preview's expiry policy unchanged; pin it first to keep
 the preview available throughout annotation.
@@ -635,6 +645,12 @@ original source frame.
 ```bash
 make check
 ```
+
+Smoke screenshots, fixtures, and saved captures go in `build/smoke-output/`,
+including when the executable is launched directly from the repository root.
+For a custom build directory, output lives in `smoke-output/` beside the executable.
+Use `--output-dir <directory>` to choose another artifact directory; positional
+paths and unknown flags are rejected.
 
 The smoke executable exercises smart/region/window/fullscreen startup modes, capture selection,
 working-document persistence (source plus op-log JSON), annotation tools, undo/redo

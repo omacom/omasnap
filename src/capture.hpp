@@ -448,11 +448,30 @@ bool removeEditorHandoff(const QString &path, const QString &token);
 [[nodiscard]] bool saveTemporarySnapshot(const QImage &image, QString path,
                                          QString &error);
 [[nodiscard]] QString recognizeText(const QImage &image, QString &error);
-/** Builds the omarchy-notification-send argv. With an image, the click command
- *  follows --exec as separate words (program, then file URL) and nothing else
- *  comes after it, since --exec consumes the rest of the line unparsed. */
+/** Whether saved captures are announced with Open and Edit buttons instead
+ *  of a timed preview: set by --notify, which a caller passes once its
+ *  omarchy-notification-send takes --action, and inherited by the pins and
+ *  editors that process starts. */
+[[nodiscard]] bool notifySavedCaptures();
+/** Builds the omarchy-notification-send argv. With actions, a saved image
+ *  becomes the toast's thumbnail, with its size as the description and Open
+ *  and Edit buttons that each receive the image path through --with. Edit
+ *  reopens recentId's layers when given, with the image as its fallback;
+ *  text, when given, words the toast's headline and buttons. Without
+ *  them, clicking the toast edits the image: --exec comes last, followed by
+ *  the program and file URL as separate words, since it consumes the rest of
+ *  the line unparsed. */
 [[nodiscard]] QStringList
-captureNotificationArguments(const QString &message,
-                             const QString &imagePath = {});
-void sendCaptureNotification(const QString &message,
-                             const QString &imagePath = {});
+captureNotificationArguments(
+    const QString &message, const QString &imagePath = {},
+    const QString &recentId = {}, bool actions = false,
+    const std::function<QString(const QString &)> &text = {});
+/** Starts omarchy-notification-send through the launcher when one is given,
+ *  with Open and Edit buttons under --notify, worded in Omarchy's language.
+ *  Reading the saved image's size and looking up that wording start
+ *  processes and touch the disk, so call it on a worker whenever imagePath
+ *  is set. */
+void sendCaptureNotification(
+    const QString &message, const QString &imagePath = {},
+    const QString &recentId = {},
+    const std::function<bool(const QString &, const QStringList &)> &launcher = {});

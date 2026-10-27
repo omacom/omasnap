@@ -11,6 +11,7 @@
 #include "pin.hpp"
 #include "pin-file.hpp"
 #include "recent-snaps.hpp"
+#include "shortcut-guide.hpp"
 #include "startup-timing.hpp"
 
 #include <LayerShellQt/Window>
@@ -160,7 +161,6 @@ int main(int argc, char **argv) {
   // widget is created, so painter/widget default-font text keeps its size and
   // face.
   QApplication::setFont(chromeDefaultFont());
-  initializeChromeTheme();
 
   // A stitched scroll capture (or any tall pinned image) exceeds Qt's default
   // 256 MB image-decode allocation limit; lift it so --file/--pin can open it.
@@ -171,6 +171,12 @@ int main(int argc, char **argv) {
   configureCaptureCommandLine(parser);
   parser.process(application);
   startupTimingMark("command line parsed");
+  // The environment carries --notify to the pins and editors this starts.
+  if (parser.isSet(QStringLiteral("notify")))
+    qputenv("OMASNAP_NOTIFY", "1");
+  // After parsing: --help and --version exit() inside process(), which skips
+  // ~QApplication's wait for the theme loader thread and crashes its teardown.
+  initializeChromeTheme();
 
   QString filePath = parser.value(QStringLiteral("file"));
   const bool clipboardInput = parser.isSet(QStringLiteral("clipboard"));
@@ -263,6 +269,15 @@ int main(int argc, char **argv) {
   if (clipboardInput && (!filePath.isEmpty() || requestedModes > 0)) {
     qCritical() << "Clipboard input cannot be combined with another target";
     return 2;
+  }
+  // A --notify toast's Edit reopens its capture's layers from the recent
+  // shelf, like the overlay's recent cards; the image given alongside is the
+  // fallback once the shelf has dropped that capture.
+  std::optional<RecentSnap> reopenedRecent;
+  if (parser.isSet(QStringLiteral("recent"))) {
+    reopenedRecent = findRecentSnap(parser.value(QStringLiteral("recent")));
+    if (reopenedRecent)
+      filePath = reopenedRecent->sourcePath;
   }
   const bool editingImage = clipboardInput || !filePath.isEmpty();
   if (editingImage && quickOutputMode != QuickOutputMode::None) {
@@ -424,6 +439,8 @@ int main(int argc, char **argv) {
   CaptureEditor editor(std::move(capture), captureMode, quickOutputMode,
                        restoredLog, nullptr, editorWindowMode && !editingImage);
   editor.setPinDocument(std::move(pinDocument));
+  if (reopenedRecent)
+    editor.setEditingRecent(std::move(*reopenedRecent));
   startupTimingMark("CaptureEditor constructed");
   editor.setScreen(targetScreen);
   if (windowedEditorProcess && editingImage) {
@@ -529,6 +546,7 @@ int main(int argc, char **argv) {
     // The closed editor may still be retaining its recent document. A fresh
     // capture must not mistake that background save for an active overlay.
     editor.hide();
+    ShortcutGuide::finishSavingChoice();
     instanceLock.unlock();
     return result;
   }
@@ -562,6 +580,7 @@ int main(int argc, char **argv) {
 
   const int result = application.exec();
   editor.hide();
+  ShortcutGuide::finishSavingChoice();
   instanceLock.unlock();
   return result;
 }

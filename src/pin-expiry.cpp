@@ -38,7 +38,7 @@ void PinExpiry::setKept(bool kept) {
   kept_ = kept;
   timer_.stop();
   fade_.stop();
-  remainingMs_ = 10000;
+  remainingMs_ = 7000;
   emit opacityChanged(1.0);
   updateCountdown();
 }

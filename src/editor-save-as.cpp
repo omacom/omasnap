@@ -202,19 +202,24 @@ void CaptureEditor::saveAsToPath(const QString &path) {
                                        background, shadow, boundary, backdrop);
     QString error;
     if (savePngFile(image, path, error)) {
-      const QString preview = launchPinnedCapture(
-          image, renderedCaptureLogicalSize(capture, image.size()), false,
-          PinLifetime::Timed, error, launcher, log.recentId, path);
-      if (!preview.isEmpty()) {
-        if (document)
-          document->finishSavedPreview(log, path);
-      } else {
+      // Without --notify, the saved file keeps its timed preview.
+      bool announced = true;
+      if (notifySavedCaptures()) {
+        sendCaptureNotification(QStringLiteral("Screenshot saved"), path,
+                                log.recentId, launcher);
+      } else if (launchPinnedCapture(
+                     image, renderedCaptureLogicalSize(capture, image.size()), false,
+                     PinLifetime::Timed, error, launcher, log.recentId, path)
+                     .isEmpty()) {
+        announced = false;
         error = QStringLiteral("Saved to %1, but could not show its preview: %2")
                     .arg(path, error);
       }
+      if (announced && document)
+        document->finishSavedPreview(log, path);
     }
-    // Close as soon as the saved preview is ready; retain the editable source
-    // and log afterward, just as other completed captures do.
+    // Close as soon as the file is announced; retain the editable source and
+    // log afterward, just as other completed captures do.
     completion.addResult(error);
     QString recentError;
     if (!recent.record(source, log, image, recentError,

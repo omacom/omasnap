@@ -33,7 +33,7 @@ image as you draw.** Add a rectangle, change your mind, delete it — the
 source pixels underneath were never touched.
 
 Completing a fresh capture copies it and shows a timed preview by default. The
-preview fades after 10 seconds of idle time; its pin button, Ctrl+P, or moving the
+preview fades after 7 seconds of idle time; its pin button, Ctrl+P, or moving the
 preview keeps it, including a drag that only reorders the stack.
 `--editor overlay` or `--editor window` opens annotation before output; `E` or
 `A` in the capture picker toggles the same behavior for that capture, including
@@ -84,9 +84,10 @@ Two operations *do* need to touch real pixels before export, and both are
 still fully undoable because of how they're kept in the log:
 
 - **Cut** (`Operation::Type::Cut`) removes a band of the image and shifts
-  everything after it. The working image (`capture_.source`) after a cut is
-  `composeCuts(pristineSource_, cuts_)` — recomputed from the untouched
-  original plus the list of cut ops every time the list changes
+  everything after it, or **inserts** a transparent band (`cut.insert`) and
+  shifts everything after the seam out. The working image (`capture_.source`)
+  after a cut is `composeCuts(pristineSource_, cuts_)` — recomputed from the
+  untouched original plus the list of cut ops every time the list changes
   (`CaptureEditor::refreshComposedCapture()`). Undo a cut and the composed
   image is rebuilt without it; `pristineSource_` was never modified.
 - **Redaction** exists to permanently destroy sensitive content, so it is

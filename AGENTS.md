@@ -4,7 +4,7 @@ Omasnap is a super fast, native Wayland screenshot and annotation overlay,
 built for [Omarchy](https://omarchy.org) on Hyprland. It captures region,
 window, or full monitor (plus a scrolling-region mode that stitches a taller
 page into one image), then copies it and opens a floating compositor preview.
-The preview fades after 10 seconds of idle time unless kept with its pin button,
+The preview fades after 7 seconds of idle time unless kept with its pin button,
 Ctrl+P, or by dragging it, including within the stack. Hovering and in-progress
 actions pause its countdown.
 It opens an annotation editor on demand, with vector layers
@@ -119,6 +119,11 @@ tools and source types are available. Use `make build` for a build-only pass,
 `make smoke` for the behavioral smoke suite, and `make install` to install to
 `~/.local`.
 
+Smoke artifacts belong in `build/smoke-output/` (or `smoke-output/` beside a
+custom build's executable). Direct smoke runs use that default too; use
+`--output-dir <directory>` for an explicit alternative. Keep generated test
+screenshots and other debugging artifacts out of the repository root.
+
 Always run `make check` after behavioral changes. CI
 (`.github/workflows/build-linux.yml`) runs the same build and smoke on every
 push and PR.
@@ -138,14 +143,10 @@ wayland wayland-protocols libdeflate wl-clipboard xdg-utils tesseract tesseract-
    attaches the build artifact to the release automatically.
    Copy the new changelog section into the GitHub release notes so users
    can read the changes alongside the download.
-4. **Update omarchy-pkgs on every new version release.** In the
-   [omarchy-pkgs](https://github.com/omacom-io/omarchy-pkgs) fork
-   (`pkgbuilds/omasnap/`):
-   - Set `pkgver` in `PKGBUILD` to the new version.
-   - Replace `sha256sums` with the hash of
-     `https://github.com/tobi/omasnap/archive/refs/tags/v<version>.tar.gz`
-     (`curl -sL <url> | sha256sum`).
-   - Commit on a branch and open a PR to `omacom-io/omarchy-pkgs`.
+4. omarchy-pkgs picks up the new GitHub release on its own: the hourly
+   Sync Upstream run watches `omacom/omasnap` releases, bumps
+   `pkgbuilds/omasnap/` (`pkgver` and checksum), and auto-merges once the
+   build passes. No manual omarchy-pkgs PR is needed.
 
 See `README.md` for user-facing features, keybindings, and install
 instructions — keep it in sync when behavior changes.

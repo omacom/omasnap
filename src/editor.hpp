@@ -139,6 +139,8 @@ public:
   void setPinDocument(std::shared_ptr<PinSnapshotFile> document) {
     pinDocument_ = std::move(document);
   }
+  /// Saving updates this recent capture in place instead of adding another.
+  void setEditingRecent(RecentSnap recent) { editingRecent_ = std::move(recent); }
 
   /**
    * Disables working-snapshot persistence. The hidden editor behind instant
@@ -301,6 +303,9 @@ public:
   /// Apply a cut as if the user had dragged that band. Test hook: operate on
   /// a fixture raster without going through widget coordinates.
   void applyCutForTest(CutOp cut) { commitCut(std::move(cut)); }
+  /// Composed source after cuts. Test accessor: insert-band smoke checks
+  /// the transparent gap on the working image, not the flattened export.
+  [[nodiscard]] QImage composedSourceForTest() const { return capture_.source; }
   /// Number of selected layers. Test accessor.
   [[nodiscard]] int selectedCountForTest() const {
     return static_cast<int>(selectedAnnotations_.size());
@@ -637,6 +642,8 @@ private:
   void ensureTextEditor();
   void layoutTextEditor();
   [[nodiscard]] bool textEditing() const;
+  /// The shortcuts card belongs to this presentation, open or closed.
+  [[nodiscard]] bool shortcutGuideAllowed() const;
 public:
 
 private:
@@ -649,6 +656,7 @@ private:
   void commitDelete(const QVector<int> &indices);
   void commitCrop(const QRectF &crop);
   void commitCut(CutOp cut);
+  [[nodiscard]] bool cutInsertHint() const;
   void commitBackground(BackgroundStyle style, bool imageShadow);
   void commitCanvasBoundary(CanvasBoundaryMode mode);
   void cycleCanvasBoundary(bool reverse);

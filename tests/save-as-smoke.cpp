@@ -296,6 +296,40 @@ bool runSaveAsSmoke(QString &error) {
     editor.close();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
   }
+  // Under --notify, Save As announces the chosen file instead of previewing it.
+  {
+    qputenv("OMASNAP_NOTIFY", "1");
+    const auto restoreNotify = qScopeGuard([] { qunsetenv("OMASNAP_NOTIFY"); });
+    // Keep the wording English whatever this desktop's language is.
+    QFile i18n(directory.filePath(QStringLiteral("omarchy-i18n")));
+    if (!i18n.open(QIODevice::WriteOnly) ||
+        i18n.write("#!/bin/sh\nprintf '%s' \"$1\"\n") < 0 ||
+        !i18n.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner))
+      return false;
+    i18n.close();
+    const QByteArray oldPath = qgetenv("PATH");
+    const auto restorePath = qScopeGuard([&] { qputenv("PATH", oldPath); });
+    qputenv("PATH", directory.path().toUtf8() + ':' + oldPath);
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+    QStringList toast;
+    bool previewed = false;
+    editor.setProcessLauncherForTest([&](const QString &program, const QStringList &args) {
+      if (program == QStringLiteral("omarchy-notification-send"))
+        toast = args;
+      else
+        previewed = true;
+      return true;
+    });
+    editor.show();
+    const QString output = directory.filePath(QStringLiteral("notified.png"));
+    editor.saveAsToPath(output);
+    if (!waitUntil([&] { return !editor.busy_; }) || editor.isVisible() || previewed ||
+        toast.isEmpty() || toast.last() != output || QImage(output).isNull()) {
+      error = QStringLiteral("Save As under --notify did not announce its file: %1")
+                  .arg(toast.join(QStringLiteral(" | ")));
+      return false;
+    }
+  }
   {
     CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
     editor.show();

@@ -64,11 +64,11 @@ bool runPinExpirySmoke(QString &error) {
   paused.setPaused(true);
   unpinnedElapsed.start();
   unpinned.setKept(false);
-  while ((timedClosed.isEmpty() || unpinnedClosed.isEmpty()) && elapsed.elapsed() < 13000)
+  while ((timedClosed.isEmpty() || unpinnedClosed.isEmpty()) && elapsed.elapsed() < 10000)
     QTest::qWait(20);
   if (timedClosed.size() != 1 || unpinnedClosed.size() != 1 || !faded ||
-      closedAt < 10000 || unpinnedAt < 10000) {
-    error = QStringLiteral("A preview did not fade after ten seconds, or unpinning did not restart its lifetime");
+      closedAt < 7000 || unpinnedAt < 7000) {
+    error = QStringLiteral("A preview did not fade after seven seconds, or unpinning did not restart its lifetime");
     return false;
   }
   if (!keptClosed.isEmpty() || !pinnedClosed.isEmpty() || !pausedClosed.isEmpty() ||

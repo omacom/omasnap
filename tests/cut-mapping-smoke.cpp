@@ -298,5 +298,69 @@ bool runCutMappingSmoke(QApplication &application, const QString &outputRoot,
     editor.close();
   }
 
+  // Ctrl+drag inserts a transparent band and grows the image.
+  {
+    CaptureEditor editor(fixtureCapture(source),
+                         CaptureEditor::CaptureMode::File);
+    editor.resize(800, 600);
+    editor.show();
+    application.processEvents();
+    QTest::keyClick(&editor, Qt::Key_X, Qt::ControlModifier);
+    application.processEvents();
+    if (editor.armedToolForTest() != CaptureEditor::Tool::Cut) {
+      error = QStringLiteral("Ctrl+X did not arm the cut tool");
+      return false;
+    }
+    const QPoint from = screenOf(editor, kWidth / 2.0, 80);
+    const QPoint to = screenOf(editor, kWidth / 2.0, 96);
+    QTest::mousePress(&editor, Qt::LeftButton, Qt::ControlModifier, from);
+    QTest::mouseMove(&editor, to, 10);
+    application.processEvents();
+    if (editor.composedSourceForTest() !=
+        source.convertToFormat(QImage::Format_ARGB32_Premultiplied)) {
+      error = QStringLiteral("insert preview changed pixels before release");
+      return false;
+    }
+    QTest::mouseRelease(&editor, Qt::LeftButton, Qt::ControlModifier, to);
+    application.processEvents();
+    bool inserted = false;
+    for (const Operation &op : editor.operationLog()) {
+      if (op.type == Operation::Type::Cut && op.cut.insert)
+        inserted = true;
+    }
+    if (!inserted) {
+      error = QStringLiteral("Ctrl+drag did not log an insert band");
+      return false;
+    }
+    const QImage composed = editor.composedSourceForTest();
+    if (composed.height() != kBand * kBands + 16 ||
+        composed.pixelColor(0, 80).alpha() != 0) {
+      error = QStringLiteral("insert band did not open a transparent gap");
+      return false;
+    }
+    const QImage output = editor.renderCurrentOutput();
+    QTest::keyClick(&editor, Qt::Key_Z, Qt::ControlModifier);
+    application.processEvents();
+    if (!checkCut(editor, source, QStringLiteral("undo insertion"), error))
+      return false;
+    QTest::keyClick(&editor, Qt::Key_Y, Qt::ControlModifier);
+    application.processEvents();
+    if (!checkCut(editor, output, QStringLiteral("redo insertion"), error))
+      return false;
+
+    // Read the actual persisted log; reopening must retain insertion semantics.
+    OperationLog log;
+    if (!editor.waitForSnapshot() ||
+        !loadOperationLog(editor.workingLogPath(), log, error))
+      return false;
+    CaptureEditor restored(fixtureCapture(source),
+                            CaptureEditor::CaptureMode::File,
+                            QuickOutputMode::None, log);
+    if (!checkCut(restored, output, QStringLiteral("restored insertion"), error))
+      return false;
+    restored.close();
+    editor.close();
+  }
+
   return true;
 }

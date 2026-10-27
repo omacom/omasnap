@@ -5,7 +5,39 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Fixed
+
+- Copying OCR text or an eyedropper colour no longer freezes the editor while
+  `wl-copy` runs: both copies now happen off the UI thread.
+
+## 1.24.0
+
+### Changed
+
+- Closing the shortcuts card hides it entirely instead of leaving a Shortcuts pill, and it stays closed for later captures. `?` brings it back.
+- Capture previews and `--notify` notifications fade after 7 seconds of idle time instead of 10.
+
+### Fixed
+
+- Edit on a preview or pin opens the editor on the monitor showing that preview, not the primary one.
+
+## 1.23.0
+
 ### Added
+
+- `--notify` announces saved captures in a notification with the capture's
+  thumbnail and size and **Open** and **Edit** buttons, like Omarchy's saved
+  screen recordings, instead of a timed preview, worded in Omarchy's language
+  through `omarchy-i18n`. It covers fresh and scroll
+  captures and saving from the editor or Save As. Omarchy passes it once its
+  `omarchy-notification-send` takes `--action` buttons.
+
+## 1.22.0
+
+### Added
+
+- Hold `Ctrl` while dragging with Cut (`X`) to insert a transparent band.
+  Annotations shift with the image, and insertion supports undo and redo.
 
 - `Tab` cycles region selection between free, square, 3:4, and 16:9 while
   capturing; `Shift+Tab` cycles back. The capture guide shows the active aspect.
@@ -59,8 +91,11 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
-- Copying OCR text or an eyedropper colour no longer freezes the editor while
-  `wl-copy` runs: both copies now happen off the UI thread.
+- Run OCR's tesseract on one thread. Its OpenMP pool spun on every core and
+  made text grabs slower, not faster: a full-screen read drops from about
+  1.7 s to 1.0 s with a third of the CPU time, and reads the same text.
+- Open the editor on the preview's current monitor instead of falling back to
+  the primary display when editing a preview or pinned capture.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.
@@ -212,7 +247,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Keep the toolbar, capture tabs, hotkey legend, and canvas geometry aligned.
 - Remove the pixels actually covered by a cut-band drag.
 
-[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.21.0...main)
+[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.24.0...main)
+· [1.24.0 changes](https://github.com/omacom/omasnap/compare/v1.23.0...v1.24.0)
+· [1.23.0 changes](https://github.com/omacom/omasnap/compare/v1.22.0...v1.23.0)
+· [1.22.0 changes](https://github.com/omacom/omasnap/compare/v1.21.0...v1.22.0)
 · [1.21.0 changes](https://github.com/omacom/omasnap/compare/v1.20.1...v1.21.0)
 · [1.20.1 changes](https://github.com/omacom/omasnap/compare/v1.20.0...v1.20.1)
 · [1.20.0 changes](https://github.com/omacom/omasnap/compare/v1.19.1...v1.20.0)

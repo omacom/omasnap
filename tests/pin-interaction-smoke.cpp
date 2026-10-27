@@ -357,7 +357,8 @@ bool runPinInteractionSmoke(QString &error) {
   });
   qputenv("PATH", runtime.path().toUtf8());
   qputenv("XDG_RUNTIME_DIR", runtime.path().toUtf8());
-  qputenv(kPinSmokeEditorChild, "1");
+  const QString editorArgumentsPath = runtime.filePath(QStringLiteral("editor-arguments"));
+  qputenv(kPinSmokeEditorChild, editorArgumentsPath.toUtf8());
 
   QImage image(200, 113, QImage::Format_RGB32);
   image.fill(Qt::darkGray);
@@ -379,6 +380,32 @@ bool runPinInteractionSmoke(QString &error) {
       QCoreApplication::sendPostedEvents();
     }
   };
+  // Exercise the real Edit button and shortcuts through the detached child,
+  // including reopening the retained document after the first edit.
+  for (const Qt::Key key : {Qt::Key_unknown, Qt::Key_E, Qt::Key_A}) {
+    QFile::remove(editorArgumentsPath);
+    QApplication::sendEvent(&window, &enter);
+    if (key == Qt::Key_unknown)
+      QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier,
+                       pinControlRect(window.size(), 3).center().toPoint());
+    else
+      QTest::keyClick(&window, key);
+    drainActions();
+    if (!QTest::qWaitFor([&] { return QFileInfo::exists(editorArgumentsPath); }, 3000)) {
+      error = QStringLiteral("Preview Edit did not launch the editor child");
+      return false;
+    }
+    QFile arguments(editorArgumentsPath);
+    if (!arguments.open(QIODevice::ReadOnly))
+      return false;
+    const QList<QByteArray> values = arguments.readAll().split('\0');
+    const qsizetype monitorIndex = values.indexOf("--handoff-monitor");
+    if (monitorIndex < 0 || monitorIndex + 1 >= values.size() ||
+        values.at(monitorIndex + 1) != window.screen()->name().toUtf8()) {
+      error = QStringLiteral("Preview Edit did not pass its current screen to the editor");
+      return false;
+    }
+  }
   const auto isKept = [&] {
     const QPoint point = pinControlRect(window.size(), 5).center().toPoint();
     QHelpEvent tip(QEvent::ToolTip, point, window.mapToGlobal(point));

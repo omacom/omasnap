@@ -4,22 +4,31 @@
 
 #include <QColor>
 #include <QCursor>
+#include <QDir>
 #include <QEvent>
+#include <QFile>
+#include <QFileInfo>
 #include <QFontMetrics>
+#include <QFuture>
 #include <QMouseEvent>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QPainter>
 #include <QPair>
 #include <QPointF>
 #include <QRectF>
 #include <QSize>
+#include <QStandardPaths>
 #include <QString>
 #include <QVector>
 #include <QWheelEvent>
 #include <QWidget>
 #include <Qt>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QtTypes>
 
 #include <algorithm>
+#include <atomic>
 
 namespace {
 constexpr int kPadding = 12;
@@ -27,9 +36,19 @@ constexpr int kRowHeight = 24;
 constexpr int kToggleHeight = 36;
 constexpr int kKeyGap = 12;
 constexpr int kMargin = 14;
+
+QString hiddenMarkerPath() {
+  const QString state =
+      QStandardPaths::writableLocation(QStandardPaths::StateLocation);
+  return state.isEmpty() ? QString()
+                         : QDir(state).filePath(QStringLiteral("shortcuts-hidden"));
+}
+
+QFuture<void> savingChoice;
 } // namespace
 
-ShortcutGuide::ShortcutGuide(QWidget *parent) : QWidget(parent) {
+ShortcutGuide::ShortcutGuide(QWidget *parent)
+    : QWidget(parent), expanded_(!QFile::exists(hiddenMarkerPath())) {
   setObjectName(QStringLiteral("shortcut-guide"));
   setAccessibleName(QStringLiteral("Keyboard shortcuts"));
   setFocusPolicy(Qt::NoFocus);
@@ -62,11 +81,31 @@ void ShortcutGuide::setExpanded(bool expanded) {
     return;
   expanded_ = expanded;
   hovered_ = false;
-  reflow();
+  // The editor shows the card on its next paint; closing hides it now.
+  if (!expanded_)
+    hide();
+  if (const QString marker = hiddenMarkerPath(); !marker.isEmpty()) {
+    static std::atomic<bool> wantHidden;
+    static QMutex writing;
+    wantHidden = !expanded_;
+    // Each write applies the latest choice, so quick toggles cannot land
+    // out of order.
+    savingChoice = QtConcurrent::run([marker] {
+      const QMutexLocker lock(&writing);
+      if (!wantHidden) {
+        QFile::remove(marker);
+      } else if (QDir().mkpath(QFileInfo(marker).path())) {
+        QFile file(marker);
+        (void)file.open(QIODevice::WriteOnly);
+      }
+    });
+  }
   // Expanding or collapsing uncovers a large part of the canvas at once.
   parentWidget()->update();
   update();
 }
+
+void ShortcutGuide::finishSavingChoice() { savingChoice.waitForFinished(); }
 
 QRect ShortcutGuide::toggleRect() const {
   return {0, height() - kToggleHeight, width(), kToggleHeight};
@@ -80,10 +119,9 @@ void ShortcutGuide::reflow() {
                           std::max(1, rowSpace / kRowHeight));
   firstRow_ = std::clamp(firstRow_, 0,
                          std::max(0, static_cast<int>(entries_.size()) - visibleRows_));
-  const int width = std::min(expanded_ ? std::max(160, contentWidth_) : 146,
+  const int width = std::min(std::max(160, contentWidth_),
                              std::max(1, available.width() - kMargin * 2));
-  const int height = kToggleHeight +
-                     (expanded_ ? kPadding * 2 + visibleRows_ * kRowHeight : 0);
+  const int height = kToggleHeight + kPadding * 2 + visibleRows_ * kRowHeight;
   setGeometry(kMargin, std::max(kMargin, available.height() - kMargin - height),
                width, height);
 }
@@ -105,42 +143,40 @@ void ShortcutGuide::paintEvent(QPaintEvent *) {
   painter.setBrush(surface);
   painter.drawRoundedRect(panel, 10, 10);
 
-  if (expanded_) {
-    const QFontMetrics keys(chromeMonoFont(12, true));
-    const QFontMetrics actions(chromeFont(13));
-    for (int row = 0; row < visibleRows_; ++row) {
-      const auto &entry = entries_.at(firstRow_ + row);
-      const int y = kPadding + row * kRowHeight;
-      const QRectF key(kPadding, y + 2, keys.horizontalAdvance(entry.first) + 12,
-                        kRowHeight - 4);
-      painter.setPen(Qt::NoPen);
-      painter.setBrush(theme.button);
-      painter.drawRoundedRect(key, 4, 4);
-      painter.setFont(chromeMonoFont(12, true));
-      painter.setPen(theme.buttonText);
-      painter.drawText(key, Qt::AlignCenter, entry.first);
-      painter.setFont(chromeFont(13));
-      painter.setPen(theme.foreground);
-      const QRect action(kPadding + keyWidth_ + kKeyGap, y,
-                          width() - kPadding * 2 - keyWidth_ - kKeyGap - 6,
-                          kRowHeight);
-      painter.drawText(action, Qt::AlignLeft | Qt::AlignVCenter,
-                       actions.elidedText(entry.second, Qt::ElideRight,
-                                          action.width()));
-    }
-    if (visibleRows_ < entries_.size()) {
-      const qreal track = visibleRows_ * kRowHeight;
-      const qreal count = static_cast<qreal>(entries_.size());
-      const qreal thumb = track * visibleRows_ / count;
-      const qreal y = kPadding + track * firstRow_ / count;
-      painter.setPen(Qt::NoPen);
-      painter.setBrush(theme.muted);
-      painter.drawRoundedRect(QRectF(width() - 6, y, 3, thumb), 1.5, 1.5);
-    }
-    painter.setPen(QPen(theme.panelBorder.brush(panel), 1));
-    painter.drawLine(kPadding, toggleRect().top(), width() - kPadding,
-                     toggleRect().top());
+  const QFontMetrics keys(chromeMonoFont(12, true));
+  const QFontMetrics actions(chromeFont(13));
+  for (int row = 0; row < visibleRows_; ++row) {
+    const auto &entry = entries_.at(firstRow_ + row);
+    const int y = kPadding + row * kRowHeight;
+    const QRectF key(kPadding, y + 2, keys.horizontalAdvance(entry.first) + 12,
+                      kRowHeight - 4);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(theme.button);
+    painter.drawRoundedRect(key, 4, 4);
+    painter.setFont(chromeMonoFont(12, true));
+    painter.setPen(theme.buttonText);
+    painter.drawText(key, Qt::AlignCenter, entry.first);
+    painter.setFont(chromeFont(13));
+    painter.setPen(theme.foreground);
+    const QRect action(kPadding + keyWidth_ + kKeyGap, y,
+                        width() - kPadding * 2 - keyWidth_ - kKeyGap - 6,
+                        kRowHeight);
+    painter.drawText(action, Qt::AlignLeft | Qt::AlignVCenter,
+                     actions.elidedText(entry.second, Qt::ElideRight,
+                                        action.width()));
   }
+  if (visibleRows_ < entries_.size()) {
+    const qreal track = visibleRows_ * kRowHeight;
+    const qreal count = static_cast<qreal>(entries_.size());
+    const qreal thumb = track * visibleRows_ / count;
+    const qreal y = kPadding + track * firstRow_ / count;
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(theme.muted);
+    painter.drawRoundedRect(QRectF(width() - 6, y, 3, thumb), 1.5, 1.5);
+  }
+  painter.setPen(QPen(theme.panelBorder.brush(panel), 1));
+  painter.drawLine(kPadding, toggleRect().top(), width() - kPadding,
+                   toggleRect().top());
   const QRect toggle = toggleRect().adjusted(5, 4, -5, -4);
   if (hovered_) {
     painter.setPen(Qt::NoPen);
@@ -152,18 +188,15 @@ void ShortcutGuide::paintEvent(QPaintEvent *) {
   painter.drawText(toggle.adjusted(7, 0, -28, 0), Qt::AlignLeft | Qt::AlignVCenter,
                    QStringLiteral("?  Shortcuts"));
   const QPointF center(width() - 22, toggle.center().y());
-  const qreal direction = expanded_ ? 1.0 : -1.0;
   painter.setPen(QPen(hovered_ ? theme.buttonHoverText : theme.muted, 1.5));
-  painter.drawLine(center + QPointF(-4, -2 * direction),
-                   center + QPointF(0, 2 * direction));
-  painter.drawLine(center + QPointF(0, 2 * direction),
-                   center + QPointF(4, -2 * direction));
+  painter.drawLine(center + QPointF(-4, -4), center + QPointF(4, 4));
+  painter.drawLine(center + QPointF(-4, 4), center + QPointF(4, -4));
 }
 
 void ShortcutGuide::mousePressEvent(QMouseEvent *event) {
   if (event->button() == Qt::LeftButton &&
       toggleRect().contains(event->position().toPoint()))
-    setExpanded(!expanded_);
+    setExpanded(false);
   // Reading the card must not draw, crop, pan, or select a layer underneath.
   event->accept();
 }
@@ -189,7 +222,7 @@ void ShortcutGuide::leaveEvent(QEvent *event) {
 void ShortcutGuide::wheelEvent(QWheelEvent *event) {
   const int delta = event->angleDelta().y() != 0 ? event->angleDelta().y()
                                                : event->pixelDelta().y();
-  if (expanded_ && delta != 0) {
+  if (delta != 0) {
     firstRow_ = std::clamp(firstRow_ + (delta > 0 ? -3 : 3), 0,
                            static_cast<int>(entries_.size()) - visibleRows_);
     update();

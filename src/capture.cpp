@@ -17,11 +17,14 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QHash>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLinearGradient>
+#include <QLocale>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPointF>
@@ -32,8 +35,10 @@
 #include <QStandardPaths>
 
 #include <QUrl>
+#include <QUuid>
 #include <algorithm>
 #include <array>
+#include <utility>
 #include <cerrno>
 #include <cmath>
 #include <fcntl.h>
@@ -316,9 +321,12 @@ struct ProcessResult {
 };
 
 ProcessResult runProcess(const QString &program, const QStringList &arguments,
-                         const QByteArray &input = {}, int timeoutMs = 10000) {
+                         const QByteArray &input = {}, int timeoutMs = 10000,
+                         const QProcessEnvironment &environment = {}) {
   QProcess process;
   process.setProcessChannelMode(QProcess::SeparateChannels);
+  if (!environment.isEmpty())
+    process.setProcessEnvironment(environment);
   process.start(program, arguments);
   if (!process.waitForStarted(2000))
     return {{}, process.errorString().toUtf8(), -1, false};
@@ -1685,6 +1693,7 @@ bool quickOutput(QImage image, QuickOutputMode mode, QString &error,
   }
   OperationLog log;
   log.previewSize = logicalSize.isEmpty() ? image.size() : logicalSize;
+  log.recentId = QUuid::createUuid().toString(QUuid::Id128);
   setPngLogicalSize(image, log.previewSize);
   QString recentError;
   if (!recordRecentSnap(image, log, image, recentError))
@@ -1710,10 +1719,11 @@ bool quickOutput(QImage image, QuickOutputMode mode, QString &error,
     if (saved.isEmpty())
       return false;
     if (mode == QuickOutputMode::Save)
-      sendCaptureNotification(QStringLiteral("Screenshot saved"), saved);
+      sendCaptureNotification(QStringLiteral("Screenshot saved"), saved,
+                              log.recentId);
     else
       sendCaptureNotification(QStringLiteral("Screenshot saved and copied"),
-                              saved);
+                              saved, log.recentId);
   } else {
     QFile::remove(path);
     sendCaptureNotification(QStringLiteral("Screenshot copied to clipboard"));
@@ -2413,6 +2423,8 @@ QJsonObject operationToJson(const Operation &operation) {
     object.insert(QStringLiteral("sourceEnd"), operation.cut.sourceEnd);
     object.insert(QStringLiteral("logicalStart"), operation.cut.logicalStart);
     object.insert(QStringLiteral("logicalEnd"), operation.cut.logicalEnd);
+    if (operation.cut.insert)
+      object.insert(QStringLiteral("insert"), true);
     break;
   }
   return object;
@@ -2486,6 +2498,7 @@ bool operationFromJson(const QJsonObject &object, Operation &operation,
         object.value(QStringLiteral("logicalStart")).toInt();
     operation.cut.logicalEnd =
         object.value(QStringLiteral("logicalEnd")).toInt();
+    operation.cut.insert = object.value(QStringLiteral("insert")).toBool();
     return true;
   }
   error = QStringLiteral("Operation log has an unknown operation type");
@@ -2602,6 +2615,11 @@ QString recognizeText(const QImage &image, QString &error) {
     languages =
         qEnvironmentVariable("OMARCHY_OCR_LANGS", QStringLiteral("eng"));
   languages = languages.trimmed();
+  // Tesseract's OpenMP build starts a thread per core and spins them; on a
+  // screenshot that costs about three times the CPU and adds wall time
+  // instead of saving it. One thread reads the same text faster.
+  QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+  environment.insert(QStringLiteral("OMP_THREAD_LIMIT"), QStringLiteral("1"));
   const ProcessResult result = runProcess(
       QStringLiteral("tesseract"),
       {QStringLiteral("stdin"), QStringLiteral("stdout"),
@@ -2610,7 +2628,7 @@ QString recognizeText(const QImage &image, QString &error) {
        QStringLiteral("-l"), languages,
        QStringLiteral("--dpi"), QStringLiteral("300"),
        QStringLiteral("-c"), QStringLiteral("preserve_interword_spaces=1")},
-      payload, 30000);
+      payload, 30000, environment);
   if (!result.finished || result.exitCode != 0) {
     error = QStringLiteral("OCR failed for languages %1: %2")
                 .arg(languages, QString::fromUtf8(result.error).trimmed());
@@ -2622,30 +2640,109 @@ QString recognizeText(const QImage &image, QString &error) {
   return text;
 }
 
-QStringList captureNotificationArguments(const QString &message,
-                                         const QString &imagePath) {
+bool notifySavedCaptures() {
+  return qEnvironmentVariableIntValue("OMASNAP_NOTIFY") == 1;
+}
+
+namespace {
+
+// The --notify toast's wording lives in Omarchy's catalog under these keys.
+constexpr std::array<std::pair<const char *, const char *>, 4> kOmarchyText{{
+    {"Screenshot saved", "capture.screenshotSaved"},
+    {"Screenshot saved and copied", "capture.screenshotSavedCopied"},
+    {"Open", "capture.screenshotOpen"},
+    {"Edit", "capture.screenshotEdit"},
+}};
+
+/// Looks up the toast's wording with omarchy-i18n, all at once. English
+/// stays wherever a lookup fails or Omarchy has no entry and echoes the key.
+std::function<QString(const QString &)> omarchyText() {
+  std::array<QProcess, kOmarchyText.size()> lookups;
+  for (std::size_t index = 0; index < kOmarchyText.size(); ++index)
+    lookups[index].start(QStringLiteral("omarchy-i18n"),
+                         {QString::fromLatin1(kOmarchyText[index].second)});
+  QHash<QString, QString> words;
+  for (std::size_t index = 0; index < kOmarchyText.size(); ++index) {
+    QProcess &lookup = lookups[index];
+    if (!lookup.waitForFinished(1000)) {
+      lookup.kill();
+      lookup.waitForFinished(100);
+      continue;
+    }
+    const QString word = QString::fromUtf8(lookup.readAllStandardOutput()).trimmed();
+    if (lookup.exitCode() == 0 && !word.isEmpty() &&
+        word != QLatin1String(kOmarchyText[index].second))
+      words.insert(QString::fromLatin1(kOmarchyText[index].first), word);
+  }
+  return [words](const QString &english) { return words.value(english, english); };
+}
+
+} // namespace
+
+QStringList captureNotificationArguments(
+    const QString &message, const QString &imagePath, const QString &recentId,
+    bool actions, const std::function<QString(const QString &)> &text) {
+  const bool toast = actions && !imagePath.isEmpty();
+  const auto word = [&](const QString &english) {
+    return toast && text ? text(english) : english;
+  };
   QStringList arguments{QStringLiteral("-g"), QStringLiteral(""),
                         QStringLiteral("--app-name"), QStringLiteral("omasnap"),
-                        QStringLiteral("-t"), QStringLiteral("4500"), message};
-  if (!imagePath.isEmpty()) {
-    const QString imageUrl =
-        QUrl::fromLocalFile(imagePath).toString(QUrl::FullyEncoded);
-    QString omasnap = QDir(QCoreApplication::applicationDirPath())
-                          .filePath(QStringLiteral("omasnap"));
-    if (!QFileInfo::exists(omasnap))
-      omasnap = QStringLiteral("omasnap");
+                        QStringLiteral("-t"),
+                        toast ? QStringLiteral("7000") : QStringLiteral("4500"),
+                        word(message)};
+  if (imagePath.isEmpty())
+    return arguments;
+  QString omasnap = QDir(QCoreApplication::applicationDirPath())
+                        .filePath(QStringLiteral("omasnap"));
+  if (!QFileInfo::exists(omasnap))
+    omasnap = QStringLiteral("omasnap");
+  if (!toast) {
     // --exec consumes the rest of the command line as the click command's
     // argv, which omarchy-notification-send runs without shell parsing. It
     // must come last and be given as separate words, never one quoted string.
     arguments << QStringLiteral("Click to edit") << QStringLiteral("--image")
-              << imagePath << QStringLiteral("--exec") << omasnap << imageUrl;
+              << imagePath << QStringLiteral("--exec") << omasnap
+              << QUrl::fromLocalFile(imagePath).toString(QUrl::FullyEncoded);
+    return arguments;
   }
+  const QSize size = QImageReader(imagePath).size();
+  const QFileInfo file(imagePath);
+  if (size.isValid() && file.exists()) {
+    const QLocale locale;
+    arguments << QStringLiteral("%1 × %2 · %3")
+                     .arg(locale.toString(size.width()),
+                          locale.toString(size.height()),
+                          locale.formattedDataSize(file.size(), 1,
+                                                   QLocale::DataSizeSIFormat));
+  }
+  // Each action's argv runs without shell parsing, with the --with words
+  // appended, so the path stays one word however it is spelled.
+  arguments << QStringLiteral("--image") << imagePath
+            << QStringLiteral("--action") << word(QStringLiteral("Open"))
+            << QStringLiteral("xdg-open")
+            << QStringLiteral("--action") << word(QStringLiteral("Edit")) << omasnap;
+  // Edit reopens the capture's layers and undo history from the recent
+  // shelf; the saved image, appended by --with, is the fallback once the
+  // shelf has dropped it.
+  if (!recentId.isEmpty())
+    arguments << QStringLiteral("--recent") << recentId;
+  arguments << QStringLiteral("--with")
+            << imagePath;
   return arguments;
 }
 
-void sendCaptureNotification(const QString &message, const QString &imagePath) {
-  QProcess::startDetached(QStringLiteral("omarchy-notification-send"),
-                          captureNotificationArguments(message, imagePath));
+void sendCaptureNotification(
+    const QString &message, const QString &imagePath, const QString &recentId,
+    const std::function<bool(const QString &, const QStringList &)> &launcher) {
+  const QString program = QStringLiteral("omarchy-notification-send");
+  const bool toast = notifySavedCaptures() && !imagePath.isEmpty();
+  const QStringList arguments = captureNotificationArguments(
+      message, imagePath, recentId, toast,
+      toast ? omarchyText() : std::function<QString(const QString &)>{});
+  if (!(launcher ? launcher(program, arguments)
+                 : QProcess::startDetached(program, arguments)))
+    qWarning("Could not start %s", qPrintable(program));
 }
 
 void describeFileCapture(CaptureData &capture, QImage image,
