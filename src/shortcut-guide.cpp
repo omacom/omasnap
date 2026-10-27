@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFontMetrics>
+#include <QFuture>
 #include <QMouseEvent>
 #include <QMutex>
 #include <QMutexLocker>
@@ -42,6 +43,8 @@ QString hiddenMarkerPath() {
   return state.isEmpty() ? QString()
                          : QDir(state).filePath(QStringLiteral("shortcuts-hidden"));
 }
+
+QFuture<void> savingChoice;
 } // namespace
 
 ShortcutGuide::ShortcutGuide(QWidget *parent)
@@ -87,7 +90,7 @@ void ShortcutGuide::setExpanded(bool expanded) {
     wantHidden = !expanded_;
     // Each write applies the latest choice, so quick toggles cannot land
     // out of order.
-    (void)QtConcurrent::run([marker] {
+    savingChoice = QtConcurrent::run([marker] {
       const QMutexLocker lock(&writing);
       if (!wantHidden) {
         QFile::remove(marker);
@@ -101,6 +104,8 @@ void ShortcutGuide::setExpanded(bool expanded) {
   parentWidget()->update();
   update();
 }
+
+void ShortcutGuide::finishSavingChoice() { savingChoice.waitForFinished(); }
 
 QRect ShortcutGuide::toggleRect() const {
   return {0, height() - kToggleHeight, width(), kToggleHeight};

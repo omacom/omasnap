@@ -14,6 +14,9 @@ public:
   void setEntries(const QVector<QPair<QString, QString>> &entries);
   void setExpanded(bool expanded);
   [[nodiscard]] bool expanded() const { return expanded_; }
+  /// Blocks until a closed or reopened card is on disk, so the next capture
+  /// reads it. Call before releasing the instance lock.
+  static void finishSavingChoice();
 
 protected:
   bool eventFilter(QObject *watched, QEvent *event) override;
