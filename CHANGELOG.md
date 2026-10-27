@@ -5,6 +5,12 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Fixed
+
+- A capture taken while the previous capture's timed preview is still up no
+  longer contains that preview. The card turns invisible for the grab and
+  comes back right after; kept shots stay in the picture.
+
 ## 1.24.0
 
 ### Changed

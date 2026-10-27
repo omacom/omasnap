@@ -71,6 +71,8 @@ add_library(omasnap-core STATIC
   src/chrome-theme.hpp
   src/eyedropper.cpp
   src/eyedropper.hpp
+  src/grab-hide.cpp
+  src/grab-hide.hpp
   src/surface-capture.cpp
   src/stitch.cpp
   src/stitch.hpp

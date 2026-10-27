@@ -101,6 +101,7 @@ change that touches the principle, not just this summary.
 | `src/icons.cpp/.hpp` | Vector icon renderer for toolbar and pin controls |
 | `src/cli-path.cpp/.hpp` | Command-line image target resolution |
 | `src/eyedropper.cpp/.hpp` | Display-to-source color sampling |
+| `src/grab-hide.cpp/.hpp` | Keeps earlier timed preview cards out of a new screen grab |
 | `tests/*-smoke.cpp/.hpp` | Headless Qt Test coverage: offscreen region clicks, async capture, single-instance handover, stitching fixtures |
 | `docs/` | Longer writeups of the principles above — read before changing behavior they cover |
 | `install-omarchy` | Omarchy installer (deps via `omarchy-pkg-add`, installs to `~/.local`) |

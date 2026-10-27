@@ -132,6 +132,8 @@ the lenses read, which is a fraction of their own area.
 ## The one documented exception
 
 Before any window exists — single-instance handover in `src/instance-lock.cpp`,
+the wait for earlier timed preview cards to hide before the screen grab
+(`src/grab-hide.cpp`, at most 150 ms and only while such a card is on screen),
 and the instant `--fullscreen --copy`-style quick output path in `main()`
 (`quickOutput()`, called before `QGuiApplication::exec()` even runs) — there
 is no live, painted surface to keep responsive, so a bounded synchronous
