@@ -240,7 +240,7 @@ the overlay to its Escape handler. It is present only while the overlay is shown
 pin expiry and explicit pin actions do not use it. Returning the document still
 runs on the existing worker, and repeated close requests cannot interrupt it.
 
-Normal previews use a one-shot ten-second timer and a short paint-opacity fade.
+Normal previews use a one-shot seven-second timer and a short paint-opacity fade.
 Explicit pin actions and moving a preview disable that timer. The existing drag
 watch detects movement, including a quick drag seen only in its final snapshot.
 Hover, shared stack activity, file sharing drags, and pending actions pause the
