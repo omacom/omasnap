@@ -2689,7 +2689,7 @@ QStringList captureNotificationArguments(
   QStringList arguments{QStringLiteral("-g"), QStringLiteral(""),
                         QStringLiteral("--app-name"), QStringLiteral("omasnap"),
                         QStringLiteral("-t"),
-                        toast ? QStringLiteral("10000") : QStringLiteral("4500"),
+                        toast ? QStringLiteral("7000") : QStringLiteral("4500"),
                         word(message)};
   if (imagePath.isEmpty())
     return arguments;

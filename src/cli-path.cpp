@@ -54,7 +54,7 @@ void configureCaptureCommandLine(QCommandLineParser &parser, bool beforeQt) {
       "\n"
       "With no target, drag for a region, click a window, or click open "
       "space for\nthe full focused monitor. Captures save, copy to the clipboard, "
-      "and show a\npreview for 10 seconds; use its pin button or Ctrl+P to keep "
+      "and show a\npreview for 7 seconds; use its pin button or Ctrl+P to keep "
       "it, or Edit to annotate.\n"
       "Use --editor to edit before output.\n"
       "\n"

@@ -8,6 +8,7 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 ### Changed
 
 - Closing the shortcuts card hides it entirely instead of leaving a Shortcuts pill, and it stays closed for later captures. `?` brings it back.
+- Capture previews and `--notify` notifications fade after 7 seconds of idle time instead of 10.
 
 ## 1.23.0
 
