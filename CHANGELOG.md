@@ -5,6 +5,12 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Fixed
+
+- Two captures saved within the same second no longer share one file name:
+  each claims its own name atomically, so neither save fails and neither
+  silently replaces the other.
+
 ## 1.24.0
 
 ### Changed
