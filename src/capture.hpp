@@ -202,6 +202,22 @@ inline constexpr qreal kMinimumTextWrapWidth = 48.0;
                                               qreal canvasWidth = 0.0);
 [[nodiscard]] QRectF annotationTextBounds(const Annotation &annotation,
                                           qreal canvasWidth = 0.0);
+/** Monospace a rectangle's label is set in, sized from the rectangle's
+ *  stroke so a heavier box carries a heavier tag. */
+[[nodiscard]] QFont rectangleLabelFont(qreal size);
+/** Baseline origin of a rectangle's label text. It depends only on the box
+ *  and its stroke, never on the text, so typing never moves it. */
+[[nodiscard]] QPointF rectangleLabelTextOrigin(const Annotation &annotation);
+/** The filled tab a labeled rectangle wears on the outside of its top-left
+ *  edge. Empty for an unlabeled rectangle and for every other kind. */
+[[nodiscard]] QRectF rectangleLabelBounds(const Annotation &annotation);
+/** Ink for a label printed on a tab of `fill`: near-black on light colors,
+ *  white on dark ones. */
+[[nodiscard]] QColor rectangleLabelInk(const QColor &fill);
+/** Paints a labeled rectangle's tab and, with `withText`, its label. The
+ *  editor paints the bare tab under the inline editor while it is typed. */
+void paintRectangleLabel(QPainter &painter, const Annotation &annotation,
+                         bool withText = true);
 /** Whether a spotlight has an opening inside `bounds`. The first one that
  *  does dims everything else there, so it changes far more than its own
  *  rectangle. */
