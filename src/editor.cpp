@@ -599,8 +599,11 @@ TextFont nextTextFont(TextFont textFont) {
 }
 
 QString redactionStyleName(RedactionStyle style) {
-  return style == RedactionStyle::Solid ? QStringLiteral("Solid")
-                                        : QStringLiteral("Pixelate");
+  if (style == RedactionStyle::Solid)
+    return QStringLiteral("Solid");
+  if (style == RedactionStyle::Blur)
+    return QStringLiteral("Blur");
+  return QStringLiteral("Pixelate");
 }
 
 QString arrowStyleName(ArrowStyle style) {
@@ -4760,6 +4763,27 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
       tool_ = Tool::Spotlight;
     }
     selectedAnnotation_ = -1;
+  } else if (event->key() == Qt::Key_D &&
+             event->modifiers().testFlag(Qt::ShiftModifier)) {
+    const auto useBlur = [](RedactionStyle &style) {
+      style = style == RedactionStyle::Blur ? RedactionStyle::Pixelate
+                                            : RedactionStyle::Blur;
+    };
+    if (selectedAnnotation_ >= 0 && selectedAnnotation_ < annotations_.size() &&
+        annotations_.at(selectedAnnotation_).kind ==
+            Annotation::Kind::Redaction) {
+      useBlur(annotations_[selectedAnnotation_].redactionStyle);
+      setStatus(QStringLiteral("Selected redaction: %1 · Shift+D blurs")
+                    .arg(redactionStyleName(
+                        annotations_.at(selectedAnnotation_).redactionStyle)));
+      commitPatch({selectedAnnotation_});
+    } else {
+      if (tool_ != Tool::Redact)
+        tool_ = Tool::Redact;
+      useBlur(redactionStyle_);
+      setStatus(QStringLiteral("Redact · %1 · Shift+D blurs")
+                    .arg(redactionStyleName(redactionStyle_)));
+    }
   } else if (event->key() == Qt::Key_D) {
     if (selectedAnnotation_ >= 0 && selectedAnnotation_ < annotations_.size() &&
         annotations_.at(selectedAnnotation_).kind ==
