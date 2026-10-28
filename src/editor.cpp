@@ -846,6 +846,9 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
       quickOutputMode_(quickOutput) {
   windowedHandoffOnEdit_ = windowedHandoff;
   startupTimingMark("CaptureEditor constructor entered");
+  // Made here, on the UI thread, so qApp can own it: a worker's first copy
+  // would otherwise create it without a parent.
+  static_cast<void>(clipboardWorker());
   pristineSource_ = capture_.source;
   pristineLogicalSize_ = capture_.previewSize;
   recentId_ = log.recentId.isEmpty() ? QUuid::createUuid().toString(QUuid::Id128)
@@ -4267,9 +4270,13 @@ void CaptureEditor::finish(OutputMode mode) {
     const bool autosave = mode == OutputMode::CopyAndPreview &&
                           loadOutputConfig(defaultConfigPath()).autosave;
     if (mode == OutputMode::CopyAndPreview && !autosave) {
-      static_cast<void>(launchPinnedCapture(
-          image, renderedCaptureLogicalSize(captureCopy, image.size()),
-          true, PinLifetime::Timed, result.error, launcher, log.recentId));
+      // The launch copies the image before starting the preview.
+      static_cast<void>(copyInOrder([&](QString &launchError) {
+        return !launchPinnedCapture(
+                    image, renderedCaptureLogicalSize(captureCopy, image.size()),
+                    true, PinLifetime::Timed, launchError, launcher, log.recentId)
+                    .isEmpty();
+      }, result.error));
       return;
     }
     const QString exportPath = temporaryExportPath();

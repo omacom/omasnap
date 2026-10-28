@@ -6677,9 +6677,16 @@ bool runSampleThenCopyKeepsScreenshot(QApplication &application, QString &error)
     return file.open(QIODevice::WriteOnly) && file.write(body) > 0 &&
            file.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner);
   };
-  // Only text is slow, so an unordered image copy finishes first.
-  if (!command("wl-copy", "#!/bin/sh\ncase \"$*\" in *text/*) sleep 1.5;; esac\n"
-                          "cat > '" + board + "'\n") ||
+  // The colour's copy holds off until an image lands (or 3 s pass), so an
+  // unordered screenshot copy always lands first, however slow the render.
+  const QByteArray landed =
+      QFile::encodeName(QDir(slow.path()).filePath(QStringLiteral("image-landed")));
+  if (!command("wl-copy",
+               "#!/bin/sh\ncase \"$*\" in\n"
+               "*image/*) cat > '" + board + "'; touch '" + landed + "' ;;\n"
+               "*) i=0; while [ ! -e '" + landed + "' ] && [ $i -lt 30 ]; do "
+               "sleep 0.1; i=$((i + 1)); done; cat > '" + board + "' ;;\n"
+               "esac\n") ||
       !command("wl-paste", "#!/bin/sh\ncat '" + board + "' && echo >> '" +
                                verified + "'\n")) {
     error = QStringLiteral("Could not write the slow clipboard commands");
