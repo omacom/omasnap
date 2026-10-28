@@ -6678,7 +6678,7 @@ bool runSampleThenCopyKeepsScreenshot(QApplication &application, QString &error)
            file.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner);
   };
   // The colour's copy holds off until an image lands (or 3 s pass), so an
-  // unordered screenshot copy always lands first, however slow the render.
+  // unordered screenshot copy lands first unless it is over 3 s late.
   const QByteArray landed =
       QFile::encodeName(QDir(slow.path()).filePath(QStringLiteral("image-landed")));
   if (!command("wl-copy",
