@@ -6884,6 +6884,7 @@ void CaptureEditor::adoptImage(QImage image, OperationLog log, CaptureMode kind,
   dragging_ = false;
   interaction_ = Interaction::None;
   const MonitorInfo live = liveMonitor_;
+  dropEditsOfRefusedLog(image, log);
   describeFileCapture(capture_, std::move(image), log);
   capture_.monitor.name = live.name;
   liveMonitor_ = live;

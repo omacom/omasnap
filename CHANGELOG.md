@@ -22,6 +22,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Ignore an `Omasnap logical size` tag or edit-log size that claims a display
   scale above 4×, so an altered PNG can no longer multiply the export frame
   (a 400×400 image tagged 40x40 exported at 1680×1680).
+- Open an image plain when its edit history claims a display scale above 4×,
+  instead of replaying the history's edits (a full-canvas crop of a 40×40 log)
+  in a canvas ten times larger, where they selected only a corner.
 - `--clipboard` stops reading an image format at 256 MiB and tries the next
   one offered, refusing the image only when none fits, instead of holding
   however much the clipboard owner sends in memory before deciding.

@@ -2845,6 +2845,15 @@ void sendCaptureNotification(
     qWarning("Could not start %s", qPrintable(program));
 }
 
+void dropEditsOfRefusedLog(const QImage &image, OperationLog &log) {
+  if (!log.previewSize.isValid() ||
+      logicalScaleAllowed(image.size(), log.previewSize))
+    return;
+  log.ops.clear();
+  log.index = 0;
+  log.previewSize = QSize();
+}
+
 void describeFileCapture(CaptureData &capture, QImage image,
                          const OperationLog &log) {
   capture = CaptureData();
