@@ -6468,19 +6468,37 @@ bool runClipboardCopiesOffUiThread(QApplication &application, QString &error) {
   }
   const QString board = QDir(slow.path()).filePath(QStringLiteral("board"));
   const QByteArray quoted = QFile::encodeName(board);
+  // The stub wl-paste adds a line here once its check has finished.
+  const QString verifiedLog =
+      QDir(slow.path()).filePath(QStringLiteral("verified"));
+  const QByteArray verifiedQuoted = QFile::encodeName(verifiedLog);
   const auto command = [&](const char *name, const QByteArray &body) {
     QFile file(QDir(slow.path()).filePath(QString::fromLatin1(name)));
     return file.open(QIODevice::WriteOnly) && file.write(body) > 0 &&
            file.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner);
   };
   if (!command("wl-copy", "#!/bin/sh\nsleep 1.5\ncat > '" + quoted + "'\n") ||
-      !command("wl-paste", "#!/bin/sh\nexec cat '" + quoted + "'\n")) {
+      !command("wl-paste", "#!/bin/sh\ncat '" + quoted + "' && echo >> '" +
+                               verifiedQuoted + "'\n")) {
     error = QStringLiteral("Could not write the slow clipboard commands");
     return false;
   }
   const QByteArray oldPath = qgetenv("PATH");
   qputenv("PATH", slow.path().toUtf8() + ':' + oldPath);
   const auto restorePath = qScopeGuard([&] { qputenv("PATH", oldPath); });
+  // Declared after restorePath so it runs first, on every exit path: the
+  // workers look wl-copy/wl-paste up on PATH after the board file is written,
+  // so PATH and the stub directory must outlive their last wl-paste check.
+  int copiesStarted = 0;
+  const auto workersDone = qScopeGuard([&] {
+    static_cast<void>(QTest::qWaitFor(
+        [&] {
+          QFile file(verifiedLog);
+          return file.open(QIODevice::ReadOnly) &&
+                 file.readAll().count('\n') >= copiesStarted;
+        },
+        15000));
+  });
 
   // The longest gap between 10 ms ticks of the UI thread.
   QElapsedTimer clock;
@@ -6526,6 +6544,7 @@ bool runClipboardCopiesOffUiThread(QApplication &application, QString &error) {
     worst = 0;
     ticker.start();
     QTest::keyClick(&editor, Qt::Key_O);
+    ++copiesStarted;
     const bool settled = QTest::qWaitFor(
         [&] {
           return !editor.statusForTest().startsWith(
@@ -6570,6 +6589,7 @@ bool runClipboardCopiesOffUiThread(QApplication &application, QString &error) {
     QElapsedTimer handler;
     handler.start();
     QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, point);
+    ++copiesStarted;
     const qint64 spent = handler.elapsed();
     if (spent >= 500) {
       error = QStringLiteral("The eyedropper click blocked the UI thread %1 ms")
