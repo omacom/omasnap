@@ -10,6 +10,21 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Open the input method's candidate window under the text caret instead of at
   the editor's top-left corner, so fcitx5 users see their Chinese, Japanese, or
   Korean candidates next to the text they are typing.
+- Open an image even when another program's JSON with the same name sits
+  beside it (`report.png` next to `report.json`), for `--file` and for editing
+  or sharing a `--pin`, instead of failing on it as a broken edit history.
+- A lock file left by a crashed capture no longer gets an unrelated omasnap
+  process (such as a pin that reused its process ID) closed by the next
+  capture; a lock nobody holds is reclaimed instead.
+- Preserve native pixels when exporting an unannotated capture without a
+  backdrop. Fractional selection edges no longer smooth-resize the whole
+  image just to remove an outward-rounded boundary pixel.
+- Ignore an `Omasnap logical size` tag or edit-log size that claims a display
+  scale above 4×, so an altered PNG can no longer multiply the export frame
+  (a 400×400 image tagged 40x40 exported at 1680×1680).
+- `--clipboard` stops reading an image format at 256 MiB and tries the next
+  one offered, refusing the image only when none fits, instead of holding
+  however much the clipboard owner sends in memory before deciding.
 - Copying OCR text or an eyedropper colour no longer freezes the editor while
   `wl-copy` runs: both copies now happen off the UI thread.
 

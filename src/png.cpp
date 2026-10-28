@@ -53,14 +53,26 @@ void setPngLogicalSize(QImage &image, const QSize &size) {
     image.setText(kLogicalSizeKey, text);
 }
 
+bool logicalScaleAllowed(const QSize &pixels, const QSize &logical) {
+  if (logical.isEmpty() || pixels.isEmpty())
+    return false;
+  // Display scales run from 1 to about 3; 4 leaves headroom. A larger claim
+  // can only come from a hand-made or altered file, and every frame margin
+  // and the editor's view would be multiplied by it.
+  constexpr qreal maximumScale = 4.0;
+  const qreal horizontal = pixels.width() / qreal(logical.width());
+  const qreal vertical = pixels.height() / qreal(logical.height());
+  return horizontal >= 1.0 && vertical >= 1.0 && horizontal <= maximumScale &&
+         vertical <= maximumScale;
+}
+
 QSize pngLogicalSize(const QImage &image) {
   const QString text = image.text(kLogicalSizeKey);
   const auto dimensions = text.split(QLatin1Char('x'));
   if (dimensions.size() != 2)
     return {};
   const QSize size(dimensions[0].toInt(), dimensions[1].toInt());
-  if (size.isEmpty() || size.width() > image.width() ||
-      size.height() > image.height() || text != logicalSizeText(size))
+  if (text != logicalSizeText(size) || !logicalScaleAllowed(image.size(), size))
     return {};
   return size;
 }

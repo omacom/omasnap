@@ -264,8 +264,19 @@ private:
 [[nodiscard]] QString operationLogPath(const QString &imagePath);
 [[nodiscard]] bool saveOperationLog(const QString &path, const OperationLog &log,
                                     QString &error);
+/** `notOperationLog`, when given, is set when the file is not an omasnap
+ *  operation log at all: well-formed JSON that is not an object with a
+ *  numeric version and an ops array. Text that does not parse, or a log of
+ *  another version, leaves it false: it may be omasnap's own, cut short or
+ *  newer. */
 [[nodiscard]] bool loadOperationLog(const QString &path, OperationLog &log,
-                                    QString &error);
+                                    QString &error,
+                                    bool *notOperationLog = nullptr);
+/** Reads the operation log beside an opened image (`--file`, `--pin`), if it
+ *  has one. Without one, or when that .json is another program's file, `log`
+ *  is left empty and this succeeds. */
+[[nodiscard]] bool loadSidecarOperationLog(const QString &imagePath,
+                                           OperationLog &log, QString &error);
 [[nodiscard]] QString temporaryExportPath();
 /** Restore a document's logical size from its operation log or, for flattened
  *  exports, its PNG metadata. Untagged images use their pixel dimensions. */
@@ -297,8 +308,15 @@ void describeFileCapture(CaptureData &capture, QImage image,
  *  doesn't match one. */
 [[nodiscard]] bool backgroundStyleFromName(const QString &name,
                                            BackgroundStyle &style);
-/** Loads the current Wayland clipboard image. */
-[[nodiscard]] bool loadClipboardImage(QImage &image, QString &error);
+/** Largest encoded clipboard image `--clipboard` reads: 256 MiB, well above
+ *  any real screenshot PNG. */
+inline constexpr qint64 kMaxClipboardImageBytes = qint64(256) * 1024 * 1024;
+/** Loads the current Wayland clipboard image. A format is skipped once
+ *  wl-paste delivers more than `maxImageBytes` of it, and the image refused
+ *  when no other offered format loads; only tests pass another limit. */
+[[nodiscard]] bool loadClipboardImage(
+    QImage &image, QString &error,
+    qint64 maxImageBytes = kMaxClipboardImageBytes);
 [[nodiscard]] bool copyPngFileToClipboard(const QString &path, QString &error);
 [[nodiscard]] bool copyImageToClipboard(const QImage &image, QString &error);
 [[nodiscard]] bool quickOutput(QImage image, QuickOutputMode mode,

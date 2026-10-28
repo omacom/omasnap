@@ -13,6 +13,7 @@
 #include <QBuffer>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDeadlineTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -33,6 +34,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QtTypes>
 
 #include <QUrl>
 #include <QUuid>
@@ -318,11 +320,16 @@ struct ProcessResult {
   QByteArray error;
   int exitCode = -1;
   bool finished = false;
+  bool outputTooLarge = false;
 };
 
+/// Runs `program` and collects its output. With `maxOutputBytes` set, stdout
+/// is read as it arrives and the process is stopped as soon as it exceeds
+/// that size, so a large or endless stream is never buffered in full.
 ProcessResult runProcess(const QString &program, const QStringList &arguments,
                          const QByteArray &input = {}, int timeoutMs = 10000,
-                         const QProcessEnvironment &environment = {}) {
+                         const QProcessEnvironment &environment = {},
+                         qint64 maxOutputBytes = -1) {
   QProcess process;
   process.setProcessChannelMode(QProcess::SeparateChannels);
   if (!environment.isEmpty())
@@ -334,6 +341,33 @@ ProcessResult runProcess(const QString &program, const QStringList &arguments,
   if (!input.isEmpty())
     process.write(input);
   process.closeWriteChannel();
+  if (maxOutputBytes >= 0) {
+    QByteArray output;
+    const QDeadlineTimer deadline(timeoutMs);
+    bool running = true;
+    while (running) {
+      running = process.state() != QProcess::NotRunning &&
+                !deadline.hasExpired();
+      if (running)
+        process.waitForReadyRead(
+            static_cast<int>(std::max<qint64>(1, deadline.remainingTime())));
+      output += process.readAllStandardOutput();
+      if (output.size() > maxOutputBytes) {
+        process.kill();
+        process.waitForFinished(1000);
+        ProcessResult refused;
+        refused.outputTooLarge = true;
+        return refused;
+      }
+    }
+    const bool finished = process.state() == QProcess::NotRunning;
+    if (!finished) {
+      process.kill();
+      process.waitForFinished(1000);
+    }
+    return {output, process.readAllStandardError(),
+            finished ? process.exitCode() : -1, finished};
+  }
   const bool finished = process.waitForFinished(timeoutMs);
   if (!finished)
     process.kill();
@@ -1405,9 +1439,26 @@ QImage renderCapture(const CaptureData &capture, const QRectF &selection,
       capture.source.width() / static_cast<qreal>(capture.previewSize.width());
   const qreal sourceScaleY =
       capture.source.height() / static_cast<qreal>(capture.previewSize.height());
-  // A document already has its final pixels. Its integer logical size can
-  // round at fractional scales; do not resize the image to undo that rounding.
-  const bool highDpi = capture.monitor.scale > 1.0 && !capture.preserveSourceResolution;
+  // Loaded documents keep their own density; fresh buffers may differ by
+  // one pixel because the monitor's logical dimensions are rounded.
+  const bool highDpi =
+      capture.monitor.scale > 1.0 && !capture.preserveSourceResolution;
+  const QSize nativeSize(
+      qRound(capture.previewSize.width() * capture.monitor.scale),
+      qRound(capture.previewSize.height() * capture.monitor.scale));
+  const bool nativeDensity =
+      !highDpi ||
+      (std::abs(capture.source.width() - nativeSize.width()) <= 1 &&
+       std::abs(capture.source.height() - nativeSize.height()) <= 1);
+  // Keep an unedited native crop intact instead of resampling its rounded
+  // edges. Other source densities retain the existing normalization path.
+  if (nativeDensity && annotations.isEmpty() &&
+      (backgroundStyle == BackgroundStyle::None ||
+       backgroundStyle == BackgroundStyle::Off)) {
+    setPngLogicalSize(cropped,
+                      renderedCaptureLogicalSize(capture, cropped.size()));
+    return cropped;
+  }
   const QSizeF outputScale = captureOutputScale(capture);
   const qreal scaleX = outputScale.width();
   const qreal scaleY = outputScale.height();
@@ -1590,7 +1641,7 @@ QImage applyRedactionsScaled(QImage image, const QVector<Annotation> &redactions
   return image;
 }
 
-bool loadClipboardImage(QImage &image, QString &error) {
+bool loadClipboardImage(QImage &image, QString &error, qint64 maxImageBytes) {
   image = {};
   error.clear();
 
@@ -1630,12 +1681,19 @@ bool loadClipboardImage(QImage &image, QString &error) {
   }
 
   bool receivedImageData = false;
+  bool refusedTooLarge = false;
   QString readError;
   for (const QString &mimeType : imageTypes) {
+    // The clipboard owner decides how much wl-paste delivers; stop reading
+    // at the limit and try the next, perhaps smaller, offered format.
     const ProcessResult pasted = runProcess(
         QStringLiteral("wl-paste"),
         {QStringLiteral("--no-newline"), QStringLiteral("--type"), mimeType},
-        {}, 5000);
+        {}, 5000, {}, maxImageBytes);
+    if (pasted.outputTooLarge) {
+      refusedTooLarge = true;
+      continue;
+    }
     if (!pasted.finished || pasted.exitCode != 0) {
       const QString detail = QString::fromUtf8(pasted.error).trimmed();
       if (!detail.isEmpty())
@@ -1648,6 +1706,11 @@ bool loadClipboardImage(QImage &image, QString &error) {
       return true;
   }
 
+  if (refusedTooLarge) {
+    error = QStringLiteral("Clipboard image is too large to open (over %1 MiB)")
+                .arg(maxImageBytes >> 20);
+    return false;
+  }
   if (!receivedImageData) {
     error = readError.isEmpty()
                 ? QStringLiteral("Could not read clipboard image")
@@ -2549,7 +2612,10 @@ bool saveOperationLog(const QString &path, const OperationLog &log,
   return true;
 }
 
-bool loadOperationLog(const QString &path, OperationLog &log, QString &error) {
+bool loadOperationLog(const QString &path, OperationLog &log, QString &error,
+                      bool *notOperationLog) {
+  if (notOperationLog)
+    *notOperationLog = false;
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) {
     error = QStringLiteral("Could not read operation log: %1").arg(path);
@@ -2560,11 +2626,21 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error) {
   if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
     error = QStringLiteral("Could not parse operation log: %1")
                 .arg(parseError.errorString());
+    // Well-formed JSON that is not an object is another program's; text that
+    // does not parse may be omasnap's own log, cut short.
+    if (notOperationLog)
+      *notOperationLog = parseError.error == QJsonParseError::NoError;
     return false;
   }
   const QJsonObject root = document.object();
-  if (root.value(QStringLiteral("version")).toInt() != 1) {
+  if (root.value(QStringLiteral("version")).toInt() != 1 ||
+      !root.value(QStringLiteral("ops")).isArray()) {
     error = QStringLiteral("Unsupported operation log version");
+    // Every log omasnap writes has a numeric version and an ops array; an
+    // object without both is some other program's JSON sharing the name.
+    if (notOperationLog)
+      *notOperationLog = !root.value(QStringLiteral("version")).isDouble() ||
+                         !root.value(QStringLiteral("ops")).isArray();
     return false;
   }
   OperationLog loaded;
@@ -2590,6 +2666,30 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error) {
   }
   loaded.index = std::clamp(loaded.index, 0, static_cast<int>(loaded.ops.size()));
   log = std::move(loaded);
+  return true;
+}
+
+bool loadSidecarOperationLog(const QString &imagePath, OperationLog &log,
+                             QString &error) {
+  const QString sidecar = operationLogPath(imagePath);
+  if (!QFile::exists(sidecar))
+    return true;
+  // The sidecar is only a naming convention: report.png opened from a
+  // download folder can sit beside another program's report.json. That file
+  // is not this image's edit history, so open the image plain instead of
+  // refusing it. A damaged omasnap log is still an error.
+  bool notOperationLog = false;
+  OperationLog loaded;
+  if (loadOperationLog(sidecar, loaded, error, &notOperationLog)) {
+    log = std::move(loaded);
+    return true;
+  }
+  if (!notOperationLog)
+    return false;
+  qWarning().noquote() << QStringLiteral("Ignoring %1: not an omasnap "
+                                         "operation log")
+                              .arg(sidecar);
+  error.clear();
   return true;
 }
 
@@ -2753,9 +2853,9 @@ void describeFileCapture(CaptureData &capture, QImage image,
   QSize logicalSize = pngLogicalSize(image);
   // Editable documents take precedence: their operations use the source
   // canvas's coordinates, whereas a PNG tag describes its flattened pixels.
-  if (log.previewSize.isValid() && !log.previewSize.isEmpty() &&
-      log.previewSize.width() <= image.width() &&
-      log.previewSize.height() <= image.height()) {
+  // Both obey the same scale bound.
+  if (log.previewSize.isValid() &&
+      logicalScaleAllowed(image.size(), log.previewSize)) {
     logicalSize = log.previewSize;
   }
   if (!logicalSize.isEmpty()) {

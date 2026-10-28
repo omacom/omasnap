@@ -330,7 +330,8 @@ omasnap --clipboard
 ```
 
 The clipboard must offer readable image data. Text-only clipboard contents return an
-error instead of opening an empty editor.
+error instead of opening an empty editor. Reading an image format stops as soon as it
+passes 256 MiB, and the next offered format is tried; the image is refused if none fits.
 
 File URLs are accepted too. A saved capture notification's "Click to edit" action launches
 `omasnap` on the finished screenshot, so it can be reopened and re-annotated. The action is
