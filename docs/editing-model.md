@@ -85,6 +85,15 @@ their pixel dimensions: print DPI does not establish screenshot display scale.
 A tag or log whose logical size would mean a scale outside 1 to 4 on either
 axis is ignored, so a hand-made value cannot blow up the frame or the view.
 
+`[output] match_logical_size` (default off) shrinks a scaled monitor's
+flattened export down to that same logical size instead of just tagging it,
+via `matchOutputToLogicalSize` in `src/capture.cpp`. It runs once, after
+`renderCapture`, only at true export sites (`finish()`, Save As, pinning, and
+returning edits to a pin) — never on the live editing canvas
+(`renderCurrentOutput`) or an OCR crop, both of which need every native pixel.
+`preserveSourceResolution` (set for any loaded document) makes it a no-op, so
+reopening an already-shrunk export can never shrink it again.
+
 ## The two exceptions, and why they're still safe
 
 Two operations *do* need to touch real pixels before export, and both are
