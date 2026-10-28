@@ -6607,6 +6607,73 @@ bool runClipboardCopiesOffUiThread(QApplication &application, QString &error) {
 }
 
 /**
+ * The eyedropper copies on its own worker, so with a slow wl-copy a sampled
+ * colour could land after a screenshot copied straight after it, or retry over
+ * it when its wl-paste check read the image. The screenshot must be what the
+ * clipboard is left holding.
+ */
+bool runSampleThenCopyKeepsScreenshot(QApplication &application, QString &error) {
+  QTemporaryDir slow;
+  if (!slow.isValid()) {
+    error = QStringLiteral("Could not create the slow clipboard directory");
+    return false;
+  }
+  const QByteArray board =
+      QFile::encodeName(QDir(slow.path()).filePath(QStringLiteral("board")));
+  const QString verifiedLog = QDir(slow.path()).filePath(QStringLiteral("verified"));
+  const QByteArray verified = QFile::encodeName(verifiedLog);
+  const auto command = [&](const char *name, const QByteArray &body) {
+    QFile file(QDir(slow.path()).filePath(QString::fromLatin1(name)));
+    return file.open(QIODevice::WriteOnly) && file.write(body) > 0 &&
+           file.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+  };
+  // Only text is slow, so an unordered image copy finishes first.
+  if (!command("wl-copy", "#!/bin/sh\ncase \"$*\" in *text/*) sleep 1.5;; esac\n"
+                          "cat > '" + board + "'\n") ||
+      !command("wl-paste", "#!/bin/sh\ncat '" + board + "' && echo >> '" +
+                               verified + "'\n")) {
+    error = QStringLiteral("Could not write the slow clipboard commands");
+    return false;
+  }
+  const QByteArray oldPath = qgetenv("PATH");
+  qputenv("PATH", slow.path().toUtf8() + ':' + oldPath);
+  const auto restorePath = qScopeGuard([&] { qputenv("PATH", oldPath); });
+  const auto checks = [&] {
+    QFile file(verifiedLog);
+    return file.open(QIODevice::ReadOnly) ? file.readAll().count('\n') : 0;
+  };
+  // Runs before restorePath: both copies must finish with the stubs in place.
+  const auto copiesDone =
+      qScopeGuard([&] { static_cast<void>(QTest::qWaitFor([&] { return checks() >= 2; }, 15000)); });
+
+  QImage swatch(400, 300, QImage::Format_ARGB32_Premultiplied);
+  swatch.fill(QColor(QStringLiteral("#3a7bd5")));
+  CaptureData capture;
+  describeFileCapture(capture, swatch, {});
+  CaptureEditor editor(capture, CaptureEditor::CaptureMode::File,
+                       QuickOutputMode::None);
+  editor.setSuppressSnapshots(true);
+  editor.resize(1000, 800);
+  editor.show();
+  application.processEvents();
+  QTest::keyClick(&editor, Qt::Key_I);
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier,
+                    editor.annotationPointToWidgetForTest({200, 150}).toPoint());
+  QTest::keySequence(&editor, QKeySequence::Copy);
+  editor.waitForExport();
+  if (!QTest::qWaitFor([&] { return checks() >= 2; }, 15000)) {
+    error = QStringLiteral("The sampled colour and the screenshot were not both copied");
+    return false;
+  }
+  QFile file(QString::fromLocal8Bit(board));
+  if (!file.open(QIODevice::ReadOnly) || !file.readAll().startsWith("\x89PNG")) {
+    error = QStringLiteral("A colour sampled before copying replaced the screenshot on the clipboard");
+    return false;
+  }
+  return true;
+}
+
+/**
  * Filling the 100-op cap used to drop the leading Crop, so replay started at
  * the full monitor while later annotations stayed in cropped space.
  */
@@ -14236,6 +14303,10 @@ int main(int argc, char **argv) {
   if (!runClipboardCopiesOffUiThread(application, clipboardError)) {
     qWarning().noquote() << clipboardError;
     return 227;
+  }
+  if (!runSampleThenCopyKeepsScreenshot(application, clipboardError)) {
+    qWarning().noquote() << clipboardError;
+    return 228;
   }
 
   QString transformError;

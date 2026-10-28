@@ -50,6 +50,7 @@
 #include <QTextLayout>
 #include <QTextDocument>
 #include <QThread>
+#include <QSemaphore>
 #include <QThreadPool>
 #include <QTimer>
 #include <QWheelEvent>
@@ -153,6 +154,20 @@ QThreadPool &clipboardWorker() {
     return created;
   }();
   return *pool;
+}
+
+/// Runs a worker's clipboard write on clipboardWorker() and waits for it, so
+/// an export or OCR copy cannot be overtaken by an earlier colour sample.
+/// Never call it on the UI thread.
+bool copyInOrder(const std::function<bool(QString &)> &copy, QString &error) {
+  QSemaphore done;
+  bool copied = false;
+  clipboardWorker().start([&] {
+    copied = copy(error);
+    done.release();
+  });
+  done.acquire();
+  return copied;
 }
 
 constexpr std::array<qreal, 3> kTextSizes{2.0, 5.0, 9.0};
@@ -4037,7 +4052,9 @@ void CaptureEditor::runOcr(const QRectF &localSelection) {
     // The copy is a wl-copy plus a wl-paste check (up to 2 x (5 + 5) s of
     // timeouts). Run it here, on the worker, so the UI never waits on it.
     if (result.error.isEmpty() && !result.text.trimmed().isEmpty())
-      static_cast<void>(copyTextToClipboard(result.text, result.clipboardError));
+      static_cast<void>(copyInOrder(
+          [&](QString &error) { return copyTextToClipboard(result.text, error); },
+          result.clipboardError));
     return result;
   }));
 }
@@ -4249,7 +4266,9 @@ void CaptureEditor::finish(OutputMode mode) {
       return;
     }
     if (mode == OutputMode::Copy || mode == OutputMode::Both || autosave) {
-      if (!copyPngFileToClipboard(exportPath, error)) {
+      if (!copyInOrder([&](QString &copyError) {
+            return copyPngFileToClipboard(exportPath, copyError);
+          }, error)) {
         QFile::remove(exportPath);
         result.error = error;
         return;

@@ -36,7 +36,9 @@ reading its corresponding worker:
 | `highlighterProbeWatcher_` | Detects a nearby screenshot text row for highlighter Snap mode |
 
 The eyedropper copies its sampled hex on a one-thread pool, so quick samples
-land on the clipboard in the order they were taken.
+land on the clipboard in the order they were taken. The OCR and export workers
+hand their clipboard writes to the same pool and wait for them, so a screenshot
+copied right after a colour sample is what the clipboard is left holding.
 
 Editor dismissal also uses a worker, tracked by `dismissFuture_`, to return edits
 to an originating pin and retain the recent document. Output workers publish
