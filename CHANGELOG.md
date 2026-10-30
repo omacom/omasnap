@@ -25,6 +25,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - `--clipboard` stops reading an image format at 256 MiB and tries the next
   one offered, refusing the image only when none fits, instead of holding
   however much the clipboard owner sends in memory before deciding.
+- Select on any monitor: every monitor freezes when the capture starts, and the
+  picker follows the pointer onto whichever one it moves to.
 
 ## 1.24.0
 

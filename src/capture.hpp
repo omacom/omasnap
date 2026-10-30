@@ -174,6 +174,12 @@ enum class AnnotationLayer { Redaction, Default };
  */
 [[nodiscard]] bool probeFocusedMonitor(MonitorInfo &monitor, QString &error);
 /**
+ * Discovers every active monitor in one `hyprctl monitors` call, focused or
+ * not. Empty with `error` set when Hyprland cannot be asked. Spawns a
+ * process, so call it from a worker.
+ */
+[[nodiscard]] QVector<MonitorInfo> probeMonitors(QString &error);
+/**
  * Captures the focused monitor's pixels onto the given monitor, and its window
  * list when `includeWindows` is set. Window discovery runs alongside the screen
  * grab, so callers that never show the overlay should skip it. Pure I/O and

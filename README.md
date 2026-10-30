@@ -450,7 +450,10 @@ annotation. The windowed editor keeps its guide above the toolbar.
 
 The default smart picker infers the capture kind from the gesture: drag for a
 region, click a window for that window, or click open space for the full
-focused monitor. Whatever is lit is what will be captured.
+focused monitor. Whatever is lit is what will be captured. Every other monitor
+is frozen and dimmed at the same time; move the pointer onto one to select there
+instead. Returning from the editor or canceling a scrolling capture keeps the
+next selection on the current monitor.
 
 Press `S` before drawing to select a scrolling region; once drawn, the page
 inside it goes live and the scroll controls appear in place. A small **Scroll
