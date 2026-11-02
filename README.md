@@ -592,9 +592,10 @@ the top-left.
 Icon buttons use compact, dark tooltips for their actions and shortcuts.
 Pins follow normal mouse focus while hovered and keep focus with the current
 app when first created.
-Closing an active or hovered pin focuses the next pin on that monitor, starting
-with the front of the remaining stack, so repeated `X` presses dismiss them
-without needing another mouse movement. Opening a pin for annotation keeps
+Closing an active or hovered pin from the keyboard focuses the next pin on that
+monitor, starting with the front of the remaining stack, so repeated `X` presses
+dismiss them without needing another mouse movement. Closing one with the mouse
+leaves the pointer where it is. Opening a pin for annotation keeps
 the pin in place and gives focus to the editor. One `Esc` dismisses the editor
 and updates that same pin, including any text being typed. Reopening it restores
 the editable layers and undo history. `P` / `Ctrl+P` in that editor returns to
@@ -613,7 +614,8 @@ Automatic expiry compacts the stack without transferring keyboard focus.
 | Copy button, `C` while hovered, `Ctrl+C` | Copy the full-resolution PNG |
 | Top-left six-dot drag handle | Drag the PNG into a file-capable drop target |
 | Wheel | Keep the fixed preview size |
-| Close button, `X` / `Super+W` while focused, `Esc`, middle-click | Close and focus the next pin |
+| `X` / `Super+W` while focused, `Esc` | Close and focus the next pin |
+| Close button, middle-click | Close and leave the pointer where it is |
 
 Image and path copying use `wl-copy` rather than `QClipboard`, so clipboard data remains
 available after the pin is closed. Copying a temporary capture's path or showing
