@@ -369,6 +369,14 @@ int main(int argc, char **argv) {
     }
     describeFileCapture(capture, image, restoredLog);
     capture.monitor.name = parser.value(QStringLiteral("handoff-monitor"));
+    // Without a handoff, open where the user is, like a capture does: a
+    // toast's Edit is clicked on the focused monitor, not the primary one.
+    if (capture.monitor.name.isEmpty()) {
+      MonitorInfo focused;
+      QString focusError;
+      if (probeFocusedMonitor(focused, focusError))
+        capture.monitor.name = focused.name;
+    }
     captureMode = CaptureEditor::CaptureMode::File;
     qInfo().noquote() << QStringLiteral("Opened %1 for annotation (%2x%3)")
                              .arg(inputName)
