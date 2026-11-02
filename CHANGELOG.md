@@ -7,6 +7,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Leave the pointer where it is when closing a preview or pin with the mouse,
+  instead of warping it to the center of the next one. Closing from the keyboard
+  still focuses the next pin.
 - Open the input method's candidate window under the text caret instead of at
   the editor's top-left corner, so fcitx5 users see their Chinese, Japanese, or
   Korean candidates next to the text they are typing.
