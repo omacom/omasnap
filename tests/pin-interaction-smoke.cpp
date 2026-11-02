@@ -622,6 +622,10 @@ bool runPinInteractionSmoke(QString &error) {
     drainActions();
     how.close(pin);
     drainActions();
+    if (pin.isVisible()) {
+      error = QStringLiteral("%1 did not close the pin").arg(QString::fromLatin1(how.name));
+      return false;
+    }
     QFile dispatches(runtime.filePath(QStringLiteral("dispatches")));
     const bool focused = dispatches.open(QIODevice::ReadOnly) &&
                          dispatches.readAll().contains("hl.dsp.focus(");
