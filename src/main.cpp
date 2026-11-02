@@ -371,10 +371,12 @@ int main(int argc, char **argv) {
     capture.monitor.name = parser.value(QStringLiteral("handoff-monitor"));
     // Without a handoff, open where the user is, like a capture does: a
     // toast's Edit is clicked on the focused monitor, not the primary one.
+    // The lookup is optional, so a stalled hyprctl falls back to the
+    // primary screen quickly instead of delaying the editor.
     if (capture.monitor.name.isEmpty()) {
       MonitorInfo focused;
       QString focusError;
-      if (probeFocusedMonitor(focused, focusError))
+      if (probeFocusedMonitor(focused, focusError, 500))
         capture.monitor.name = focused.name;
     }
     captureMode = CaptureEditor::CaptureMode::File;
