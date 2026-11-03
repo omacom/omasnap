@@ -153,6 +153,21 @@ int main(int argc, char **argv) {
   // from the theme. `-platformtheme gtk3` on the command line still
   // overrides this for debugging.
   qputenv("QT_QPA_PLATFORMTHEME", "generic");
+  // With no reachable compositor, Qt falls back from wayland to xcb and then
+  // aborts in qFatal, dumping core. Capture connects to WAYLAND_DISPLAY
+  // itself, so check that one before Qt tries. An explicitly chosen platform
+  // (offscreen, minimal, ...) is left to Qt.
+  const bool platformChosen =
+      !qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM") ||
+      rawArguments.contains(QStringLiteral("-platform")) ||
+      rawArguments.contains(QStringLiteral("--platform"));
+  if (!platformChosen) {
+    const QString displayError = waylandDisplayError();
+    if (!displayError.isEmpty()) {
+      qCritical().noquote() << displayError;
+      return 1;
+    }
+  }
   QGuiApplication::setDesktopFileName(QStringLiteral("omasnap"));
   QApplication application(argc, argv);
   startupTimingMark("QApplication constructed");
