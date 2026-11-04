@@ -663,7 +663,9 @@ private:
   void replayLog();
   void redoEdit();
   void selectWindowInDirection(int key);
-  void finishSelectDrag(const QPointF &end);
+  /// Commits the select-phase drag ending at `end`. A mouse drag too small to
+  /// be a region counts as a click in smart mode; a keyboard region does not.
+  void finishSelectDrag(const QPointF &end, bool fromKeyboard = false);
   friend bool runSaveAsSmoke(QString &error);
   void cancelSaveAs();
   void restoreSaveAsFocus();

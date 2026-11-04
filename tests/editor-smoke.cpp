@@ -773,6 +773,44 @@ bool runKeyboardRegionCheck(QApplication &application, QString &error) {
     editor.close();
   }
   {
+    // A small keyboard region is taken as drawn, not as a click on the
+    // window under it.
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Smart);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(217, 175), 20);
+    press(editor, Qt::Key_Right);
+    press(editor, Qt::Key_Return);
+    press(editor, Qt::Key_Right, 4);
+    press(editor, Qt::Key_Down, 4);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(218, 175, 4, 4)) {
+      error = QStringLiteral("Small smart keyboard region took %1")
+                  .arg(describe(editor.currentSelection()));
+      return false;
+    }
+    editor.close();
+  }
+  {
+    // Corner to corner covers the whole screen, last row and column included.
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Region);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(219, 177), 20);
+    press(editor, Qt::Key_Left, 30, Qt::ShiftModifier);
+    press(editor, Qt::Key_Up, 30, Qt::ShiftModifier);
+    press(editor, Qt::Key_Return);
+    press(editor, Qt::Key_Right, 90, Qt::ShiftModifier);
+    press(editor, Qt::Key_Down, 70, Qt::ShiftModifier);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(0, 0, 800, 600)) {
+      error = QStringLiteral("Corner-to-corner keyboard region was %1")
+                  .arg(describe(editor.currentSelection()));
+      return false;
+    }
+    editor.close();
+  }
+  {
     // A mouse nudge mid-region must not turn Enter into a fullscreen grab.
     CaptureEditor editor(capture, CaptureEditor::CaptureMode::Smart);
     prepare(editor);

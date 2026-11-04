@@ -4572,8 +4572,9 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
       const qreal step = selectNudgeStep(event->modifiers(),
                                          event->isAutoRepeat());
       const QPointF moved = cursor_ + arrowKeyDelta(event->key(), step);
-      cursor_ = QPointF(std::clamp(moved.x(), 0.0, qreal(width() - 1)),
-                        std::clamp(moved.y(), 0.0, qreal(height() - 1)));
+      // The far edge is a valid region boundary, as for a mouse drag.
+      cursor_ = QPointF(std::clamp(moved.x(), 0.0, qreal(width())),
+                        std::clamp(moved.y(), 0.0, qreal(height())));
       keyboardPointer_ = true;
       if (dragging_)
         selection_ = normalizedSelection(dragStart_, cursor_);
@@ -4588,7 +4589,7 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
         (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
       if (!event->isAutoRepeat()) {
         if (dragging_) {
-          finishSelectDrag(cursor_);
+          finishSelectDrag(cursor_, true);
         } else {
           dragStart_ = cursor_;
           selection_ = {};
@@ -6176,12 +6177,13 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
   update();
 }
 
-void CaptureEditor::finishSelectDrag(const QPointF &end) {
+void CaptureEditor::finishSelectDrag(const QPointF &end, bool fromKeyboard) {
   selection_ = normalizedSelection(dragStart_, end);
   dragging_ = false;
   const qreal selectedArea = selection_.width() * selection_.height();
-  if (smartMode_ && (selectedArea < 20.0 || selection_.width() < 2.0 ||
-                     selection_.height() < 2.0)) {
+  if (smartMode_ && !fromKeyboard &&
+      (selectedArea < 20.0 || selection_.width() < 2.0 ||
+       selection_.height() < 2.0)) {
     selection_ = {};
     const int window = windowAt(end);
     if (window >= 0)
