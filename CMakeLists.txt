@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(omasnap VERSION 1.24.0 LANGUAGES C CXX)
+project(omasnap VERSION 1.25.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CTest)
 set(CMAKE_AUTOMOC ON)
