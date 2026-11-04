@@ -458,6 +458,14 @@ QPointF arrowKeyDelta(int key, qreal step) {
   }
 }
 
+/// How far one arrow press moves the select-phase crosshair, in pixels.
+/// `autoRepeat` is true for the repeats the keyboard sends while a key is held.
+qreal selectNudgeStep(Qt::KeyboardModifiers modifiers, bool autoRepeat) {
+  // A tap moves one pixel for exact edges; holding speeds up; Shift jumps.
+  const qreal base = autoRepeat ? 8.0 : 1.0;
+  return modifiers.testFlag(Qt::ShiftModifier) ? base * 10.0 : base;
+}
+
 bool supportsCreationConstraint(CaptureEditor::Tool tool) {
   return tool == CaptureEditor::Tool::Arrow ||
          tool == CaptureEditor::Tool::Line ||
@@ -4550,9 +4558,47 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
         event->key() == Qt::Key_Up || event->key() == Qt::Key_Down;
     if ((windowMode_ || smartMode_) && directionalKey &&
         event->modifiers().testFlag(Qt::MetaModifier)) {
+      keyboardPointer_ = false; // Enter takes the window this lights
       selectWindowInDirection(event->key());
       event->accept();
       update();
+      return;
+    }
+    // Arrows walk the crosshair a pixel at a time; Enter anchors a corner,
+    // the arrows grow the region, and a second Enter takes it.
+    if (!windowMode_ && !recentsOpen_ && directionalKey &&
+        !event->modifiers().testAnyFlags(Qt::ControlModifier |
+                                         Qt::AltModifier | Qt::MetaModifier)) {
+      const qreal step = selectNudgeStep(event->modifiers(),
+                                         event->isAutoRepeat());
+      const QPointF moved = cursor_ + arrowKeyDelta(event->key(), step);
+      cursor_ = QPointF(std::clamp(moved.x(), 0.0, qreal(width() - 1)),
+                        std::clamp(moved.y(), 0.0, qreal(height() - 1)));
+      keyboardPointer_ = true;
+      if (dragging_)
+        selection_ = normalizedSelection(dragStart_, cursor_);
+      else if (smartMode_)
+        hoveredWindow_ = -1;
+      event->accept();
+      update();
+      return;
+    }
+    // Enter also finishes a region being sized, even if the mouse was nudged.
+    if ((keyboardPointer_ || dragging_) && !windowMode_ &&
+        (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
+      if (!event->isAutoRepeat()) {
+        if (dragging_) {
+          finishSelectDrag(cursor_);
+        } else {
+          dragStart_ = cursor_;
+          selection_ = {};
+          dragging_ = true;
+          setStatus(QStringLiteral("Corner set · arrows size the area · "
+                                   "Enter captures · Esc cancels"));
+          update();
+        }
+      }
+      event->accept();
       return;
     }
     if ((windowMode_ || smartMode_) &&
@@ -5378,6 +5424,7 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
   if (capturePending_)
     return;
   if (phase_ == Phase::Select) {
+    keyboardPointer_ = false; // the mouse took over; Enter picks windows again
     if (!dragging_)
       trackRecentsHover();
     if (smartMode_) {
@@ -6129,6 +6176,41 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
   update();
 }
 
+void CaptureEditor::finishSelectDrag(const QPointF &end) {
+  selection_ = normalizedSelection(dragStart_, end);
+  dragging_ = false;
+  const qreal selectedArea = selection_.width() * selection_.height();
+  if (smartMode_ && (selectedArea < 20.0 || selection_.width() < 2.0 ||
+                     selection_.height() < 2.0)) {
+    selection_ = {};
+    const int window = windowAt(end);
+    if (window >= 0)
+      chooseWindow(window);
+    else
+      selectFullscreen();
+    updatePointerCursor();
+    update();
+    return;
+  }
+  if (selection_.width() >= 2 && selection_.height() >= 2) {
+    // Remember the drawn region for this session, so R can bring it back
+    // on the next capture. A convenience, so failing to write is no error.
+    const QString path = storedCaptureRegionPath();
+    if (!path.isEmpty()) {
+      QFile file(path);
+      if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        file.write(formatStoredRegion(capture_.monitor.name, size(),
+                                      selection_.toRect())
+                       .toUtf8());
+    }
+    commitRegion(selection_,
+                 QStringLiteral("Area selected · Select moves layers · wheel "
+                                "zooms · outer handles crop"));
+  }
+  updatePointerCursor();
+  update();
+}
+
 void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
   if (event->button() == Qt::MiddleButton && panning_) {
     panning_ = false;
@@ -6138,38 +6220,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
   if (capturePending_ || event->button() != Qt::LeftButton || !dragging_)
     return;
   if (phase_ == Phase::Select) {
-    selection_ = normalizedSelection(dragStart_, event->position());
-    dragging_ = false;
-    const qreal selectedArea = selection_.width() * selection_.height();
-    if (smartMode_ && (selectedArea < 20.0 || selection_.width() < 2.0 ||
-                       selection_.height() < 2.0)) {
-      selection_ = {};
-      const int window = windowAt(event->position());
-      if (window >= 0)
-        chooseWindow(window);
-      else
-        selectFullscreen();
-      updatePointerCursor();
-      update();
-      return;
-    }
-    if (selection_.width() >= 2 && selection_.height() >= 2) {
-      // Remember the drawn region for this session, so R can bring it back
-      // on the next capture. A convenience, so failing to write is no error.
-      const QString path = storedCaptureRegionPath();
-      if (!path.isEmpty()) {
-        QFile file(path);
-        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-          file.write(formatStoredRegion(capture_.monitor.name, size(),
-                                        selection_.toRect())
-                         .toUtf8());
-      }
-      commitRegion(selection_,
-                   QStringLiteral("Area selected · Select moves layers · wheel "
-                                  "zooms · outer handles crop"));
-    }
-    updatePointerCursor();
-    update();
+    finishSelectDrag(event->position());
     return;
   }
   if ((interaction_ == Interaction::Move || isLayerResize(interaction_)) &&
@@ -7287,6 +7338,10 @@ QVector<QPair<QString, QString>> CaptureEditor::captureHotkeyEntries() const {
                {QStringLiteral("R"), QStringLiteral("Last region")},
                {QStringLiteral("S"), QStringLiteral("Scrolling region")},
                {QStringLiteral("Esc"), QStringLiteral("Close")}};
+  if (!windowMode_)
+    hotkeys.insert(hotkeys.size() - 1,
+                   {QStringLiteral("Arrows, Enter"),
+                    QStringLiteral("Area by keyboard")});
   if (!scrollMode_ && !windowMode_)
     hotkeys.insert(hotkeys.size() - 1,
                    {QStringLiteral("Tab"),
