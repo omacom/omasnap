@@ -5,6 +5,12 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Added
+
+- `[preview] keep = true` in the config starts every fresh capture's preview
+  kept, as if its pin button had been pressed, so screenshots stay on screen
+  until closed instead of fading after seven seconds idle.
+
 ### Fixed
 
 - Open the input method's candidate window under the text caret instead of at
