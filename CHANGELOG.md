@@ -5,6 +5,13 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Added
+
+- Select a region without the mouse: arrow keys move the select overlay's
+  crosshair (1 px, 10 px with `Shift`, faster while held), `Enter` sets the
+  first corner, the arrows size the region, and `Enter` again captures it.
+  Until an arrow is pressed, `Enter` still captures the highlighted window.
+
 ## 1.25.0
 
 ### Added

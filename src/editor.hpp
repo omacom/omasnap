@@ -663,6 +663,9 @@ private:
   void replayLog();
   void redoEdit();
   void selectWindowInDirection(int key);
+  /// Commits the select-phase drag ending at `end`. A mouse drag too small to
+  /// be a region counts as a click in smart mode; a keyboard region does not.
+  void finishSelectDrag(const QPointF &end, bool fromKeyboard = false);
   friend bool runSaveAsSmoke(QString &error);
   void cancelSaveAs();
   void restoreSaveAsFocus();
@@ -797,6 +800,9 @@ private:
   QRectF marqueeRect_;
   QPointF cursor_;
   bool dragging_ = false;
+  // Set once the arrow keys move the crosshair in the select phase; Enter
+  // then anchors and commits a region instead of picking a window.
+  bool keyboardPointer_ = false;
   bool creationConstraintActive_ = false;
   bool marqueeSelecting_ = false;
   bool marqueeAdditive_ = false;

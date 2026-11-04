@@ -618,6 +618,220 @@ bool runRegionAspectCheck(QString &error) {
   return true;
 }
 
+/** Arrows move the crosshair; Enter anchors a corner and Enter again captures. */
+bool runKeyboardRegionCheck(QApplication &application, QString &error) {
+  CaptureData capture;
+  capture.monitor.geometry = QRect(0, 0, 800, 600);
+  capture.monitor.pixelSize = QSize(800, 600);
+  capture.source = QImage(800, 600, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(QColor(QStringLiteral("#6480a0")));
+  capture.previewSize = QSize(800, 600);
+  const QRect windowRect(80, 80, 300, 220);
+  capture.windows = {{windowRect, QStringLiteral("w1"), QStringLiteral("first"),
+                      QStringLiteral("test-app")}};
+
+  const auto prepare = [&application](CaptureEditor &editor) {
+    editor.setSuppressSnapshots(true);
+    editor.resize(800, 600);
+    editor.show();
+    application.processEvents();
+  };
+  const auto press = [](CaptureEditor &editor, Qt::Key key, int times = 1,
+                        Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+    for (int i = 0; i < times; ++i)
+      QTest::keyClick(&editor, key, modifiers);
+  };
+  const auto describe = [](const QRectF &rect) {
+    return QStringLiteral("%1,%2 %3x%4")
+        .arg(rect.x())
+        .arg(rect.y())
+        .arg(rect.width())
+        .arg(rect.height());
+  };
+
+  // A tap moves one pixel, Shift ten, a held key eight. The region grows
+  // from the first Enter and is taken on the second.
+  {
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Region);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(233, 171), 20);
+    press(editor, Qt::Key_Right, 3);
+    press(editor, Qt::Key_Down, 1, Qt::ShiftModifier);
+    press(editor, Qt::Key_Return);
+    if (editor.editingForTest() || !editor.currentSelection().isEmpty()) {
+      error = QStringLiteral("First Enter did not just anchor a corner");
+      return false;
+    }
+    press(editor, Qt::Key_Right, 10, Qt::ShiftModifier);
+    QKeyEvent held(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier, QString(),
+                   true);
+    QApplication::sendEvent(&editor, &held);
+    press(editor, Qt::Key_Down, 5, Qt::ShiftModifier);
+    press(editor, Qt::Key_Down, 2);
+    const QRectF expected(236, 181, 108, 52);
+    if (editor.currentSelection() != expected) {
+      error = QStringLiteral("Keyboard drag selected %1, expected %2")
+                  .arg(describe(editor.currentSelection()), describe(expected));
+      return false;
+    }
+    press(editor, Qt::Key_Enter);
+    if (!editor.editingForTest() || editor.currentSelection() != expected) {
+      error = QStringLiteral("Second Enter captured %1, expected %2")
+                  .arg(describe(editor.currentSelection()), describe(expected));
+      return false;
+    }
+    editor.close();
+  }
+
+  // Esc drops the anchored region without closing; the crosshair stops at
+  // the screen edge.
+  {
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Region);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(241, 177), 20);
+    press(editor, Qt::Key_Left);
+    press(editor, Qt::Key_Return);
+    press(editor, Qt::Key_Right, 5);
+    press(editor, Qt::Key_Escape);
+    if (!editor.isVisible() || editor.editingForTest() ||
+        !editor.currentSelection().isEmpty()) {
+      error = QStringLiteral("Esc did not cancel a keyboard region");
+      return false;
+    }
+    press(editor, Qt::Key_Left, 30, Qt::ShiftModifier);
+    press(editor, Qt::Key_Up, 30, Qt::ShiftModifier);
+    press(editor, Qt::Key_Return);
+    press(editor, Qt::Key_Right, 5, Qt::ShiftModifier);
+    press(editor, Qt::Key_Down, 4, Qt::ShiftModifier);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(0, 0, 50, 40)) {
+      error = QStringLiteral("Region from the clamped corner was %1")
+                  .arg(describe(editor.currentSelection()));
+      return false;
+    }
+    editor.close();
+  }
+
+  // In smart mode Enter still takes the window under the pointer until the
+  // arrows are used, and again after Super+Arrows or a mouse move.
+  {
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Smart);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(205, 165), 20);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(windowRect)) {
+      error = QStringLiteral("Enter without arrows no longer took the window");
+      return false;
+    }
+    editor.close();
+  }
+  {
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Smart);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(207, 166), 20);
+    press(editor, Qt::Key_Right);
+    press(editor, Qt::Key_Return);
+    press(editor, Qt::Key_Right, 4, Qt::ShiftModifier);
+    press(editor, Qt::Key_Down, 3, Qt::ShiftModifier);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(208, 166, 40, 30)) {
+      error = QStringLiteral("Smart keyboard region was %1")
+                  .arg(describe(editor.currentSelection()));
+      return false;
+    }
+    editor.close();
+  }
+  {
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Smart);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(29, 168), 20); // left of the window
+    press(editor, Qt::Key_Right);
+    press(editor, Qt::Key_Right, 1, Qt::MetaModifier);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(windowRect)) {
+      error = QStringLiteral("Enter after Super+Arrows did not take the window");
+      return false;
+    }
+    editor.close();
+  }
+  {
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Smart);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(211, 169), 20);
+    press(editor, Qt::Key_Right);
+    QTest::mouseMove(&editor, QPoint(213, 171), 20);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(windowRect)) {
+      error = QStringLiteral("Enter after a mouse move did not take the window");
+      return false;
+    }
+    editor.close();
+  }
+  {
+    // A small keyboard region is taken as drawn, not as a click on the
+    // window under it.
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Smart);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(217, 175), 20);
+    press(editor, Qt::Key_Right);
+    press(editor, Qt::Key_Return);
+    press(editor, Qt::Key_Right, 4);
+    press(editor, Qt::Key_Down, 4);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(218, 175, 4, 4)) {
+      error = QStringLiteral("Small smart keyboard region took %1")
+                  .arg(describe(editor.currentSelection()));
+      return false;
+    }
+    editor.close();
+  }
+  {
+    // Corner to corner covers the whole screen, last row and column included.
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Region);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(219, 177), 20);
+    press(editor, Qt::Key_Left, 30, Qt::ShiftModifier);
+    press(editor, Qt::Key_Up, 30, Qt::ShiftModifier);
+    press(editor, Qt::Key_Return);
+    press(editor, Qt::Key_Right, 90, Qt::ShiftModifier);
+    press(editor, Qt::Key_Down, 70, Qt::ShiftModifier);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(0, 0, 800, 600)) {
+      error = QStringLiteral("Corner-to-corner keyboard region was %1")
+                  .arg(describe(editor.currentSelection()));
+      return false;
+    }
+    editor.close();
+  }
+  {
+    // A mouse nudge mid-region must not turn Enter into a fullscreen grab.
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::Smart);
+    prepare(editor);
+    QTest::mouseMove(&editor, QPoint(215, 173), 20);
+    press(editor, Qt::Key_Right);
+    press(editor, Qt::Key_Return);
+    press(editor, Qt::Key_Right, 4, Qt::ShiftModifier);
+    press(editor, Qt::Key_Down, 3, Qt::ShiftModifier);
+    QTest::mouseMove(&editor, QPoint(260, 206), 20);
+    press(editor, Qt::Key_Return);
+    if (!editor.editingForTest() ||
+        editor.currentSelection() != QRectF(216, 173, 44, 33)) {
+      error = QStringLiteral("Enter after a mid-region mouse nudge took %1")
+                  .arg(describe(editor.currentSelection()));
+      return false;
+    }
+    editor.close();
+  }
+  return true;
+}
+
 /** Smart selection infers a click target but keeps a real drag freeform. */
 bool runSmartSelectionSmoke(QApplication &application, QString &error) {
   CaptureData capture;
@@ -12795,6 +13009,10 @@ int main(int argc, char **argv) {
   if (!runRegionAspectCheck(snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 225;
+  }
+  if (!runKeyboardRegionCheck(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 237;
   }
   if (!runSmartSelectionSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
