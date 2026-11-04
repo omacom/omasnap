@@ -304,7 +304,7 @@ Exit codes:
 | Code | Meaning |
 |---|---|
 | `0` | Success, including dismissing a running overlay |
-| `1` | Capture, image, or single-instance lock failure |
+| `1` | No reachable Wayland display, or a capture, image, or single-instance lock failure |
 | `2` | Usage error |
 
 ### Edit an existing or clipboard image
