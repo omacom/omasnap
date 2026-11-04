@@ -11,8 +11,8 @@
 #include "pin.hpp"
 #include "pin-file.hpp"
 #include "recent-snaps.hpp"
-#include "shortcut-guide.hpp"
 #include "startup-timing.hpp"
+#include "state-marker.hpp"
 
 #include <LayerShellQt/Window>
 
@@ -544,7 +544,7 @@ int main(int argc, char **argv) {
     // The closed editor may still be retaining its recent document. A fresh
     // capture must not mistake that background save for an active overlay.
     editor.hide();
-    ShortcutGuide::finishSavingChoice();
+    finishSavingStateMarkers();
     instanceLock.unlock();
     return result;
   }
@@ -578,7 +578,7 @@ int main(int argc, char **argv) {
 
   const int result = application.exec();
   editor.hide();
-  ShortcutGuide::finishSavingChoice();
+  finishSavingStateMarkers();
   instanceLock.unlock();
   return result;
 }

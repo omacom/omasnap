@@ -5,6 +5,11 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Added
+
+- `Space` in the select overlay hides the recent captures shelf, and it stays
+  hidden for later captures until `Space` shows it again.
+
 ### Fixed
 
 - Open the input method's candidate window under the text caret instead of at

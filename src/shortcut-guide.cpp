@@ -1,34 +1,26 @@
 #include "shortcut-guide.hpp"
 #include "chrome-theme.hpp"
 #include "overlay-chrome.hpp"
+#include "state-marker.hpp"
 
 #include <QColor>
 #include <QCursor>
-#include <QDir>
 #include <QEvent>
-#include <QFile>
-#include <QFileInfo>
 #include <QFontMetrics>
-#include <QFuture>
 #include <QMouseEvent>
-#include <QMutex>
-#include <QMutexLocker>
 #include <QPainter>
 #include <QPair>
 #include <QPointF>
 #include <QRectF>
 #include <QSize>
-#include <QStandardPaths>
 #include <QString>
 #include <QVector>
 #include <QWheelEvent>
 #include <QWidget>
 #include <Qt>
-#include <QtConcurrent/QtConcurrentRun>
 #include <QtTypes>
 
 #include <algorithm>
-#include <atomic>
 
 namespace {
 constexpr int kPadding = 12;
@@ -36,19 +28,10 @@ constexpr int kRowHeight = 24;
 constexpr int kToggleHeight = 36;
 constexpr int kKeyGap = 12;
 constexpr int kMargin = 14;
-
-QString hiddenMarkerPath() {
-  const QString state =
-      QStandardPaths::writableLocation(QStandardPaths::StateLocation);
-  return state.isEmpty() ? QString()
-                         : QDir(state).filePath(QStringLiteral("shortcuts-hidden"));
-}
-
-QFuture<void> savingChoice;
 } // namespace
 
 ShortcutGuide::ShortcutGuide(QWidget *parent)
-    : QWidget(parent), expanded_(!QFile::exists(hiddenMarkerPath())) {
+    : QWidget(parent), expanded_(!stateMarkerSet(QStringLiteral("shortcuts-hidden"))) {
   setObjectName(QStringLiteral("shortcut-guide"));
   setAccessibleName(QStringLiteral("Keyboard shortcuts"));
   setFocusPolicy(Qt::NoFocus);
@@ -84,28 +67,11 @@ void ShortcutGuide::setExpanded(bool expanded) {
   // The editor shows the card on its next paint; closing hides it now.
   if (!expanded_)
     hide();
-  if (const QString marker = hiddenMarkerPath(); !marker.isEmpty()) {
-    static std::atomic<bool> wantHidden;
-    static QMutex writing;
-    wantHidden = !expanded_;
-    // Each write applies the latest choice, so quick toggles cannot land
-    // out of order.
-    savingChoice = QtConcurrent::run([marker] {
-      const QMutexLocker lock(&writing);
-      if (!wantHidden) {
-        QFile::remove(marker);
-      } else if (QDir().mkpath(QFileInfo(marker).path())) {
-        QFile file(marker);
-        (void)file.open(QIODevice::WriteOnly);
-      }
-    });
-  }
+  setStateMarker(QStringLiteral("shortcuts-hidden"), !expanded_);
   // Expanding or collapsing uncovers a large part of the canvas at once.
   parentWidget()->update();
   update();
 }
-
-void ShortcutGuide::finishSavingChoice() { savingChoice.waitForFinished(); }
 
 QRect ShortcutGuide::toggleRect() const {
   return {0, height() - kToggleHeight, width(), kToggleHeight};

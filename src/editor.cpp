@@ -15,6 +15,7 @@
 #include "recent-snaps.hpp"
 #include "scroll-capture.hpp"
 #include "startup-timing.hpp"
+#include "state-marker.hpp"
 #include "text-band.hpp"
 
 #include <QtConcurrent/QtConcurrentRun>
@@ -1109,6 +1110,7 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
       (quickOutputMode_ == QuickOutputMode::None ||
        quickOutputMode_ == QuickOutputMode::CopyAndPreview)) {
     startupTimingMark("recent shelf load dispatch starting");
+    recentsHidden_ = stateMarkerSet(QStringLiteral("recents-hidden"));
     loadRecents();
     startupTimingMark("recent shelf load dispatched");
   }
@@ -4588,6 +4590,22 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
       setScrollMode(!scrollMode_);
       return;
     }
+    if (event->key() == Qt::Key_Space && !event->modifiers()) {
+      if (!event->isAutoRepeat() && !recents_.isEmpty()) {
+        recentsHidden_ = !recentsHidden_;
+        setStateMarker(QStringLiteral("recents-hidden"), recentsHidden_);
+        if (recentsHidden_)
+          setRecentsOpen(false);
+        else
+          trackRecentsHover();
+        setStatus(recentsHidden_ ? QStringLiteral("Recent captures hidden")
+                                 : QStringLiteral("Recent captures shown"));
+        updatePointerCursor();
+        update();
+      }
+      event->accept();
+      return;
+    }
     if ((event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) &&
         !windowMode_ && !scrollMode_) {
       cycleRegionAspect(event->key() == Qt::Key_Tab &&
@@ -7001,7 +7019,7 @@ bool CaptureEditor::waitForRecents() {
 
 QVector<CaptureEditor::RecentCard>
 CaptureEditor::recentCards(qreal fan) const {
-  if (phase_ != Phase::Select || recents_.isEmpty())
+  if (phase_ != Phase::Select || recentsHidden_ || recents_.isEmpty())
     return {};
   // Card 0 is the newest and sits on top of the stack; fanned, it is the
   // topmost of the column. Each keeps its own aspect inside the card box.
@@ -7278,6 +7296,11 @@ QVector<QPair<QString, QString>> CaptureEditor::captureHotkeyEntries() const {
                   quickOutputMode_ == QuickOutputMode::None
                       ? QStringLiteral("Annotate after capture: on")
                       : QStringLiteral("Annotate after capture: off")});
+  if (!recents_.isEmpty())
+    hotkeys.insert(hotkeys.size() - 1,
+                   {QStringLiteral("Space"),
+                    recentsHidden_ ? QStringLiteral("Recent captures: hidden")
+                                   : QStringLiteral("Recent captures: shown")});
   return hotkeys;
 }
 

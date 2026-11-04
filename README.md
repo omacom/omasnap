@@ -85,7 +85,8 @@ preview keeps it on screen.
 - Open an image already on the clipboard directly in the annotation editor.
 - A recents shelf: the select overlay stacks small cards of the last five captures
   along the right edge; hover to fan them out, click one to reopen it in the editor
-  with its layers still editable instead of taking a new screenshot.
+  with its layers still editable instead of taking a new screenshot. `Space`
+  hides the shelf, and it stays hidden until `Space` brings it back.
 - Correct native-pixel export on fractional or integer-scaled monitors.
 - Pins, editor controls, tooltips, and selection outlines follow the current
   Omarchy theme, including live theme changes. Screenshot pixels, annotation
@@ -345,7 +346,8 @@ on a shelf of the five most recent under
 `~/.local/state/omasnap/recent/` (`OMASNAP_RECENT_DIR` overrides). The select
 overlay shows them as a small stack of cards on the right; hovering fans them out
 and clicking one reopens that capture in the editor, undo history intact, in place
-of a new screenshot. No annotation, Copy, Save, or pin action is required: the
+of a new screenshot. `Space` hides the shelf, and later captures keep it hidden
+until `Space` shows it again. No annotation, Copy, Save, or pin action is required: the
 shot remains available after its floating preview expires or closes. Dismissing
 the editor with `Esc` also remembers its current edits. Editing the same shot
 updates its existing entry; cancelling before selecting a capture adds nothing.
@@ -473,6 +475,7 @@ controls to return focus from the live page.
 | `Enter` | Capture the highlighted window |
 | `Ctrl+A` | Select the full focused monitor |
 | Hover the right-edge stack | Fan out the five most recent captures; click one to reopen it |
+| `Space` | Hide or show the recent captures; the choice is remembered |
 | `Esc` | Dismiss; cancel a selection drag if one is in progress |
 
 Region memory is stored in Omasnap's private runtime directory. It survives

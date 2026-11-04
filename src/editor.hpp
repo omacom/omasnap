@@ -370,6 +370,7 @@ public:
   bool waitForRecents();
   /// Whether the shelf is fanned out. Test accessor.
   [[nodiscard]] bool recentsOpenForTest() const { return recentsOpen_; }
+  [[nodiscard]] bool recentsHiddenForTest() const { return recentsHidden_; }
   /// Widget rect of shelf card `index` at its settled position (fanned when
   /// open, stacked when not), or null. Test accessor.
   [[nodiscard]] QRectF recentCardRectForTest(int index) const;
@@ -776,6 +777,8 @@ private:
   QFutureWatcher<QVector<RecentSnap>> recentsWatcher_;
   bool recentsLoading_ = false;
   bool recentsOpen_ = false;
+  /// Space folds the shelf away, remembered across captures.
+  bool recentsHidden_ = false;
   int hoveredRecent_ = -1;
   /// 0 = stacked, 1 = fanned; eased between the two by recentsAnimTimer_.
   qreal recentsFan_ = 0.0;

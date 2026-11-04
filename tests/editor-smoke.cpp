@@ -17,6 +17,7 @@
 #include "selection-repaint-smoke.hpp"
 #include "overlay-chrome.hpp"
 #include "recent-snaps.hpp"
+#include "state-marker.hpp"
 #include "recent-persistence-smoke.hpp"
 #include "instance-lock-smoke.hpp"
 #include "palette-config-smoke.hpp"
@@ -6459,7 +6460,41 @@ bool runRecentsShelfSmoke(QApplication &application, QString &error) {
       error = QStringLiteral("Shelf stayed open after the pointer left");
       return false;
     }
+    // Space hides the shelf, and the next overlay remembers it.
+    const QPoint shelfPoint =
+        again.recentCardRectForTest(0).center().toPoint();
+    QTest::keyClick(&again, Qt::Key_Space);
+    application.processEvents();
+    QTest::mouseMove(&again, shelfPoint, 20);
+    application.processEvents();
+    if (!again.recentsHiddenForTest() || again.recentsOpenForTest() ||
+        !again.recentCardRectForTest(0).isNull()) {
+      error = QStringLiteral("Space did not hide the recents shelf");
+      return false;
+    }
     again.close();
+    finishSavingStateMarkers();
+    {
+      CaptureEditor hidden(capture, CaptureEditor::CaptureMode::Region);
+      hidden.resize(800, 600);
+      hidden.show();
+      application.processEvents();
+      hidden.waitForRecents();
+      if (!hidden.recentsHiddenForTest() ||
+          !hidden.recentCardRectForTest(0).isNull()) {
+        error = QStringLiteral("A hidden recents shelf came back next capture");
+        return false;
+      }
+      QTest::keyClick(&hidden, Qt::Key_Space);
+      application.processEvents();
+      if (hidden.recentsHiddenForTest() ||
+          hidden.recentCardRectForTest(0).isNull()) {
+        error = QStringLiteral("Space did not bring the recents shelf back");
+        return false;
+      }
+      hidden.close();
+      finishSavingStateMarkers();
+    }
   }
   shelved = listRecentSnaps(false);
   if (shelved.size() != 1 || shelved.constFirst().sourcePath == firstSource ||
