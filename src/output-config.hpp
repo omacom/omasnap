@@ -44,5 +44,10 @@ struct OutputConfig {
  *  solid backdrop instead of the overlay's see-through dim. */
 [[nodiscard]] bool loadEditorWindowBackdropOpaque(const QString &filePath);
 
+/** True when [preview] keep = true: a fresh capture's preview starts kept,
+ *  as if its pin button had been pressed, instead of fading after seven
+ *  seconds of idle time. The pin button still releases it. */
+[[nodiscard]] bool loadPreviewKept(const QString &filePath);
+
 /** ~/.config/omasnap/omasnap.conf (XDG config location). */
 [[nodiscard]] QString defaultConfigPath();

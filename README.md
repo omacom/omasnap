@@ -395,6 +395,12 @@ directory = ~/Pictures/Captures
 # Default: screenshot-{date}_{time}-{app}
 filename = screenshot-{date}_{time}-{app}
 
+[preview]
+# Start every fresh capture's preview kept, as if its pin button had been
+# pressed, so it stays until closed instead of fading after 7 seconds idle.
+# The pin button still releases it. Default: false.
+keep = false
+
 [colors]
 # Up to eight preset colors for the palette, and the initial custom color.
 palette = #ff375f, #ff9f0a, #ffd60a, #30d158, #0a84ff, #bf5af2, #000000, #ffffff
@@ -539,6 +545,7 @@ the completion notification. Hovering the stack and in-progress
 actions pause the countdown; it resumes when the preview is idle again. Clicking,
 scrolling, copying, or editing does not pin the preview. The pin button,
 `Ctrl+P` on a focused preview, or `T` ("tack") while hovered keeps it until closed.
+To keep every preview this way, set `[preview] keep = true` in the config.
 Dragging the preview also pins it, even if the drag only reorders the stack.
 `T` remains the Text shortcut in the editor. Kept shots show a
 pin icon in the active window-border color, even when the other controls are

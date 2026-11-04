@@ -3736,6 +3736,18 @@ bool runEditorWindowConfigCheck(QString &error) {
     return false;
   }
 
+  writeConf(QStringLiteral("[preview]\nkeep = true\n"));
+  const bool kept = loadPreviewKept(path);
+  writeConf(QStringLiteral("[preview]\nkeep = false\n"));
+  const bool notKept = loadPreviewKept(path);
+  QFile::remove(path);
+  const bool keepDefault =
+      loadPreviewKept(QStringLiteral("/nonexistent/omasnap.conf"));
+  if (!kept || notKept || keepDefault) {
+    error = QStringLiteral("[preview] keep was not read as true-or-timed");
+    return false;
+  }
+
   writeConf(QStringLiteral("[editor]\nbackdrop = translucent\n"));
   const bool translucent = loadEditorWindowBackdropOpaque(path);
   QFile::remove(path);

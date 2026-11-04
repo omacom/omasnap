@@ -227,7 +227,9 @@ int main(int argc, char **argv) {
     QString pinPath = QUrl(target).toLocalFile();
     if (pinPath.isEmpty())
       pinPath = target;
-    return runPinnedCapture(pinPath, preview ? PinLifetime::Timed : PinLifetime::Persistent);
+    // A kept preview is a pin from the start: the timer is the only difference.
+    const bool timed = preview && !loadPreviewKept(defaultConfigPath());
+    return runPinnedCapture(pinPath, timed ? PinLifetime::Timed : PinLifetime::Persistent);
   }
   if (positional.size() > 1) {
     qCritical() << "Only one capture target may be specified";
