@@ -1000,8 +1000,15 @@ void applyRedactions(QImage &image, const QVector<Annotation> &annotations,
     if (region.isEmpty())
       continue;
     QVector<QColor> palette;
+    QImage blurred;
     if (annotation.redactionStyle == RedactionStyle::Pixelate)
       palette = aggregateRedactionPalette(image, region);
+    else if (annotation.redactionStyle == RedactionStyle::Blur) {
+      const QImage patch = image.copy(region);
+      blurred = patch.scaled(qMax(1, region.width() / 14),
+                             qMax(1, region.height() / 14),
+                             Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    }
 
     // Finish all source reads before activating a painter on the same image.
     QPainter painter(&image);
@@ -1009,6 +1016,10 @@ void applyRedactions(QImage &image, const QVector<Annotation> &annotations,
     painter.setRenderHint(QPainter::Antialiasing, false);
     if (annotation.redactionStyle == RedactionStyle::Solid) {
       painter.fillRect(region, QColor(QStringLiteral("#121216")));
+      continue;
+    }
+    if (annotation.redactionStyle == RedactionStyle::Blur) {
+      painter.drawImage(region, blurred);
       continue;
     }
 
@@ -2344,10 +2355,13 @@ QJsonObject annotationToJson(const Annotation &annotation) {
                   annotation.smoothingLevel);
   }
   if (annotation.kind == Annotation::Kind::Redaction) {
-    object.insert(QStringLiteral("redactionStyle"),
-                  annotation.redactionStyle == RedactionStyle::Solid
-                      ? QStringLiteral("solid")
-                      : QStringLiteral("pixelate"));
+    const QString styleName =
+        annotation.redactionStyle == RedactionStyle::Solid
+            ? QStringLiteral("solid")
+            : annotation.redactionStyle == RedactionStyle::Blur
+                  ? QStringLiteral("blur")
+                  : QStringLiteral("pixelate");
+    object.insert(QStringLiteral("redactionStyle"), styleName);
     object.insert(QStringLiteral("seed"),
                   QString::number(annotation.redactionSeed));
   }
@@ -2411,7 +2425,9 @@ bool annotationFromJson(const QJsonObject &object, Annotation &annotation,
       object.value(QStringLiteral("redactionStyle")).toString();
   annotation.redactionStyle = redactionStyle == QStringLiteral("solid")
                                   ? RedactionStyle::Solid
-                                  : RedactionStyle::Pixelate;
+                                  : redactionStyle == QStringLiteral("blur")
+                                        ? RedactionStyle::Blur
+                                        : RedactionStyle::Pixelate;
   annotation.redactionSeed =
       object.value(QStringLiteral("seed")).toString().toUInt();
   annotation.filled = object.value(QStringLiteral("filled")).toBool(false);
