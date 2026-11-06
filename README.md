@@ -80,6 +80,8 @@ preview keeps it on screen.
   a private `/tmp/omasnap-<UID>/`): the original source image plus a sidecar JSON
   operation log. Undo still works after a crash or `--file` reopen. Saving and
   copying write a normal flattened PNG to the clipboard or `~/Pictures/Screenshots`.
+  An image opened from a JPEG is saved as a high-quality JPEG instead, unless the
+  flattened result has a transparent pixel.
 - Verified PNG clipboard output through `wl-copy`/`wl-paste`, plus timestamped files
   under `~/Pictures/Screenshots` by default.
 - Open an image already on the clipboard directly in the annotation editor.
@@ -521,8 +523,8 @@ region after changing the display layout.
 | `Ctrl+Z` | Undo |
 | `Ctrl+Shift+Z`, `Ctrl+Y` | Redo |
 | `Ctrl+C` | Copy PNG only |
-| `Ctrl+S` | Save PNG only |
-| `Ctrl+Shift+S` | Save As: choose a PNG destination (`.png` is added when omitted; other formats are rejected) |
+| `Ctrl+S` | Save only. An opened JPEG is saved as JPEG; screenshots stay PNG |
+| `Ctrl+Shift+S` | Save As. An opened JPEG can be saved as JPEG or PNG; other images are PNG only (`.png` is added when omitted; other formats are rejected) |
 | `Enter` | Copy and save (with a text layer selected: edit it) |
 | `Ctrl+P` / `P` | Keep the capture pinned on screen and close the editor |
 | `Esc` / `Super+W` | Dismiss the annotator; keep an originating pin in place with its edits and undo history |
@@ -531,7 +533,7 @@ region after changing the display layout.
 Save As opens a centered file chooser. Saving from the editor with Save, Save As,
 or Copy + Save closes it and shows an unpinned preview in the lower-right stack,
 replacing an originating preview or pin. The preview has the usual 7-second idle
-timeout; its folder and Copy path buttons refer to the exact PNG you saved.
+timeout; its folder and Copy path buttons refer to the exact file you saved.
 Cancel or a failed save keeps the editor open. Recent captures retain the editable
 layers and undo history.
 
@@ -571,6 +573,9 @@ where the compositor placed it.
 
 Captures use fast lossless PNG encoding. The corner card loads a separate small
 display image; the clipboard, saved files, and editor retain every original pixel.
+Opening a JPEG and saving it writes JPEG at quality 93, which keeps a photo near
+its original size. Copy still puts a PNG on the clipboard. A result with any
+transparent pixel, including a rounded card, stays PNG.
 
 The preview is 200 logical pixels wide with the display's aspect ratio (height
 clamped to 50–400 pixels). It fills that frame with a top-anchored cover crop;

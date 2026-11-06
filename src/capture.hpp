@@ -147,9 +147,14 @@ struct OperationLog {
   QSize previewSize;
   /// Identity shared by a capture's recent entry, preview, and editor handoffs.
   QString recentId = {};
-  /// Durable PNG represented by a rendered preview. A returned pin document
+  /// Durable file represented by a rendered preview. A returned pin document
   /// sets this only after its replacement saved preview has been launched.
   QString savedPath = {};
+  /// The edited image was opened from a JPEG. An opaque export is written as
+  /// JPEG so a photo does not become a fast screenshot PNG several times its
+  /// size. Clipboard copies, screenshots, and any export with a transparent
+  /// pixel stay PNG.
+  bool jpegSource = false;
 
   bool operator==(const OperationLog &) const = default;
 };
@@ -316,7 +321,10 @@ inline constexpr qint64 kMaxClipboardImageBytes = qint64(256) * 1024 * 1024;
  *  when no other offered format loads; only tests pass another limit. */
 [[nodiscard]] bool loadClipboardImage(
     QImage &image, QString &error,
-    qint64 maxImageBytes = kMaxClipboardImageBytes);
+    qint64 maxImageBytes = kMaxClipboardImageBytes,
+    QString *loadedMime = nullptr);
+/** True when any pixel is not fully opaque. JPEG cannot store that pixel. */
+[[nodiscard]] bool imageHasTransparency(const QImage &image);
 [[nodiscard]] bool copyPngFileToClipboard(const QString &path, QString &error);
 [[nodiscard]] bool copyImageToClipboard(const QImage &image, QString &error);
 [[nodiscard]] bool quickOutput(QImage image, QuickOutputMode mode,
@@ -417,6 +425,14 @@ QImage applyRedactionsScaled(QImage image, const QVector<Annotation> &redactions
  * failure. PNG encoding and disk I/O must run on a worker. */
 [[nodiscard]] bool savePngFile(const QImage &image, const QString &path,
                               QString &error);
+/** Atomically saves an opaque image as a high-quality JPEG. Refuses a
+ *  transparent image instead of flattening it. Encoding must run on a worker. */
+[[nodiscard]] bool saveJpegFile(const QImage &image, const QString &path,
+                                QString &error);
+/** Writes a JPEG into the screenshots directory. The filename pattern matches
+ *  PNG captures, with a `.jpg` suffix. */
+[[nodiscard]] QString saveJpegScreenshot(const QImage &image, QString &error,
+                                         const QString &appSlug = {});
 /**
  * Moves a finished export into the screenshots directory as
  * `screenshot-<yyyy-MM-dd_HH-mm-ss>[-<appSlug>].png`. The date leads so the
@@ -453,15 +469,22 @@ bool removeEditorHandoff(const QString &path, const QString &token);
 [[nodiscard]] bool savePinnedSnapshot(QImage image, const QString &path,
                                       const QSize &logicalSize, QString &error,
                                       const QString &recentId = {},
-                                      const QString &savedPath = {});
+                                      const QString &savedPath = {},
+                                      const QString &reusePng = {},
+                                      bool jpegSource = false);
 /** Saves and launches a private pin, optionally copying the same PNG first.
- *  Call on a worker: encoding, clipboard verification and process launch block.
- *  Returns the owned snapshot path, or removes it on failure. */
+ *  `reusePng` is a PNG already encoded for this render; it is moved into the
+ *  pin instead of encoding the image again. `jpegSource` is recorded on the
+ *  pin's log so a later edit still saves JPEG after the capture leaves the
+ *  recents shelf. Call on a worker: encoding, clipboard verification and
+ *  process launch block. Returns the owned snapshot path, or removes it on
+ *  failure. */
 [[nodiscard]] QString launchPinnedCapture(
     const QImage &image, const QSize &logicalSize, bool copy,
     PinLifetime lifetime, QString &error,
     const std::function<bool(const QString &, const QStringList &)> &launcher = {},
-    const QString &recentId = {}, const QString &savedPath = {});
+    const QString &recentId = {}, const QString &savedPath = {},
+    const QString &reusePng = {}, bool jpegSource = false);
 /** Atomically writes a lossless PNG into the private runtime directory. */
 [[nodiscard]] bool saveTemporarySnapshot(const QImage &image, QString path,
                                          QString &error);
