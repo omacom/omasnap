@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Omasnap
+GenericName=Annotate image
+Comment=Annotate an existing image
+Exec=omasnap --file %f
+Icon=camera-photo
+Terminal=false
+NoDisplay=true
+StartupNotify=false
+Categories=Graphics;
+Keywords=annotate;markup;screenshot;
+MimeType=image/png;image/jpeg;image/pjpeg;image/gif;image/webp;image/bmp;image/x-bmp;image/tiff;image/x-tga;image/x-targa;image/vnd.microsoft.icon;image/x-icon;image/x-icns;image/x-portable-bitmap;image/x-portable-graymap;image/x-portable-pixmap;image/x-portable-anymap;image/x-xpixmap;image/x-xbitmap;
