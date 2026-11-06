@@ -14,6 +14,7 @@
 #include "cut-smoke.hpp"
 #include "editor.hpp"
 #include "shortcut-guide.hpp"
+#include "special-workspace-smoke.hpp"
 #include "selection-repaint-smoke.hpp"
 #include "overlay-chrome.hpp"
 #include "recent-snaps.hpp"
@@ -12735,6 +12736,10 @@ int main(int argc, char **argv) {
   }
   CollapseShortcutGuides collapseGuides;
   application.installEventFilter(&collapseGuides);
+  if (!runSpecialWorkspaceSmoke(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 239;
+  }
   if (!runScrollFocusSmoke(snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 224;

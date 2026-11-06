@@ -5,6 +5,11 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Fixed
+
+- Smart selection includes windows on the monitor's active special workspace
+  and selects them ahead of overlapping regular-workspace windows.
+
 ## 1.25.0
 
 ### Added
