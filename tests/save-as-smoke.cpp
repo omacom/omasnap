@@ -2,6 +2,7 @@
 #include "save-as-smoke.hpp"
 #include "capture.hpp"
 #include "editor.hpp"
+#include "png.hpp"
 #include "recent-snaps.hpp"
 #include "pin-file.hpp"
 
@@ -430,6 +431,82 @@ bool runSaveAsSmoke(QString &error) {
     editor.reset();
     if (QImage(output).isNull()) {
       error = QStringLiteral("Destroying editor interrupted accepted Save As output");
+      return false;
+    }
+  }
+  {
+    QImage tagged(40, 20, QImage::Format_ARGB32);
+    tagged.fill(Qt::red);
+    setPngLogicalSize(tagged, QSize(20, 10));
+    tagged.setDevicePixelRatio(2);
+    const QImage same = scaledExportImage(tagged, 100);
+    const QImage half = scaledExportImage(tagged, 50);
+    const QImage fifth = scaledExportImage(tagged, 20);
+    if (same.size() != tagged.size() || pngLogicalSize(same) != QSize(20, 10) ||
+        half.size() != QSize(20, 10) || !pngLogicalSize(half).isEmpty() ||
+        half.devicePixelRatio() != 1.0 || fifth.size() != QSize(8, 4)) {
+      error = QStringLiteral("Export scale did not resample the flattened image: "
+                             "%1x%2 ratio %3")
+                  .arg(half.width())
+                  .arg(half.height())
+                  .arg(half.devicePixelRatio());
+      return false;
+    }
+
+    CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+    editor.resize(800, 600);
+    editor.show();
+    QCoreApplication::processEvents();
+    QTest::keyClick(&editor, Qt::Key_K);
+    if (editor.exportScalePercent_ != 50 ||
+        !editor.statusForTest().contains(QStringLiteral("50%"))) {
+      error = QStringLiteral("K did not choose a 50% export: %1")
+                  .arg(editor.statusForTest());
+      return false;
+    }
+    QTest::keyClick(&editor, Qt::Key_K);
+    QTest::keyClick(&editor, Qt::Key_K);
+    if (editor.exportScalePercent_ != 100) {
+      error = QStringLiteral("K did not return the export to full size");
+      return false;
+    }
+    QTest::keyClick(&editor, Qt::Key_K, Qt::ShiftModifier);
+    if (editor.exportScalePercent_ != 20) {
+      error = QStringLiteral("Shift+K did not reverse the export size");
+      return false;
+    }
+    QTest::keyClick(&editor, Qt::Key_K, Qt::ShiftModifier);
+    const QImage rendered = editor.renderCurrentOutput();
+    const QSize expected = scaledExportImage(rendered, editor.exportScalePercent_).size();
+    const int ops = editor.operationIndex();
+    const int previewCount = static_cast<int>(previews.size());
+    preparePreview(editor);
+    const QString output = directory.filePath(QStringLiteral("half.png"));
+    editor.saveAsToPath(output);
+    if (!waitUntil([&] { return !editor.busy_ && !editor.isVisible(); }) ||
+        QImage(output).size() != expected ||
+        editor.renderCurrentOutput().size() != rendered.size() ||
+        editor.operationIndex() != ops) {
+      error = QStringLiteral("A 50% save did not resize only the file: %1x%2 vs %3x%4 status=%5")
+                  .arg(QImage(output).width())
+                  .arg(QImage(output).height())
+                  .arg(expected.width())
+                  .arg(expected.height())
+                  .arg(editor.statusForTest());
+      return false;
+    }
+    if (!pngLogicalSize(QImage(output)).isEmpty()) {
+      error = QStringLiteral("A resized save kept the screenshot logical-size tag");
+      return false;
+    }
+    if (previews.size() != previewCount + 1 ||
+        QImage(previews.last()).size() != expected) {
+      error = QStringLiteral("The saved preview did not match the resized file");
+      return false;
+    }
+    const auto recent = findRecentSnap(editor.recentId_, &error);
+    if (!recent || QImage(recent->sourcePath).size() != capture.source.size()) {
+      error = QStringLiteral("A resized save changed the working document");
       return false;
     }
   }

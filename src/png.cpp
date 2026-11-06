@@ -53,6 +53,10 @@ void setPngLogicalSize(QImage &image, const QSize &size) {
     image.setText(kLogicalSizeKey, text);
 }
 
+void clearPngLogicalSize(QImage &image) {
+  image.setText(QString(kLogicalSizeKey), {});
+}
+
 bool logicalScaleAllowed(const QSize &pixels, const QSize &logical) {
   if (logical.isEmpty() || pixels.isEmpty())
     return false;

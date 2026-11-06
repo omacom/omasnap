@@ -660,6 +660,7 @@ private:
   void commitCanvasBoundary(CanvasBoundaryMode mode);
   void cycleCanvasBoundary(bool reverse);
   void cycleBackground();
+  void cycleExportScale(bool reverse);
   void replayLog();
   void redoEdit();
   void selectWindowInDirection(int key);
@@ -983,6 +984,10 @@ private:
   /// stitch). `viewZoom_` multiplies the fit scale (1 = whole image visible);
   /// `viewOffset_` pans in widget pixels. Reset on entering edit.
   qreal viewZoom_ = 1.0;
+  /// Percent of the flattened image that Save and Save As write. 100 keeps
+  /// every pixel. Copy is never resampled. This is not part of the operation
+  /// log, so closing the editor returns the next save to full size.
+  int exportScalePercent_ = 100;
   QPointF viewOffset_;
   bool panning_ = false;
   QPointF panAnchor_;

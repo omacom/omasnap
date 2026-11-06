@@ -417,6 +417,11 @@ QImage applyRedactionsScaled(QImage image, const QVector<Annotation> &redactions
  * failure. PNG encoding and disk I/O must run on a worker. */
 [[nodiscard]] bool savePngFile(const QImage &image, const QString &path,
                               QString &error);
+/** Resamples a flattened export to `percent` of its pixel size. 100 and
+ *  anything outside 1–99 return the same image. A smaller result drops the
+ *  screenshot logical-size tag and device-pixel ratio: the file is a resized
+ *  picture, not a scaled screenshot. Call on a worker. */
+[[nodiscard]] QImage scaledExportImage(const QImage &image, int percent);
 /**
  * Moves a finished export into the screenshots directory as
  * `screenshot-<yyyy-MM-dd_HH-mm-ss>[-<appSlug>].png`. The date leads so the

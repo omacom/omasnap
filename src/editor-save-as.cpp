@@ -196,10 +196,15 @@ void CaptureEditor::saveAsToPath(const QString &path) {
        boundary = canvasBoundaryMode_, backdrop = customBackdrop_,
        source = pristineSource_, log = currentOperationLog(),
        previous = editingRecent_, document = pinDocument_,
-       launcher = processLauncher_, path](QPromise<QString> &completion) {
+       launcher = processLauncher_, path,
+       exportScale = exportScalePercent_](QPromise<QString> &completion) {
     RecentSnapWriter recent(log.recentId);
-    const QImage image = renderCapture(capture, selection, annotations,
-                                       background, shadow, boundary, backdrop);
+    const QImage full = renderCapture(capture, selection, annotations,
+                                      background, shadow, boundary, backdrop);
+    const QImage image = scaledExportImage(full, exportScale);
+    const bool scaled = image.size() != full.size();
+    const QSize logical = scaled ? image.size()
+                                 : renderedCaptureLogicalSize(capture, image.size());
     QString error;
     if (savePngFile(image, path, error)) {
       // Without --notify, the saved file keeps its timed preview.
@@ -208,7 +213,7 @@ void CaptureEditor::saveAsToPath(const QString &path) {
         sendCaptureNotification(QStringLiteral("Screenshot saved"), path,
                                 log.recentId, launcher);
       } else if (launchPinnedCapture(
-                     image, renderedCaptureLogicalSize(capture, image.size()), false,
+                     image, logical, false,
                      PinLifetime::Timed, error, launcher, log.recentId, path)
                      .isEmpty()) {
         announced = false;
@@ -222,7 +227,7 @@ void CaptureEditor::saveAsToPath(const QString &path) {
     // log afterward, just as other completed captures do.
     completion.addResult(error);
     QString recentError;
-    if (!recent.record(source, log, image, recentError,
+    if (!recent.record(source, log, full, recentError,
                        previous ? &*previous : nullptr))
       qWarning("Could not retain Save As capture: %s", qPrintable(recentError));
   });
