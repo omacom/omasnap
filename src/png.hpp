@@ -8,6 +8,7 @@ class QSize;
 /** Store/read the capture's logical dimensions without changing its pixels.
  *  PNG text survives file moves and clipboard transfers without a sidecar. */
 void setPngLogicalSize(QImage &image, const QSize &size);
+void clearPngLogicalSize(QImage &image);
 [[nodiscard]] QSize pngLogicalSize(const QImage &image);
 /** True when `pixels` shown at `logical` means a display scale of 1 to 4 on
  *  both axes, the only scales a tag or operation log may claim. */

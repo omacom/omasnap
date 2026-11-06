@@ -2084,6 +2084,32 @@ bool saveTemporarySnapshot(const QImage &image, QString path, QString &error) {
   return savePngFile(image, path, error);
 }
 
+QImage scaledExportImage(const QImage &image, int percent) {
+  if (image.isNull() || percent >= 100 || percent <= 0)
+    return image;
+  const auto axis = [percent](int pixels) {
+    const qint64 scaled = (qint64(pixels) * percent + 50) / 100;
+    if (scaled < 1)
+      return 1;
+    if (scaled > pixels)
+      return pixels;
+    return static_cast<int>(scaled);
+  };
+  const int width = axis(image.width());
+  const int height = axis(image.height());
+  if (width == image.width() && height == image.height())
+    return image;
+  QImage scaled = image.scaled(width, height, Qt::IgnoreAspectRatio,
+                               Qt::SmoothTransformation);
+  if (scaled.isNull())
+    return image;
+  scaled.setDevicePixelRatio(1);
+  scaled.setDotsPerMeterX(0);
+  scaled.setDotsPerMeterY(0);
+  clearPngLogicalSize(scaled);
+  return scaled;
+}
+
 bool savePngFile(const QImage &image, const QString &path, QString &error) {
   if (image.isNull() || path.isEmpty()) {
     error = QStringLiteral("Cannot save an empty image or filename");

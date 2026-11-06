@@ -1,6 +1,7 @@
 /** @fileoverview Handles screenshot selection, annotation, and editor drawing.
  */
 #include "editor.hpp"
+#include "capture.hpp"
 #include "shortcut-guide.hpp"
 #include "chrome-theme.hpp"
 #include "card-stack.hpp"
@@ -163,6 +164,7 @@ namespace {
 constexpr std::array<qreal, 3> kTextSizes{2.0, 5.0, 9.0};
 constexpr std::array<const char *, 3> kTextSizeNames{"S", "M", "L"};
 constexpr qreal kToolbarWidth = 840;
+constexpr std::array<int, 3> kExportScalePercents{100, 50, 20};
 // Toolbar row to the top of the image below it.
 constexpr qreal kToolbarImageGap = 18.0;
 // Preserve the editor's established top inset without capture-mode chrome.
@@ -2765,9 +2767,18 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
   // Actions: pin and finish/exit the capture.
   add(36, QStringLiteral("pin"), {},
       QStringLiteral("Keep on screen · Ctrl+P / P · Ctrl+C on the pin copies it"));
-  add(36, QStringLiteral("copy"), {}, QStringLiteral("Copy only · Ctrl+C"));
-  add(40, QStringLiteral("both"), {}, QStringLiteral("Copy and save · Enter"));
-  add(36, QStringLiteral("save"), {}, QStringLiteral("Save only · Ctrl+S"));
+  add(36, QStringLiteral("copy"), {},
+      exportScalePercent_ == 100
+          ? QStringLiteral("Copy only · Ctrl+C")
+          : QStringLiteral("Copy only · Ctrl+C · full size"));
+  add(40, QStringLiteral("both"), {},
+      exportScalePercent_ == 100
+          ? QStringLiteral("Copy and save · Enter")
+          : QStringLiteral("Copy and save · Enter · file at %1%")
+                .arg(exportScalePercent_));
+  add(36, QStringLiteral("save"), {},
+      QStringLiteral("Save only · Ctrl+S · %1% · K cycles")
+          .arg(exportScalePercent_));
   add(36, QStringLiteral("close"), {}, QStringLiteral("Close · Esc"));
 
   if (includeSubmenus && shapeMenuOpen_) {
@@ -3135,6 +3146,25 @@ void CaptureEditor::cycleBackground() {
                                   : QStringLiteral("off")));
   }
   commitBackground(next, nextShadow);
+}
+
+void CaptureEditor::cycleExportScale(bool reverse) {
+  int index = 0;
+  for (int i = 0; i < static_cast<int>(kExportScalePercents.size()); ++i) {
+    if (kExportScalePercents[static_cast<std::size_t>(i)] == exportScalePercent_) {
+      index = i;
+      break;
+    }
+  }
+  const int count = static_cast<int>(kExportScalePercents.size());
+  index = reverse ? (index + count - 1) % count : (index + 1) % count;
+  exportScalePercent_ = kExportScalePercents[static_cast<std::size_t>(index)];
+  setStatus(exportScalePercent_ == 100
+                ? QStringLiteral("Export size 100% · K cycles · save keeps "
+                                 "every pixel · copy stays full size")
+                : QStringLiteral("Export size %1% · K cycles · Shift+K back · "
+                                 "save writes this size · copy stays full size")
+                      .arg(exportScalePercent_));
 }
 
 void CaptureEditor::seedConfiguredBackground(BackgroundStyle style) {
@@ -4197,13 +4227,15 @@ void CaptureEditor::finish(OutputMode mode) {
       appFilenameSlug(dominantAppClass(capture_.windows, selection_));
   const auto launcher = processLauncher_;
   const bool savedPreview = phase_ == Phase::Edit;
+  const int exportScale = exportScalePercent_;
   finishWatcher_.setFuture(QtConcurrent::run([captureCopy, source, log, previous, selection,
                                               annotations, background,
                                               imageShadow, canvasBoundary,
                                               backdrop, appSlug, mode, launcher, savedPreview,
                                               document = pinDocument_,
                                               snapshotsSuppressed, pendingSnapshot,
-                                              workingSource, workingLog](QPromise<FinishResult> &completion) mutable {
+                                              workingSource, workingLog,
+                                              exportScale](QPromise<FinishResult> &completion) mutable {
     FinishResult result;
     result.mode = mode;
     result.snapshotsSuppressed = snapshotsSuppressed;
@@ -4242,36 +4274,68 @@ void CaptureEditor::finish(OutputMode mode) {
           true, PinLifetime::Timed, result.error, launcher, log.recentId));
       return;
     }
+    const bool wantsCopy = mode == OutputMode::Copy || mode == OutputMode::Both ||
+                           autosave;
+    const bool wantsSave = mode == OutputMode::Save || mode == OutputMode::Both ||
+                           autosave;
+    // Copy keeps the full render. A smaller export size resamples only the
+    // file, and encodes that file separately so the clipboard PNG can stay.
+    const QImage savedImage =
+        wantsSave ? scaledExportImage(image, exportScale) : QImage();
+    const bool scaledSave = wantsSave && savedImage.size() != image.size();
     const QString exportPath = temporaryExportPath();
     QString error;
     if (image.isNull() || exportPath.isEmpty() ||
-        !saveTemporarySnapshot(image, exportPath, error)) {
+        ((!scaledSave || wantsCopy) &&
+         !saveTemporarySnapshot(image, exportPath, error))) {
       result.error = error.isEmpty()
                          ? QStringLiteral("Could not prepare screenshot snapshot")
                          : error;
       return;
     }
-    if (mode == OutputMode::Copy || mode == OutputMode::Both || autosave) {
+    if (wantsCopy) {
       if (!copyPngFileToClipboard(exportPath, error)) {
         QFile::remove(exportPath);
         result.error = error;
         return;
       }
     }
-    if (mode == OutputMode::Save || mode == OutputMode::Both || autosave) {
-      result.saved = moveSnapshotToScreenshots(exportPath, error, appSlug);
+    if (wantsSave) {
+      QString filePath = exportPath;
+      if (scaledSave) {
+        filePath = wantsCopy ? temporaryExportPath() : exportPath;
+        if (filePath.isEmpty() ||
+            !saveTemporarySnapshot(savedImage, filePath, error)) {
+          QFile::remove(exportPath);
+          result.error = error.isEmpty()
+                             ? QStringLiteral("Could not prepare screenshot snapshot")
+                             : error;
+          return;
+        }
+      }
+      result.saved = moveSnapshotToScreenshots(filePath, error, appSlug);
       if (result.saved.isEmpty()) {
-        QFile::remove(exportPath);
+        QFile::remove(filePath);
+        if (filePath != exportPath)
+          QFile::remove(exportPath);
         result.error = error;
         return;
       }
+      if (filePath != exportPath)
+        QFile::remove(exportPath);
       // Under --notify, the toast is the completion UI for every saved
       // capture; otherwise a fresh or edited capture keeps its timed preview.
       const bool preview = (savedPreview || autosave) && !notifySavedCaptures();
       if (preview) {
+        // The preview copies the saved file. Its logical size has to describe
+        // that file, so a resized save is not reopened as a full-size capture.
+        const QSize logical =
+            scaledSave ? savedImage.size()
+                       : renderedCaptureLogicalSize(captureCopy, image.size());
         const QString pin = launchPinnedCapture(
-            image, renderedCaptureLogicalSize(captureCopy, image.size()), false,
-            PinLifetime::Timed, result.error, launcher, log.recentId, result.saved);
+            scaledSave ? savedImage : image, logical, false,
+            PinLifetime::Timed, result.error, launcher, log.recentId,
+            result.saved);
         if (pin.isEmpty()) {
           result.error = QStringLiteral("Saved to %1, but could not show its preview: %2")
                              .arg(result.saved, result.error);
@@ -4845,6 +4909,12 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
       cycleBackground();
   } else if (tool_ == Tool::Cut && event->key() == Qt::Key_Control) {
     setStatus(QStringLiteral("Insert a band · drag across"));
+  } else if (event->key() == Qt::Key_K && phase_ == Phase::Edit &&
+             !textEditing() &&
+             !event->modifiers().testAnyFlags(Qt::ControlModifier |
+                                              Qt::AltModifier |
+                                              Qt::MetaModifier)) {
+    cycleExportScale(event->modifiers().testFlag(Qt::ShiftModifier));
   } else if (event->key() >= Qt::Key_1 && event->key() <= Qt::Key_8) {
     colorIndex_ = event->key() - Qt::Key_1;
     usingCustomColor_ = false;
@@ -7416,6 +7486,7 @@ QVector<QPair<QString, QString>> editorHotkeyEntries() {
           {QStringLiteral("Enter"), QStringLiteral("Copy + save")},
           {QStringLiteral("Ctrl+C"), QStringLiteral("Copy only")},
           {QStringLiteral("Ctrl+S"), QStringLiteral("Save only")},
+          {QStringLiteral("K"), QStringLiteral("Export size")},
           {QStringLiteral("Ctrl+Shift+S"), QStringLiteral("Save As…")},
           {QStringLiteral("Esc"), QStringLiteral("Close")}};
 }

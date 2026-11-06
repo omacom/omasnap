@@ -5,6 +5,12 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Added
+
+- `K` cycles the size of the file Save and Save As write through 100%, 50%,
+  and 20%. A smaller size resamples the flattened image. Copy stays full
+  size, and the working image is unchanged.
+
 ## 1.25.0
 
 ### Added
