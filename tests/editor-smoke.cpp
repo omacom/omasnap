@@ -14,6 +14,7 @@
 #include "cut-smoke.hpp"
 #include "editor.hpp"
 #include "shortcut-guide.hpp"
+#include "windowed-shortcut-guide-smoke.hpp"
 #include "selection-repaint-smoke.hpp"
 #include "overlay-chrome.hpp"
 #include "recent-snaps.hpp"
@@ -6889,9 +6890,9 @@ bool runCropDragKeepsContentStill(QApplication &application, QString &error) {
           const QPoint panStart =
               editor.editViewportRectForTest().center().toPoint();
           QTest::mousePress(&editor, Qt::MiddleButton, Qt::NoModifier, panStart);
-          QTest::mouseMove(&editor, panStart + QPoint(0, 30), 20);
+          QTest::mouseMove(&editor, panStart - QPoint(0, 30), 20);
           QTest::mouseRelease(&editor, Qt::MiddleButton, Qt::NoModifier,
-                              panStart + QPoint(0, 30));
+                              panStart - QPoint(0, 30));
           const QRectF panned = editor.sourceFrameWidgetRectForTest();
           const qreal zoomedScale = editor.editScaleForTest();
           const QPoint zoomHandle(qRound(panned.left() - 7),
@@ -6901,7 +6902,7 @@ bool runCropDragKeepsContentStill(QApplication &application, QString &error) {
           QTest::mouseMove(&editor, zoomTarget, 20);
           const QRectF live = editor.sourceFrameWidgetRectForTest();
           if (zoomedScale <= scale ||
-              panned.center().y() - settled.center().y() < 20 ||
+              settled.center().y() - panned.center().y() < 20 ||
               !near(live.topRight(), panned.topRight()) ||
               std::abs(live.left() - zoomTarget.x()) > 0.01 ||
               std::abs(editor.editScaleForTest() - zoomedScale) > 0.0001) {
@@ -8439,7 +8440,8 @@ bool runEyedropperSmoke(QApplication &application, QString &error) {
 }
 
 /** Windowed, the color palette hangs off the pinned toolbar, not the canvas. */
-bool runWindowedPaletteAnchorCheck(QApplication &application, QString &error) {
+bool runWindowedPaletteAnchorCheck(QApplication &application, QString &error,
+                                   bool guideShown) {
   CaptureData capture;
   capture.monitor.name = QStringLiteral("TEST");
   capture.monitor.geometry = {0, 0, 1000, 800};
@@ -8451,18 +8453,19 @@ bool runWindowedPaletteAnchorCheck(QApplication &application, QString &error) {
 
   CaptureEditor editor(capture);
   editor.setWindowedPresentation(true);
+  editor.findChild<ShortcutGuide *>()->setExpanded(guideShown);
   editor.resize(1000, 800);
   editor.show();
   application.processEvents();
-  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(100, 250));
+  QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
   QTest::mouseMove(&editor, QPoint(900, 780), 20);
   QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(900, 780));
   application.processEvents();
 
   const qreal toolbarY =
       14 +
-      hotkeyLegendAnchoredSize(editorHotkeyEntries(), editor.width() - 28.0)
-          .height() +
+      (guideShown ? hotkeyLegendAnchoredSize(editorHotkeyEntries(), editor.width() - 28.0)
+                        .height() : 0) +
       42;
   const QRectF palette = editor.colorPaletteRectForTest();
   if (!qFuzzyCompare(palette.top(), toolbarY + 36 + 4)) {
@@ -8571,7 +8574,8 @@ bool runWindowResizeViewportCheck(QApplication &application, QString &error) {
   return true;
 }
 
-bool runWindowedZoomFramingCheck(QApplication &application, QString &error) {
+bool runWindowedZoomFramingCheck(QApplication &application, QString &error,
+                                 bool guideShown) {
   CaptureData capture;
   capture.monitor.name = QStringLiteral("TEST");
   capture.monitor.geometry = {0, 0, 1000, 800};
@@ -8584,6 +8588,7 @@ bool runWindowedZoomFramingCheck(QApplication &application, QString &error) {
   CaptureEditor editor(capture);
   editor.setWindowedPresentation(true);
   editor.setWindowedBackdropOpaque(true);
+  editor.findChild<ShortcutGuide *>()->setExpanded(guideShown);
   editor.resize(1000, 800);
   editor.show();
   application.processEvents();
@@ -8605,8 +8610,8 @@ bool runWindowedZoomFramingCheck(QApplication &application, QString &error) {
 
   const int bandTop =
       14 +
-      hotkeyLegendAnchoredSize(editorHotkeyEntries(), editor.width() - 28.0)
-          .height() +
+      (guideShown ? hotkeyLegendAnchoredSize(editorHotkeyEntries(), editor.width() - 28.0)
+                        .height() : 0) +
       42 + 36;
   const int bandBottom = editor.height() - 64;
   const QImage frame = editor.grab().toImage();
@@ -8698,6 +8703,7 @@ bool runWindowedZoomFramingCheck(QApplication &application, QString &error) {
   capture.previewSize = capture.source.size();
   CaptureEditor scrolling(capture, CaptureEditor::CaptureMode::File);
   scrolling.setWindowedPresentation(true);
+  scrolling.findChild<ShortcutGuide *>()->setExpanded(guideShown);
   scrolling.resize(1000, 800);
   scrolling.show();
   application.processEvents();
@@ -8706,7 +8712,7 @@ bool runWindowedZoomFramingCheck(QApplication &application, QString &error) {
     QWheelEvent zoom(QPointF(500, 450), QPointF(500, 450), {}, {0, 30},
                      Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
     QApplication::sendEvent(&scrolling, &zoom);
-    if (scrolling.editImageRectForTest().width() > scrolling.width() - 60)
+    if (scrolling.editImageRectForTest().height() > scrolling.editViewportRectForTest().height())
       break;
   }
   const QRectF before = scrolling.editImageRectForTest();
@@ -12729,7 +12735,8 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
-  if (!runShortcutGuideSmoke(application, snapshotError)) {
+  if (!runShortcutGuideSmoke(application, snapshotError) ||
+      !runWindowedShortcutGuideSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 216;
   }
@@ -12999,7 +13006,8 @@ int main(int argc, char **argv) {
     qWarning().noquote() << snapshotError;
     return 6;
   }
-  if (!runWindowedPaletteAnchorCheck(application, snapshotError)) {
+  if (!runWindowedPaletteAnchorCheck(application, snapshotError, true) ||
+      !runWindowedPaletteAnchorCheck(application, snapshotError, false)) {
     qWarning().noquote() << snapshotError;
     return 125;
   }
@@ -13019,7 +13027,8 @@ int main(int argc, char **argv) {
     qWarning().noquote() << snapshotError;
     return 204;
   }
-  if (!runWindowedZoomFramingCheck(application, snapshotError)) {
+  if (!runWindowedZoomFramingCheck(application, snapshotError, true) ||
+      !runWindowedZoomFramingCheck(application, snapshotError, false)) {
     qWarning().noquote() << snapshotError;
     return 200;
   }

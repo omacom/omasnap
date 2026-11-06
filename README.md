@@ -446,7 +446,8 @@ Install the corresponding Tesseract language data before adding a language to
 The capture picker and fullscreen annotator show a readable shortcuts card in
 the lower left. Press `?` or click its **Shortcuts** header to close it; it stays
 closed for later captures until `?` brings it back. The card scrolls on shorter screens; `?` still types normally in a text
-annotation. The windowed editor keeps its guide above the toolbar.
+annotation. The windowed editor keeps its guide above the toolbar and shares
+the same visibility choice; `?` hides it and gives its space back to the capture.
 
 ### Capture selection
 
