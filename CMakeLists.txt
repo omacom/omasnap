@@ -238,6 +238,6 @@ install(FILES assets/OFL.txt
 install(FILES assets/JetBrainsMono-OFL.txt assets/Inter-OFL.txt assets/Lucide-ISC.txt
   DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/omasnap"
 )
-install(FILES omasnap.desktop
+install(FILES omasnap.desktop omasnap-annotate.desktop
   DESTINATION "${CMAKE_INSTALL_DATADIR}/applications"
 )

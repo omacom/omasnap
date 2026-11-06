@@ -5,6 +5,12 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Added
+
+- File managers list Omasnap under Open With for the image types the editor
+  can open. The package adds a second desktop file, so the screenshot launcher
+  and the default image viewer stay as they are.
+
 ## 1.25.0
 
 ### Added

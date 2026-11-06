@@ -196,6 +196,7 @@ The install step places:
 
 - `~/.local/bin/omasnap`
 - `~/.local/share/applications/omasnap.desktop`
+- `~/.local/share/applications/omasnap-annotate.desktop`
 - `~/.local/share/licenses/omasnap/Neucha-OFL.txt`
 - `~/.local/share/licenses/omasnap/JetBrainsMono-OFL.txt`
 - `~/.local/share/licenses/omasnap/Inter-OFL.txt`
@@ -317,6 +318,12 @@ omasnap ~/Pictures/Screenshots/screenshot-2026-08-11_10-00-00.png
 # or
 omasnap --file /path/to/capture.png
 ```
+
+A file manager's Open With list includes Omasnap for those images. The
+screenshot launcher is unchanged, and this does not replace the default image
+viewer. A packaged install refreshes that list on its own. After a manual
+install into `~/.local`, run `update-desktop-database ~/.local/share/applications`
+once.
 
 New PNG exports retain their logical display size, so reopening a 2× capture
 from Omaroll or a file browser keeps its original size in the annotator while
