@@ -444,6 +444,7 @@ bool runSaveAsSmoke(QString &error) {
     const QImage fifth = scaledExportImage(tagged, 20);
     if (same.size() != tagged.size() || pngLogicalSize(same) != QSize(20, 10) ||
         half.size() != QSize(20, 10) || !pngLogicalSize(half).isEmpty() ||
+        half.textKeys().contains(QStringLiteral("Omasnap logical size")) ||
         half.devicePixelRatio() != 1.0 || fifth.size() != QSize(8, 4)) {
       error = QStringLiteral("Export scale did not resample the flattened image: "
                              "%1x%2 ratio %3")
@@ -495,7 +496,9 @@ bool runSaveAsSmoke(QString &error) {
                   .arg(editor.statusForTest());
       return false;
     }
-    if (!pngLogicalSize(QImage(output)).isEmpty()) {
+    const QImage saved(output);
+    if (!pngLogicalSize(saved).isEmpty() ||
+        saved.textKeys().contains(QStringLiteral("Omasnap logical size"))) {
       error = QStringLiteral("A resized save kept the screenshot logical-size tag");
       return false;
     }
