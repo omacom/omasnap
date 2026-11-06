@@ -469,15 +469,22 @@ bool removeEditorHandoff(const QString &path, const QString &token);
 [[nodiscard]] bool savePinnedSnapshot(QImage image, const QString &path,
                                       const QSize &logicalSize, QString &error,
                                       const QString &recentId = {},
-                                      const QString &savedPath = {});
+                                      const QString &savedPath = {},
+                                      const QString &reusePng = {},
+                                      bool jpegSource = false);
 /** Saves and launches a private pin, optionally copying the same PNG first.
- *  Call on a worker: encoding, clipboard verification and process launch block.
- *  Returns the owned snapshot path, or removes it on failure. */
+ *  `reusePng` is a PNG already encoded for this render; it is moved into the
+ *  pin instead of encoding the image again. `jpegSource` is recorded on the
+ *  pin's log so a later edit still saves JPEG after the capture leaves the
+ *  recents shelf. Call on a worker: encoding, clipboard verification and
+ *  process launch block. Returns the owned snapshot path, or removes it on
+ *  failure. */
 [[nodiscard]] QString launchPinnedCapture(
     const QImage &image, const QSize &logicalSize, bool copy,
     PinLifetime lifetime, QString &error,
     const std::function<bool(const QString &, const QStringList &)> &launcher = {},
-    const QString &recentId = {}, const QString &savedPath = {});
+    const QString &recentId = {}, const QString &savedPath = {},
+    const QString &reusePng = {}, bool jpegSource = false);
 /** Atomically writes a lossless PNG into the private runtime directory. */
 [[nodiscard]] bool saveTemporarySnapshot(const QImage &image, QString path,
                                          QString &error);

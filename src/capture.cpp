@@ -1997,10 +1997,18 @@ QSize editorWindowSize(const QSize &preview, const QSize &available,
 
 bool savePinnedSnapshot(QImage image, const QString &path,
                         const QSize &logicalSize, QString &error,
-                        const QString &recentId, const QString &savedPath) {
+                        const QString &recentId, const QString &savedPath,
+                        const QString &reusePng, bool jpegSource) {
   const bool savedPng =
       savedPath.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive);
-  if (savedPath.isEmpty() || !savedPng) {
+  if (!reusePng.isEmpty() && QFile::exists(reusePng)) {
+    // Save already encoded this PNG for the clipboard or the preview. Move it
+    // into the pin; a second encode would write the whole photo twice.
+    if (!QFile::rename(reusePng, path) && !QFile::copy(reusePng, path)) {
+      error = QStringLiteral("Screenshot saved, but could not prepare its preview");
+      return false;
+    }
+  } else if (savedPath.isEmpty() || !savedPng) {
     // A JPEG the user just saved cannot be the pin's pixels: the preview,
     // clipboard, and a later edit still want the lossless render.
     setPngLogicalSize(image, logicalSize);
@@ -2021,6 +2029,7 @@ bool savePinnedSnapshot(QImage image, const QString &path,
   OperationLog sidecar;
   sidecar.previewSize = logicalSize;
   sidecar.recentId = recentId;
+  sidecar.jpegSource = jpegSource;
   if (!savedPath.isEmpty())
     sidecar.savedPath = QFileInfo(savedPath).absoluteFilePath();
   if (!logicalSize.isEmpty() &&
@@ -2035,7 +2044,8 @@ QString launchPinnedCapture(
     const QImage &image, const QSize &logicalSize, bool copy,
     PinLifetime lifetime, QString &error,
     const std::function<bool(const QString &, const QStringList &)> &launcher,
-    const QString &recentId, const QString &savedPath) {
+    const QString &recentId, const QString &savedPath, const QString &reusePng,
+    bool jpegSource) {
   StartupTimingScope timing("prepare and launch pin");
   prunePinnedSnapshots();
   const QString path = pinnedSnapshotPath(1);
@@ -2043,7 +2053,8 @@ QString launchPinnedCapture(
     error = QStringLiteral("Could not create private runtime directory");
     return {};
   }
-  if (!savePinnedSnapshot(image, path, logicalSize, error, recentId, savedPath))
+  if (!savePinnedSnapshot(image, path, logicalSize, error, recentId, savedPath,
+                          reusePng, jpegSource))
     return {};
   const auto cleanup = [&] {
     QFile::remove(path);

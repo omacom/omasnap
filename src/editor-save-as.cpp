@@ -237,7 +237,8 @@ void CaptureEditor::saveAsToPath(const QString &path) {
                                 log.recentId, launcher);
       } else if (launchPinnedCapture(
                      image, renderedCaptureLogicalSize(capture, image.size()), false,
-                     PinLifetime::Timed, error, launcher, log.recentId, path)
+                     PinLifetime::Timed, error, launcher, log.recentId, path, {},
+                     log.jpegSource)
                      .isEmpty()) {
         announced = false;
         error = QStringLiteral("Saved to %1, but could not show its preview: %2")

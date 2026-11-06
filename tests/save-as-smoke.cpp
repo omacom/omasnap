@@ -22,6 +22,7 @@
 #include <QStringList>
 #include <QWidget>
 #include <QWindow>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
@@ -479,6 +480,46 @@ bool runSaveAsSmoke(QString &error) {
       return false;
     }
     error.clear();
+    // --pin of a JPEG copies it to a private .png name. The log has to remember
+    // the JPEG, or Edit then Save writes the large PNG this export avoids.
+    const auto pinnedJpeg = copyPinDocument(jpegPath, error);
+    OperationLog pinnedLog;
+    const auto pinnedPng = copyPinDocument(pngPath, error);
+    OperationLog pinnedPngLog;
+    if (!pinnedJpeg ||
+        !loadOperationLog(operationLogPath(pinnedJpeg->path()), pinnedLog, error) ||
+        !pinnedLog.jpegSource ||
+        !pinnedJpeg->path().endsWith(QStringLiteral(".png")) || !pinnedPng ||
+        !loadOperationLog(operationLogPath(pinnedPng->path()), pinnedPngLog, error) ||
+        pinnedPngLog.jpegSource) {
+      error = QStringLiteral("Pinning a JPEG did not keep its save format: %1")
+                  .arg(error);
+      return false;
+    }
+    // A preview's own log is what Edit reads after the capture leaves the
+    // five-item shelf. An empty recent id makes that the only record.
+    QString pinError;
+    const QString orphanPin = launchPinnedCapture(
+        gradient, gradient.size(), false, PinLifetime::Persistent, pinError,
+        [](const QString &, const QStringList &) { return true; }, {}, {}, {},
+        true);
+    const auto removeOrphan = qScopeGuard([&] {
+      QFile::remove(orphanPin);
+      QFile::remove(operationLogPath(orphanPin));
+      QFile::remove(PinSnapshotFile::thumbnailPath(orphanPin));
+    });
+    OperationLog orphanLog;
+    const auto orphanDoc = copyPinDocument(orphanPin, pinError);
+    OperationLog orphanDocLog;
+    if (orphanPin.isEmpty() ||
+        !loadOperationLog(operationLogPath(orphanPin), orphanLog, pinError) ||
+        !orphanLog.jpegSource || !orphanDoc ||
+        !loadOperationLog(operationLogPath(orphanDoc->path()), orphanDocLog, pinError) ||
+        !orphanDocLog.jpegSource) {
+      error = QStringLiteral("A pinned JPEG with no recent capture lost its save format: %1")
+                  .arg(pinError);
+      return false;
+    }
 
     OperationLog stored;
     stored.jpegSource = true;
@@ -528,6 +569,9 @@ bool runSaveAsSmoke(QString &error) {
       return false;
     }
     const QImage rendered = editor.renderCurrentOutput();
+    const QString runtime = secureRuntimeDirectory();
+    const QStringList exportsBefore =
+        QDir(runtime).entryList({QStringLiteral("export-*.png")}, QDir::Files);
     editor.finish(CaptureEditor::OutputMode::Save);
     editor.waitForExport();
     if (editor.isVisible() || jpegPreviews.isEmpty()) {
@@ -540,8 +584,17 @@ bool runSaveAsSmoke(QString &error) {
       return false;
     }
     OperationLog previewLog;
+    const QStringList exportsAfter =
+        QDir(runtime).entryList({QStringLiteral("export-*.png")}, QDir::Files);
+    for (const QString &name : exportsAfter) {
+      if (!exportsBefore.contains(name)) {
+        error = QStringLiteral("JPEG save left its temporary PNG behind: %1").arg(name);
+        return false;
+      }
+    }
     if (!loadOperationLog(operationLogPath(jpegPreviews.last()), previewLog, error) ||
         !previewLog.savedPath.endsWith(QStringLiteral(".jpg")) ||
+        !previewLog.jpegSource ||
         QImageReader(previewLog.savedPath).format() != "jpeg" ||
         QImageReader(previewLog.savedPath).size() != rendered.size() ||
         QImage(jpegPreviews.last()).size() != rendered.size()) {
@@ -556,8 +609,8 @@ bool runSaveAsSmoke(QString &error) {
                   .arg(rendered.height());
       return false;
     }
-    // The preview sidecar only records the saved path. The shelf document is
-    // what a later edit reopens, so that log has to keep the JPEG preference.
+    // The shelf document is what a later edit reopens while the capture is
+    // still one of the five recent ones, so that log keeps the JPEG preference.
     const auto recent = findRecentSnap(previewLog.recentId, &error);
     OperationLog recentLog;
     if (!recent || !loadOperationLog(recent->logPath, recentLog, error) ||

@@ -9,7 +9,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 - Saving an image opened from a JPEG writes a high-quality JPEG instead of a
   fast screenshot PNG, so a photo stays near its original size. Screenshots,
-  clipboard copies, and any export with a transparent pixel stay PNG.
+  clipboard copies, and any export with a transparent pixel stay PNG. Editing
+  a JPEG that was pinned keeps that same save.
 
 ## 1.25.0
 

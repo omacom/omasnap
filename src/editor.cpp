@@ -3541,7 +3541,8 @@ void CaptureEditor::pinSnapshot() {
                           imageShadow, canvasBoundary, backdrop);
         result.path = launchPinnedCapture(
             image, renderedCaptureLogicalSize(captureCopy, image.size()),
-            false, PinLifetime::Persistent, result.error, launcher, log.recentId);
+            false, PinLifetime::Persistent, result.error, launcher, log.recentId,
+            {}, {}, log.jpegSource);
         completion.addResult(result);
         rememberCapture(recent, source, log, image, previous);
       }));
@@ -4243,53 +4244,64 @@ void CaptureEditor::finish(OutputMode mode) {
     if (mode == OutputMode::CopyAndPreview && !autosave) {
       static_cast<void>(launchPinnedCapture(
           image, renderedCaptureLogicalSize(captureCopy, image.size()),
-          true, PinLifetime::Timed, result.error, launcher, log.recentId));
+          true, PinLifetime::Timed, result.error, launcher, log.recentId, {},
+          {}, log.jpegSource));
       return;
     }
-    const QString exportPath = temporaryExportPath();
+    const bool wantsCopy = mode == OutputMode::Copy || mode == OutputMode::Both ||
+                           autosave;
+    const bool wantsSave = mode == OutputMode::Save || mode == OutputMode::Both ||
+                           autosave;
+    // Under --notify, the toast is the completion UI for every saved capture;
+    // otherwise a fresh or edited capture keeps its timed preview.
+    const bool preview =
+        wantsSave && (savedPreview || autosave) && !notifySavedCaptures();
+    // The clipboard copy stays PNG. A JPEG original is written as JPEG only
+    // when the flattened image has no transparent pixel; a card with
+    // transparent corners still needs the PNG. That PNG is also what the
+    // preview shows, so encode it once and hand the file to the pin.
+    const bool jpegExport = jpegSource && !imageHasTransparency(image);
+    const bool needsTempPng = wantsCopy || (wantsSave && (!jpegExport || preview));
+    const QString exportPath = needsTempPng ? temporaryExportPath() : QString();
     QString error;
-    if (image.isNull() || exportPath.isEmpty() ||
-        !saveTemporarySnapshot(image, exportPath, error)) {
+    if (image.isNull() ||
+        (needsTempPng && (exportPath.isEmpty() ||
+                          !saveTemporarySnapshot(image, exportPath, error)))) {
       result.error = error.isEmpty()
                          ? QStringLiteral("Could not prepare screenshot snapshot")
                          : error;
       return;
     }
-    if (mode == OutputMode::Copy || mode == OutputMode::Both || autosave) {
+    if (wantsCopy) {
       if (!copyPngFileToClipboard(exportPath, error)) {
         QFile::remove(exportPath);
         result.error = error;
         return;
       }
     }
-    if (mode == OutputMode::Save || mode == OutputMode::Both || autosave) {
-      // The clipboard copy above stays PNG. A JPEG original is written as
-      // JPEG only when the flattened image has no transparent pixel; a card
-      // with transparent corners still needs the PNG.
-      if (jpegSource && !imageHasTransparency(image)) {
+    if (wantsSave) {
+      if (jpegExport)
         result.saved = saveJpegScreenshot(image, error, appSlug);
-        QFile::remove(exportPath);
-      } else {
+      else
         result.saved = moveSnapshotToScreenshots(exportPath, error, appSlug);
-      }
       if (result.saved.isEmpty()) {
         QFile::remove(exportPath);
         result.error = error;
         return;
       }
-      // Under --notify, the toast is the completion UI for every saved
-      // capture; otherwise a fresh or edited capture keeps its timed preview.
-      const bool preview = (savedPreview || autosave) && !notifySavedCaptures();
       if (preview) {
         const QString pin = launchPinnedCapture(
             image, renderedCaptureLogicalSize(captureCopy, image.size()), false,
-            PinLifetime::Timed, result.error, launcher, log.recentId, result.saved);
+            PinLifetime::Timed, result.error, launcher, log.recentId,
+            result.saved, exportPath, jpegSource);
+        QFile::remove(exportPath);
         if (pin.isEmpty()) {
           result.error = QStringLiteral("Saved to %1, but could not show its preview: %2")
                              .arg(result.saved, result.error);
           return;
         }
       } else {
+        QFile::remove(exportPath);
         sendCaptureNotification(mode == OutputMode::Save
                                     ? QStringLiteral("Screenshot saved")
                                     : QStringLiteral("Screenshot saved and copied"),
