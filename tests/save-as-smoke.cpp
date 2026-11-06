@@ -10,6 +10,7 @@
 #include <QCloseEvent>
 #include <QColor>
 #include <QCoreApplication>
+#include <QDir>
 #include <QEvent>
 #include <QFutureWatcher>
 #include <QGuiApplication>
@@ -511,6 +512,103 @@ bool runSaveAsSmoke(QString &error) {
     if (!recent || QImage(recent->sourcePath).size() != capture.source.size()) {
       error = QStringLiteral("A resized save changed the working document");
       return false;
+    }
+  }
+  // Save, Copy + Save, and Copy all go through finish(). At 50% the file is
+  // a second encode, and the clipboard PNG has to stay the full render.
+  {
+    const QString clipboard = directory.filePath(QStringLiteral("clipboard.png"));
+    const auto executable = [&](const QString &name, const QByteArray &script) {
+      QFile file(directory.filePath(name));
+      if (!file.open(QIODevice::WriteOnly) || file.write(script) != script.size())
+        return false;
+      file.close();
+      return file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                 QFileDevice::ExeOwner);
+    };
+    if (!executable(QStringLiteral("wl-copy"), QByteArrayLiteral(
+            "#!/bin/sh\n"
+            "cat > \"$OMASNAP_TEST_PIN_CLIPBOARD\"\n")) ||
+        !executable(QStringLiteral("wl-paste"), QByteArrayLiteral(
+            "#!/bin/sh\ncat \"$OMASNAP_TEST_PIN_CLIPBOARD\"\n"))) {
+      error = QStringLiteral("Could not install the export-size clipboard stubs");
+      return false;
+    }
+    const QByteArray oldPath = qgetenv("PATH");
+    const QByteArray oldClipboard = qgetenv("OMASNAP_TEST_PIN_CLIPBOARD");
+    const QByteArray oldSaveDir = qgetenv("OMASNAP_SCREENSHOT_DIR");
+    const auto restoreOutput = qScopeGuard([&] {
+      qputenv("PATH", oldPath);
+      oldClipboard.isNull() ? qunsetenv("OMASNAP_TEST_PIN_CLIPBOARD")
+                            : qputenv("OMASNAP_TEST_PIN_CLIPBOARD", oldClipboard);
+      oldSaveDir.isNull() ? qunsetenv("OMASNAP_SCREENSHOT_DIR")
+                          : qputenv("OMASNAP_SCREENSHOT_DIR", oldSaveDir);
+    });
+    qputenv("PATH", directory.path().toUtf8() + ':' + oldPath);
+    qputenv("OMASNAP_TEST_PIN_CLIPBOARD", clipboard.toUtf8());
+
+    QImage marker(3, 2, QImage::Format_ARGB32);
+    marker.fill(Qt::yellow);
+    const auto samePixels = [](const QImage &loaded, const QImage &expected) {
+      return !loaded.isNull() &&
+             loaded.convertToFormat(expected.format()) == expected;
+    };
+    struct FinishCase {
+      CaptureEditor::OutputMode mode;
+      const char *name;
+      const char *directoryName;
+      bool saves;
+      bool copies;
+    };
+    const FinishCase cases[] = {
+        {CaptureEditor::OutputMode::Save, "Save", "save", true, false},
+        {CaptureEditor::OutputMode::Both, "Copy + Save", "both", true, true},
+        {CaptureEditor::OutputMode::Copy, "Copy", "copy", false, true},
+    };
+    for (const FinishCase &finishCase : cases) {
+      if (!marker.save(clipboard)) {
+        error = QStringLiteral("Could not seed the clipboard image");
+        return false;
+      }
+      const QString savedDir = directory.filePath(
+          QStringLiteral("finish-%1").arg(QString::fromUtf8(finishCase.directoryName)));
+      qputenv("OMASNAP_SCREENSHOT_DIR", savedDir.toUtf8());
+      CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+      editor.resize(800, 600);
+      editor.show();
+      QCoreApplication::processEvents();
+      QTest::keyClick(&editor, Qt::Key_K);
+      preparePreview(editor);
+      if (editor.exportScalePercent_ != 50 || !editor.waitForSnapshot()) {
+        error = QStringLiteral("%1 did not reach a 50% export").arg(QString::fromUtf8(finishCase.name));
+        return false;
+      }
+      const QImage rendered = editor.renderCurrentOutput();
+      const QImage scaled = scaledExportImage(rendered, editor.exportScalePercent_);
+      editor.finish(finishCase.mode);
+      editor.waitForExport();
+      const QStringList saved =
+          QDir(savedDir).entryList({QStringLiteral("*.png")}, QDir::Files);
+      const QImage written =
+          saved.size() == 1 ? QImage(QDir(savedDir).filePath(saved.first())) : QImage();
+      const QImage copied(clipboard);
+      const bool savedOk = finishCase.saves
+                               ? saved.size() == 1 && scaled.size() != rendered.size() &&
+                                     samePixels(written, scaled)
+                               : saved.isEmpty();
+      const bool copiedOk = finishCase.copies ? samePixels(copied, rendered)
+                                              : samePixels(copied, marker);
+      if (editor.isVisible() || !savedOk || !copiedOk) {
+        error = QStringLiteral("%1 at 50% wrote %2 file(s) %3x%4, clipboard %5x%6, status=%7")
+                    .arg(QString::fromUtf8(finishCase.name))
+                    .arg(saved.size())
+                    .arg(written.width())
+                    .arg(written.height())
+                    .arg(copied.width())
+                    .arg(copied.height())
+                    .arg(editor.statusForTest());
+        return false;
+      }
     }
   }
   return true;
