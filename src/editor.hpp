@@ -746,6 +746,9 @@ private:
   // scratch (undo/redo, in-progress cut preview) without accumulating error.
   QImage pristineSource_;
   QSize pristineLogicalSize_;
+  /// Set for an image opened from a JPEG, and kept in the operation log so a
+  /// window/overlay handoff or a reopened recent still saves JPEG.
+  bool jpegSource_ = false;
   QVector<CutOp> cuts_;
   bool windowedPresentation_ = false;
   ShortcutGuide *shortcutGuide_ = nullptr;

@@ -339,7 +339,9 @@ int main(int argc, char **argv) {
     QImage image;
     QString inputName;
     if (clipboardInput) {
-      if (!loadClipboardImage(image, error)) {
+      QString clipboardMime;
+      if (!loadClipboardImage(image, error, kMaxClipboardImageBytes,
+                             &clipboardMime)) {
         const QString message =
             QStringLiteral("Could not load clipboard image: %1").arg(error);
         qCritical().noquote() << message;
@@ -347,6 +349,8 @@ int main(int argc, char **argv) {
         return 1;
       }
       inputName = QStringLiteral("clipboard image");
+      if (clipboardMime == QStringLiteral("image/jpeg"))
+        restoredLog.jpegSource = true;
     } else {
       QString localFile = QUrl(filePath).toLocalFile();
       if (localFile.isEmpty())
@@ -366,6 +370,14 @@ int main(int argc, char **argv) {
       // Ownership of private handoff files ends once both source and log
       // are in memory. Ordinary user files are excluded by the helper.
       removeEditorHandoff(localFile, parser.value(QStringLiteral("handoff-token")));
+      // A handoff is a PNG named by the runtime, so trust the log there. A
+      // JPEG the user opened has no such log until the first edit is saved.
+      if (!restoredLog.jpegSource) {
+        const QString suffix = QFileInfo(localFile).suffix();
+        if (suffix.compare(QStringLiteral("jpg"), Qt::CaseInsensitive) == 0 ||
+            suffix.compare(QStringLiteral("jpeg"), Qt::CaseInsensitive) == 0)
+          restoredLog.jpegSource = true;
+      }
     }
     describeFileCapture(capture, image, restoredLog);
     capture.monitor.name = parser.value(QStringLiteral("handoff-monitor"));

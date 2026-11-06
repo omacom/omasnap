@@ -80,10 +80,13 @@ void CaptureEditor::saveAs() {
       showSaveAsDialog(suggested);
   });
   const bool wayland = QGuiApplication::platformName() == QStringLiteral("wayland");
-  watcher->setFuture(QtConcurrent::run([appSlug, directory = saveAsDirectory_, wayland] {
+  const bool jpeg = jpegSource_;
+  watcher->setFuture(QtConcurrent::run([appSlug, directory = saveAsDirectory_, wayland, jpeg] {
     if (wayland)
       prepareSaveAsWindow();
-    const QString suggested = suggestedScreenshotPath(appSlug);
+    QString suggested = suggestedScreenshotPath(appSlug);
+    if (jpeg && suggested.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive))
+      suggested = suggested.chopped(4) + QStringLiteral(".jpg");
     return directory.isEmpty()
                ? suggested
                : QDir(directory).filePath(QFileInfo(suggested).fileName());
@@ -93,9 +96,12 @@ void CaptureEditor::saveAs() {
 void CaptureEditor::showSaveAsDialog(const QString &suggested) {
   // A normal dialog cannot appear above an exclusive layer-shell overlay.
   // Keep it independent of that hidden widget so Wayland can map/focus it.
-  auto *dialog = new QFileDialog(windowedPresentation_ ? this : nullptr,
-                                 QStringLiteral("Save screenshot as"), suggested,
-                                 QStringLiteral("PNG image (*.png)"));
+  const bool jpegOriginal = jpegSource_;
+  auto *dialog = new QFileDialog(
+      windowedPresentation_ ? this : nullptr, QStringLiteral("Save screenshot as"),
+      suggested,
+      jpegOriginal ? QStringLiteral("JPEG image (*.jpg *.jpeg);;PNG image (*.png)")
+                   : QStringLiteral("PNG image (*.png)"));
   saveAsDialog_ = dialog;
   const quint64 request = saveAsRequest_;
   dialog->setObjectName(QStringLiteral("omasnap-save-as"));
@@ -108,7 +114,17 @@ void CaptureEditor::showSaveAsDialog(const QString &suggested) {
   dialog->setOption(QFileDialog::DontUseNativeDialog);
   dialog->setAcceptMode(QFileDialog::AcceptSave);
   dialog->setFileMode(QFileDialog::AnyFile);
-  dialog->setDefaultSuffix(QStringLiteral("png"));
+  dialog->setDefaultSuffix(jpegOriginal ? QStringLiteral("jpg")
+                                        : QStringLiteral("png"));
+  if (jpegOriginal) {
+    connect(dialog, &QFileDialog::filterSelected, dialog,
+            [dialog](const QString &filter) {
+              dialog->setDefaultSuffix(
+                  filter.startsWith(QStringLiteral("JPEG"))
+                      ? QStringLiteral("jpg")
+                      : QStringLiteral("png"));
+            });
+  }
   dialog->setWindowModality(Qt::ApplicationModal);
   connect(this, &QObject::destroyed, dialog, &QObject::deleteLater);
   connect(dialog, &QDialog::finished, this, [this, dialog, request](int result) {
@@ -140,9 +156,15 @@ void CaptureEditor::showSaveAsDialog(const QString &suggested) {
           return;
         }
         // The chooser's filter/default suffix does not prevent an explicit
-        // .jpg name. Never write PNG bytes under another format's extension.
-        if (QFileInfo(path).suffix().compare(QStringLiteral("png"),
-                                            Qt::CaseInsensitive) != 0) {
+        // other extension. Never write one format's bytes under another's name.
+        // JPEG is only offered for an image that was opened from a JPEG.
+        const QString suffix = QFileInfo(path).suffix();
+        const bool png =
+            suffix.compare(QStringLiteral("png"), Qt::CaseInsensitive) == 0;
+        const bool jpeg =
+            suffix.compare(QStringLiteral("jpg"), Qt::CaseInsensitive) == 0 ||
+            suffix.compare(QStringLiteral("jpeg"), Qt::CaseInsensitive) == 0;
+        if (!png && !(jpeg && jpegSource_)) {
           saveAsActive_ = false;
           busy_ = false;
           setStatus(QStringLiteral("Save As only writes PNG; choose a .png filename"));
@@ -201,7 +223,13 @@ void CaptureEditor::saveAsToPath(const QString &path) {
     const QImage image = renderCapture(capture, selection, annotations,
                                        background, shadow, boundary, backdrop);
     QString error;
-    if (savePngFile(image, path, error)) {
+    const QString suffix = QFileInfo(path).suffix();
+    const bool jpeg =
+        suffix.compare(QStringLiteral("jpg"), Qt::CaseInsensitive) == 0 ||
+        suffix.compare(QStringLiteral("jpeg"), Qt::CaseInsensitive) == 0;
+    const bool wrote = jpeg ? saveJpegFile(image, path, error)
+                            : savePngFile(image, path, error);
+    if (wrote) {
       // Without --notify, the saved file keeps its timed preview.
       bool announced = true;
       if (notifySavedCaptures()) {

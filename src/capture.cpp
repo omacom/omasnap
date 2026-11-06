@@ -20,6 +20,7 @@
 #include <QFontDatabase>
 #include <QHash>
 #include <QImageReader>
+#include <QImageWriter>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -425,7 +426,8 @@ QString suggestedScreenshotPathImpl(const QString &appSlug) {
       config.filename, QDateTime::currentDateTime(), appSlug));
 }
 
-QString screenshotTargetPath(QString &error, const QString &appSlug) {
+QString screenshotTargetPath(QString &error, const QString &appSlug,
+                             const char *extension = "png") {
   const QString suggested = suggestedScreenshotPathImpl(appSlug);
   const QFileInfo file(suggested);
   const QString root = file.absolutePath();
@@ -435,12 +437,15 @@ QString screenshotTargetPath(QString &error, const QString &appSlug) {
     return {};
   }
 
+  // formatScreenshotFilename always ends in .png. JPEG exports share that
+  // stem so a photo and a screenshot taken in the same second stay distinct.
   const QString fileName = file.fileName();
   const QString stem = fileName.chopped(4);
-  QString path = QDir(root).filePath(fileName);
-  for (int suffix = 2; QFile::exists(path); ++suffix)
-    path =
-        QDir(root).filePath(QStringLiteral("%1-%2.png").arg(stem).arg(suffix));
+  const QString suffix = QLatin1String(".") + QLatin1String(extension);
+  QString path = QDir(root).filePath(stem + suffix);
+  for (int index = 2; QFile::exists(path); ++index)
+    path = QDir(root).filePath(
+        QStringLiteral("%1-%2%3").arg(stem).arg(index).arg(suffix));
   return path;
 }
 
@@ -1641,7 +1646,8 @@ QImage applyRedactionsScaled(QImage image, const QVector<Annotation> &redactions
   return image;
 }
 
-bool loadClipboardImage(QImage &image, QString &error, qint64 maxImageBytes) {
+bool loadClipboardImage(QImage &image, QString &error, qint64 maxImageBytes,
+                       QString *loadedMime) {
   image = {};
   error.clear();
 
@@ -1702,8 +1708,11 @@ bool loadClipboardImage(QImage &image, QString &error, qint64 maxImageBytes) {
     }
     receivedImageData = true;
     image = QImage::fromData(pasted.output);
-    if (!image.isNull())
+    if (!image.isNull()) {
+      if (loadedMime)
+        *loadedMime = mimeType;
       return true;
+    }
   }
 
   if (refusedTooLarge) {
@@ -1989,7 +1998,11 @@ QSize editorWindowSize(const QSize &preview, const QSize &available,
 bool savePinnedSnapshot(QImage image, const QString &path,
                         const QSize &logicalSize, QString &error,
                         const QString &recentId, const QString &savedPath) {
-  if (savedPath.isEmpty()) {
+  const bool savedPng =
+      savedPath.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive);
+  if (savedPath.isEmpty() || !savedPng) {
+    // A JPEG the user just saved cannot be the pin's pixels: the preview,
+    // clipboard, and a later edit still want the lossless render.
     setPngLogicalSize(image, logicalSize);
     if (!saveTemporarySnapshot(image, path, error))
       return false;
@@ -2084,6 +2097,34 @@ bool saveTemporarySnapshot(const QImage &image, QString path, QString &error) {
   return savePngFile(image, path, error);
 }
 
+bool imageHasTransparency(const QImage &image) {
+  if (image.isNull() || !image.hasAlphaChannel())
+    return false;
+  QImage pixels = image;
+  QImage::Format format = pixels.format();
+  if (format != QImage::Format_ARGB32 &&
+      format != QImage::Format_ARGB32_Premultiplied &&
+      format != QImage::Format_RGBA8888 &&
+      format != QImage::Format_RGBA8888_Premultiplied) {
+    pixels = pixels.convertToFormat(QImage::Format_ARGB32);
+    if (pixels.isNull() || !pixels.hasAlphaChannel())
+      return false;
+    format = pixels.format();
+  }
+  const bool rgba = format == QImage::Format_RGBA8888 ||
+                    format == QImage::Format_RGBA8888_Premultiplied;
+  for (int y = 0; y < pixels.height(); ++y) {
+    const uchar *row = pixels.constScanLine(y);
+    for (int x = 0; x < pixels.width(); ++x) {
+      const int alpha = rgba ? row[x * 4 + 3]
+                             : qAlpha(reinterpret_cast<const QRgb *>(row)[x]);
+      if (alpha != 255)
+        return true;
+    }
+  }
+  return false;
+}
+
 bool savePngFile(const QImage &image, const QString &path, QString &error) {
   if (image.isNull() || path.isEmpty()) {
     error = QStringLiteral("Cannot save an empty image or filename");
@@ -2109,6 +2150,54 @@ bool savePngFile(const QImage &image, const QString &path, QString &error) {
     return false;
   }
   return true;
+}
+
+bool saveJpegFile(const QImage &image, const QString &path, QString &error) {
+  if (image.isNull() || path.isEmpty()) {
+    error = QStringLiteral("Cannot save an empty image or filename");
+    return false;
+  }
+  if (imageHasTransparency(image)) {
+    error = QStringLiteral(
+        "This image has transparency, so it has to be saved as PNG");
+    return false;
+  }
+  // 93 matches a phone JPEG re-saved in place: the same 12 MP photo stays
+  // within a few percent of its original size, and a new arrow stays clean.
+  // Lower qualities show on that edge; higher ones grow well past the source.
+  constexpr int kJpegExportQuality = 93;
+  const QImage pixels = image.format() == QImage::Format_RGB888
+                            ? image
+                            : image.convertToFormat(QImage::Format_RGB888);
+  QSaveFile file(path);
+  file.setDirectWriteFallback(false);
+  if (!file.open(QIODevice::WriteOnly) ||
+      !file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+    error = QStringLiteral("Could not open JPEG file: %1")
+                .arg(file.errorString());
+    return false;
+  }
+  QImageWriter writer(&file, QByteArrayLiteral("jpeg"));
+  writer.setQuality(kJpegExportQuality);
+  if (!writer.write(pixels)) {
+    file.cancelWriting();
+    error = QStringLiteral("Could not save JPEG: %1").arg(writer.errorString());
+    return false;
+  }
+  if (!file.commit()) {
+    error = QStringLiteral("Could not replace JPEG: %1")
+                .arg(file.errorString());
+    return false;
+  }
+  return true;
+}
+
+QString saveJpegScreenshot(const QImage &image, QString &error,
+                           const QString &appSlug) {
+  const QString path = screenshotTargetPath(error, appSlug, "jpg");
+  if (path.isEmpty() || !saveJpegFile(image, path, error))
+    return {};
+  return path;
 }
 
 namespace {
@@ -2592,6 +2681,8 @@ bool saveOperationLog(const QString &path, const OperationLog &log,
     root.insert(QStringLiteral("previewWidth"), log.previewSize.width());
     root.insert(QStringLiteral("previewHeight"), log.previewSize.height());
   }
+  if (log.jpegSource)
+    root.insert(QStringLiteral("jpegSource"), true);
   root.insert(QStringLiteral("ops"), ops);
 
   QSaveFile file(path);
@@ -2654,6 +2745,7 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error,
             root.value(QStringLiteral("previewHeight")).toInt());
   if (loaded.previewSize.isEmpty())
     loaded.previewSize = QSize();
+  loaded.jpegSource = root.value(QStringLiteral("jpegSource")).toBool();
   if (loaded.nextId == 0)
     loaded.nextId = 1;
   if (loaded.nextMarker < 1)
