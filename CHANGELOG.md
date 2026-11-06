@@ -5,6 +5,11 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Fixed
+
+- `?` hides and restores the windowed editor's shortcut guide, remembers the
+  choice across editor modes, and gives the capture more room while hidden.
+
 ## 1.25.0
 
 ### Added

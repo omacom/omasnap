@@ -2169,6 +2169,8 @@ bool CaptureEditor::focusNextPrevChild(bool next) {
 }
 
 QSizeF CaptureEditor::windowLegendSize() const {
+  if (!shortcutGuide_->expanded())
+    return {0, 0};
   // Chrome fonts are pinned in code; only available width changes layout.
   if (legendWidth_ != width()) {
     legendWidth_ = width();
@@ -4485,8 +4487,15 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
       !(event->modifiers() & (Qt::ControlModifier | Qt::AltModifier |
                               Qt::MetaModifier)) &&
       !textEditing() && shortcutGuideAllowed()) {
-    if (!event->isAutoRepeat())
+    if (!event->isAutoRepeat() &&
+        !(windowedPresentation_ && (dragging_ || panning_))) {
       shortcutGuide_->setExpanded(!shortcutGuide_->expanded());
+      if (windowedPresentation_) {
+        viewZoom_ = std::min(viewZoom_, maxViewZoom());
+        clampViewOffset();
+        updatePointerCursor();
+      }
+    }
     event->accept();
     return;
   }
@@ -7994,7 +8003,7 @@ void CaptureEditor::paintEdit(QPainter &painter) {
   drawStatusPill(painter, rect(), status_);
   // A windowed editor has no clear margin for the overlay's key column; the
   // guide spreads as a card over the reserved band above the toolbar.
-  if (windowedPresentation_) {
+  if (windowedPresentation_ && shortcutGuide_->expanded()) {
     QRectF legendAnchor;
     for (const ToolbarButton &button : buttons)
       legendAnchor = legendAnchor.isNull() ? button.rect
@@ -8058,11 +8067,11 @@ void CaptureEditor::paintEdit(QPainter &painter) {
 }
 
 bool CaptureEditor::shortcutGuideAllowed() const {
-  return !windowedPresentation_ && !scrollPanel_ && phase_ != Phase::Export;
+  return !scrollPanel_ && phase_ != Phase::Export;
 }
 
 void CaptureEditor::paintEvent(QPaintEvent *event) {
-  const bool showGuide = shortcutGuideAllowed();
+  const bool showGuide = !windowedPresentation_ && shortcutGuideAllowed();
   if (showGuide)
     shortcutGuide_->setEntries(phase_ == Phase::Edit ? editorHotkeyEntries()
                                                    : captureHotkeyEntries());
