@@ -28,6 +28,7 @@ struct MonitorInfo {
   QSize pixelSize;
   qreal scale = 1.0;
   int workspaceId = 0;
+  int specialWorkspaceId = 0;
 };
 
 struct WindowTarget {
