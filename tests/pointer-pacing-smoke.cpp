@@ -135,6 +135,10 @@ bool runPointerPacingSmoke(QApplication &application, QString &error) {
     error = QStringLiteral("Pointer pacing window was never exposed");
     return false;
   }
+  // The select overlay loads the recents shelf on a worker and repaints the
+  // whole overlay when it lands. Let that happen before counting paints, or
+  // it could arrive mid-burst and look like an unpaced or full pointer frame.
+  editor.waitForRecents();
   PaintObserver observer;
   editor.installEventFilter(&observer);
 
