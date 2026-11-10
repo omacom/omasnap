@@ -892,17 +892,6 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
   connect(&nudgePersistTimer_, &QTimer::timeout, this,
           [this] { endNudgeRun(); });
 
-  // Coalesce high-polling-rate pointer samples to one small damaged region per
-  // display frame. QWidget's backing store keeps everything outside that
-  // region; a 6K overlay must not repaint all 20 million pixels for a badge.
-  pointerRepaintTimer_.setSingleShot(true);
-  pointerRepaintTimer_.setInterval(16);
-  connect(&pointerRepaintTimer_, &QTimer::timeout, this, [this] {
-    const QRegion damage = std::exchange(pendingPointerDamage_, {});
-    if (!damage.isEmpty())
-      update(damage);
-  });
-
   ocrAnimTimer_.setInterval(16);
   connect(&ocrAnimTimer_, &QTimer::timeout, this, [this] { update(); });
   ocrResultTimer_.setSingleShot(true);
@@ -1146,6 +1135,13 @@ CaptureEditor::~CaptureEditor() {
 }
 
 bool CaptureEditor::eventFilter(QObject *watched, QEvent *event) {
+  if (event->type() == QEvent::UpdateRequest && watched == frameWindow_ &&
+      !pendingPointerDamage_.isEmpty()) {
+    // The frame queuePointerRepaint() asked for. Paint only its damage, now;
+    // letting QWidgetWindow handle this event would repaint the whole overlay.
+    repaint(std::exchange(pendingPointerDamage_, {}));
+    return true;
+  }
   if (watched == textEditor_ && event->type() == QEvent::KeyPress) {
     auto *key = static_cast<QKeyEvent *>(event);
     if (key->matches(QKeySequence::SaveAs) ||
@@ -5356,10 +5352,30 @@ QRegion CaptureEditor::windowHoverDamage(int oldIndex, int newIndex) const {
   return damage & QRegion(rect());
 }
 
+// High-polling-rate pointer samples damage only small regions; QWidget's
+// backing store keeps everything outside them, so a 6K overlay never repaints
+// all 20 million pixels for a badge. Damage is held until the compositor is
+// ready for a frame: QWindow::requestUpdate() on Wayland is delivered on the
+// surface's frame callback, so a 1000 Hz mouse paints once per refresh at the
+// monitor's real rate (60, 165, 240 Hz...). A bare update() is not paced -- it
+// paints once per mouse event -- and a fixed timer caps high-refresh displays
+// and judders against their vsync.
 void CaptureEditor::queuePointerRepaint(const QRegion &damage) {
   pendingPointerDamage_ |= damage & QRegion(rect());
-  if (!pendingPointerDamage_.isEmpty() && !pointerRepaintTimer_.isActive())
-    pointerRepaintTimer_.start();
+  if (pendingPointerDamage_.isEmpty())
+    return;
+  QWindow *window = windowHandle();
+  if (!window) {
+    update(std::exchange(pendingPointerDamage_, {}));
+    return;
+  }
+  if (frameWindow_ != window) {
+    if (frameWindow_)
+      frameWindow_->removeEventFilter(this);
+    frameWindow_ = window;
+    window->installEventFilter(this);
+  }
+  window->requestUpdate();
 }
 
 void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {

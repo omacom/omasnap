@@ -18,6 +18,7 @@
 #include <QLineF>
 #include <QTimer>
 #include <QWidget>
+#include <QWindow>
 
 #include <optional>
 #include <memory>
@@ -977,8 +978,10 @@ private:
   QTimer textCaretTimer_;
   QElapsedTimer nudgeTimer_;
   QTimer nudgePersistTimer_;
-  QTimer pointerRepaintTimer_;
+  /// Pointer damage waiting for the compositor's next frame callback, and the
+  /// window whose UpdateRequest delivers it (see queuePointerRepaint()).
   QRegion pendingPointerDamage_;
+  QPointer<QWindow> frameWindow_;
   /// View transform for navigating an oversized capture (e.g. a tall scroll
   /// stitch). `viewZoom_` multiplies the fit scale (1 = whole image visible);
   /// `viewOffset_` pans in widget pixels. Reset on entering edit.
