@@ -161,6 +161,8 @@ qt_add_executable(omasnap-smoke
   tests/editor-smoke.cpp
   tests/recent-persistence-smoke.cpp
   tests/recent-persistence-smoke.hpp
+  tests/pointer-pacing-smoke.cpp
+  tests/pointer-pacing-smoke.hpp
   tests/selection-repaint-smoke.cpp
   tests/selection-repaint-smoke.hpp
   tests/clipboard-smoke.cpp
