@@ -196,6 +196,7 @@ The install step places:
 
 - `~/.local/bin/omasnap`
 - `~/.local/share/applications/omasnap.desktop`
+- `~/.local/share/icons/hicolor/scalable/apps/omasnap.svg`
 - `~/.local/share/licenses/omasnap/Neucha-OFL.txt`
 - `~/.local/share/licenses/omasnap/JetBrainsMono-OFL.txt`
 - `~/.local/share/licenses/omasnap/Inter-OFL.txt`
