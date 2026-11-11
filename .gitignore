@@ -1,3 +1,6 @@
 build/
 stage/
 *.tar.gz
+/pkgbuild/pkg/
+/pkgbuild/src/
+*.pkg.tar.*

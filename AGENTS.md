@@ -101,36 +101,28 @@ change that touches the principle, not just this summary.
 | `src/icons.cpp/.hpp` | Vector icon renderer for toolbar and pin controls |
 | `src/cli-path.cpp/.hpp` | Command-line image target resolution |
 | `src/eyedropper.cpp/.hpp` | Display-to-source color sampling |
-| `tests/*-smoke.cpp/.hpp` | Headless Qt Test coverage: offscreen region clicks, async capture, single-instance handover, stitching fixtures |
+| `tests/*-smoke.cpp/.hpp` | `omasnap_tests`, headless Qt Test coverage: offscreen region clicks, async capture, single-instance handover, stitching fixtures |
 | `docs/` | Longer writeups of the principles above — read before changing behavior they cover |
-| `install-omarchy` | Omarchy installer (deps via `omarchy-pkg-add`, installs to `~/.local`) |
+| `bin/build`, `bin/test`, `bin/install` | Build, test through ctest, and install as a package |
+| `pkgbuild/PKGBUILD` | The dependency list, and the package `bin/install` builds from this checkout |
 | `CMakeLists.txt` | Build definition; **the version lives here** (`project(omasnap VERSION ...)`) |
 
 ## Build and verify
 
 ```bash
-make check
+bin/test
 ```
 
-`make check` configures and builds the project, runs the complete headless
-offscreen Qt smoke suite (including simulated region clicks and asynchronous
-capture), runs `clang-tidy`, and runs `clazy-standalone`/`qmllint` when those
-tools and source types are available. Use `make build` for a build-only pass,
-`make smoke` for the behavioral smoke suite, and `make install` to install to
-`~/.local`.
+`bin/test` builds everything (`bin/build`) and runs it through ctest offscreen: `omasnap_tests`, the headless smoke suite (simulated region clicks, asynchronous capture, single-instance handover, stitching fixtures), and `omasnap_lint`, clang-tidy with the checks in `.clang-tidy`, which fails on any finding and runs whenever `run-clang-tidy` is installed. `bin/test -R omasnap_tests` runs only the smoke suite. `bin/install` builds `pkgbuild/PKGBUILD` from this checkout with `makepkg -fsi`, so the package replaces the installed one.
 
 Smoke artifacts belong in `build/smoke-output/` (or `smoke-output/` beside a
 custom build's executable). Direct smoke runs use that default too; use
 `--output-dir <directory>` for an explicit alternative. Keep generated test
 screenshots and other debugging artifacts out of the repository root.
 
-Always run `make check` after behavioral changes. CI
-(`.github/workflows/build-linux.yml`) runs the same build and smoke on every
-push and PR.
+Always run `bin/test` after behavioral changes. CI (`.github/workflows/test.yml`) runs the same `bin/build` and `bin/test` on every push and PR.
 
-Dependencies (Arch): `base-devel cmake ninja pkgconf qt6-base layer-shell-qt
-wayland wayland-protocols libdeflate wl-clipboard xdg-utils tesseract tesseract-data-eng`. See
-[docs/dependencies.md](docs/dependencies.md) before adding to this list.
+Dependencies (Arch) are the `depends`, `makedepends` and `checkdepends` in `pkgbuild/PKGBUILD`, which CI installs from. See [docs/dependencies.md](docs/dependencies.md) before adding to that list.
 
 ## Release process
 

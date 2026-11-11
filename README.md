@@ -113,17 +113,13 @@ Runtime commands used by the application:
 
 ## Install on Omarchy
 
-Clone the repository and run the Omarchy installer:
+Omarchy installs Omasnap as a package. To build and install this checkout in its place:
 
 ```bash
-git clone https://github.com/tobi/omasnap.git
-cd omasnap
-./install-omarchy
+bin/install
 ```
 
-The installer uses Omarchy's package helper for missing dependencies, builds in
-`~/.cache/omasnap`, and installs under `~/.local`. It does not modify
-Hyprland configuration.
+That builds `pkgbuild/PKGBUILD` with `makepkg -fsi`, which installs any missing dependencies and replaces the installed package. It does not modify Hyprland configuration.
 
 Pinned-window placement uses the Lua dispatcher on Omarchy’s Hyprland.
 
@@ -168,49 +164,9 @@ hyprctl binds -j | jq -c \
 `omarchy plugin add` is intentionally not used. Omarchy plugins are Quickshell QML
 extensions; they do not install native executables or system packages.
 
-Set `OMASNAP_PREFIX` before running `install-omarchy` to use a prefix other than
-`~/.local`.
+### Building by hand
 
-### Manual Arch Linux build
-
-Install the complete build/runtime dependency set:
-
-```bash
-sudo pacman -S --needed \
-  base-devel cmake ninja pkgconf qt6-base layer-shell-qt \
-  wayland wayland-protocols libdeflate hyprland wl-clipboard xdg-utils \
-  tesseract tesseract-data-eng
-```
-
-Build and install:
-
-```bash
-cmake -S . -B build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$HOME/.local"
-cmake --build build --parallel
-cmake --install build
-```
-
-The install step places:
-
-- `~/.local/bin/omasnap`
-- `~/.local/share/applications/omasnap.desktop`
-- `~/.local/share/icons/hicolor/scalable/apps/omasnap.svg`
-- `~/.local/share/licenses/omasnap/Neucha-OFL.txt`
-- `~/.local/share/licenses/omasnap/JetBrainsMono-OFL.txt`
-- `~/.local/share/licenses/omasnap/Inter-OFL.txt`
-- `~/.local/share/licenses/omasnap/Lucide-ISC.txt`
-
-Launch Omasnap from the application launcher by searching for its name, or use
-the screenshot keybindings above.
-
-Ensure `~/.local/bin` is on `PATH`, then verify the installed CLI:
-
-```bash
-omasnap --version
-omasnap --help
-```
+The dependencies are the `depends` and `makedepends` in `pkgbuild/PKGBUILD`. `bin/build` builds into `build/`, so `build/omasnap` runs without installing, and `cmake --install build --prefix ~/.local` installs the binary, desktop entry, icon and font licenses under `~/.local` instead of as a package.
 
 ## CLI capture modes
 
@@ -654,8 +610,10 @@ original source frame.
 ## Development and verification
 
 ```bash
-make check
+bin/test
 ```
+
+`bin/test` builds and runs ctest offscreen: the smoke suite (`omasnap_tests`) and, when `run-clang-tidy` is installed, the clang-tidy checks in `.clang-tidy` (`omasnap_lint`), which fail on any finding. Pass ctest arguments through, as in `bin/test -R omasnap_tests`.
 
 Smoke screenshots, fixtures, and saved captures go in `build/smoke-output/`,
 including when the executable is launched directly from the repository root.
@@ -682,9 +640,7 @@ The trace also breaks native capture into Wayland registry, buffer allocation, f
 and pixel handoff stages, and marks output readiness separately from subsequent
 recent-history persistence. It is completely silent by default.
 
-`.github/workflows/build-linux.yml` runs the same `make check` build, interaction smoke,
-and available static-analysis checks in an Arch Linux container, stages the CMake installation, and uploads a versioned Linux
-artifact. A `v*` tag also attaches that artifact to the corresponding GitHub release.
+`.github/workflows/test.yml` runs `bin/build` and `bin/test` in an Arch Linux container on every push and pull request, with the dependencies read from `pkgbuild/PKGBUILD`. A `v*` tag runs `.github/workflows/release.yml`, which attaches a staged Linux build to the GitHub release.
 
 ## Acknowledgements
 
