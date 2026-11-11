@@ -13,6 +13,7 @@
 #include <QFutureWatcher>
 #include <QGuiApplication>
 #include <QImage>
+#include <QImageReader>
 #include <QMetaObject>
 #include <QObject>
 #include <QRectF>
@@ -21,9 +22,11 @@
 #include <QStringList>
 #include <QWidget>
 #include <QWindow>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QPlainTextEdit>
 #include <QLineEdit>
 #include <QTemporaryDir>
@@ -430,6 +433,199 @@ bool runSaveAsSmoke(QString &error) {
     editor.reset();
     if (QImage(output).isNull()) {
       error = QStringLiteral("Destroying editor interrupted accepted Save As output");
+      return false;
+    }
+  }
+  // A JPEG original must not be rewritten by the fast screenshot PNG encoder.
+  {
+    // Smooth color plus per-pixel variation: the fast PNG encoder stores each
+    // byte, while JPEG keeps it near a photo's size. A plain gradient does
+    // the opposite, because deflate loves long runs and JPEG does not.
+    QImage gradient(800, 600, QImage::Format_ARGB32);
+    for (int y = 0; y < gradient.height(); ++y) {
+      for (int x = 0; x < gradient.width(); ++x) {
+        unsigned n = unsigned(x) * 374761393u + unsigned(y) * 668265263u;
+        n = (n ^ (n >> 13u)) * 1274126177u;
+        n ^= n >> 16u;
+        const int r = qBound(0, 30 + x * 160 / gradient.width() + int(n & 40u) - 20, 255);
+        const int g = qBound(0, 20 + y * 140 / gradient.height() + int((n >> 3u) & 40u) - 20, 255);
+        const int b = qBound(0, 50 + (x + y) * 80 / gradient.width() + int((n >> 5u) & 30u) - 15, 255);
+        gradient.setPixel(x, y, qRgb(r, g, b));
+      }
+    }
+    QImage punched = gradient.convertToFormat(QImage::Format_ARGB32);
+    punched.setPixel(0, 0, qRgba(0, 0, 0, 0));
+    const QString jpegPath = directory.filePath(QStringLiteral("gradient.jpg"));
+    const QString pngPath = directory.filePath(QStringLiteral("gradient.png"));
+    if (imageHasTransparency(gradient) || !imageHasTransparency(punched) ||
+        !saveJpegFile(gradient, jpegPath, error) ||
+        !savePngFile(gradient, pngPath, error)) {
+      error = QStringLiteral("JPEG export fixture failed: %1").arg(error);
+      return false;
+    }
+    const QImageReader reader(jpegPath);
+    const qint64 jpegBytes = QFileInfo(jpegPath).size();
+    const qint64 pngBytes = QFileInfo(pngPath).size();
+    if (reader.format() != "jpeg" || reader.size() != gradient.size() ||
+        jpegBytes * 2 >= pngBytes ||
+        saveJpegFile(punched, directory.filePath(QStringLiteral("clear.jpg")), error)) {
+      error = QStringLiteral("JPEG export was not a smaller opaque JPEG (%1 vs PNG %2): %3")
+                  .arg(jpegBytes)
+                  .arg(pngBytes)
+                  .arg(error);
+      return false;
+    }
+    if (!error.contains(QStringLiteral("transparency"))) {
+      error = QStringLiteral("Transparent JPEG export failed without saying why");
+      return false;
+    }
+    error.clear();
+    // --pin of a JPEG copies it to a private .png name. The log has to remember
+    // the JPEG, or Edit then Save writes the large PNG this export avoids.
+    const auto pinnedJpeg = copyPinDocument(jpegPath, error);
+    OperationLog pinnedLog;
+    const auto pinnedPng = copyPinDocument(pngPath, error);
+    OperationLog pinnedPngLog;
+    if (!pinnedJpeg ||
+        !loadOperationLog(operationLogPath(pinnedJpeg->path()), pinnedLog, error) ||
+        !pinnedLog.jpegSource ||
+        !pinnedJpeg->path().endsWith(QStringLiteral(".png")) || !pinnedPng ||
+        !loadOperationLog(operationLogPath(pinnedPng->path()), pinnedPngLog, error) ||
+        pinnedPngLog.jpegSource) {
+      error = QStringLiteral("Pinning a JPEG did not keep its save format: %1")
+                  .arg(error);
+      return false;
+    }
+    // A preview's own log is what Edit reads after the capture leaves the
+    // five-item shelf. An empty recent id makes that the only record.
+    QString pinError;
+    const QString orphanPin = launchPinnedCapture(
+        gradient, gradient.size(), false, PinLifetime::Persistent, pinError,
+        [](const QString &, const QStringList &) { return true; }, {}, {}, {},
+        true);
+    const auto removeOrphan = qScopeGuard([&] {
+      QFile::remove(orphanPin);
+      QFile::remove(operationLogPath(orphanPin));
+      QFile::remove(PinSnapshotFile::thumbnailPath(orphanPin));
+    });
+    OperationLog orphanLog;
+    const auto orphanDoc = copyPinDocument(orphanPin, pinError);
+    OperationLog orphanDocLog;
+    if (orphanPin.isEmpty() ||
+        !loadOperationLog(operationLogPath(orphanPin), orphanLog, pinError) ||
+        !orphanLog.jpegSource || !orphanDoc ||
+        !loadOperationLog(operationLogPath(orphanDoc->path()), orphanDocLog, pinError) ||
+        !orphanDocLog.jpegSource) {
+      error = QStringLiteral("A pinned JPEG with no recent capture lost its save format: %1")
+                  .arg(pinError);
+      return false;
+    }
+
+    OperationLog stored;
+    stored.jpegSource = true;
+    const QString logPath = directory.filePath(QStringLiteral("jpeg-log.json"));
+    OperationLog loaded;
+    if (!saveOperationLog(logPath, stored, error) ||
+        !loadOperationLog(logPath, loaded, error) || !loaded.jpegSource) {
+      error = QStringLiteral("Operation log dropped its JPEG source: %1").arg(error);
+      return false;
+    }
+
+    const QByteArray previousShots = qgetenv("OMASNAP_SCREENSHOT_DIR");
+    const auto restoreShots = qScopeGuard([&] {
+      if (previousShots.isNull())
+        qunsetenv("OMASNAP_SCREENSHOT_DIR");
+      else
+        qputenv("OMASNAP_SCREENSHOT_DIR", previousShots);
+    });
+    const QString shots = directory.filePath(QStringLiteral("jpeg-shots"));
+    qputenv("OMASNAP_SCREENSHOT_DIR", shots.toUtf8());
+    CaptureData photo;
+    photo.source = gradient;
+    photo.previewSize = gradient.size();
+    photo.monitor.scale = 1;
+    photo.monitor.geometry = QRect(0, 0, gradient.width(), gradient.height());
+    photo.monitor.pixelSize = gradient.size();
+    photo.preserveSourceResolution = true;
+    OperationLog jpegLog;
+    jpegLog.jpegSource = true;
+    CaptureEditor editor(photo, CaptureEditor::CaptureMode::File,
+                         QuickOutputMode::None, jpegLog);
+    if (!editor.jpegSource_) {
+      error = QStringLiteral("Opened JPEG did not keep its save format");
+      return false;
+    }
+    QStringList jpegPreviews;
+    editor.setProcessLauncherForTest([&](const QString &, const QStringList &args) {
+      if (args.size() == 2 && args.first() == QStringLiteral("--preview"))
+        jpegPreviews.push_back(args.last());
+      return true;
+    });
+    editor.show();
+    // finish() waits out any snapshot still on the pool, then closes without
+    // clearing busy_. Drain the snapshot first and wait for that close.
+    if (!editor.waitForSnapshot()) {
+      error = QStringLiteral("Opened JPEG could not persist its working copy");
+      return false;
+    }
+    const QImage rendered = editor.renderCurrentOutput();
+    const QString runtime = secureRuntimeDirectory();
+    const QStringList exportsBefore =
+        QDir(runtime).entryList({QStringLiteral("export-*.png")}, QDir::Files);
+    editor.finish(CaptureEditor::OutputMode::Save);
+    editor.waitForExport();
+    if (editor.isVisible() || jpegPreviews.isEmpty()) {
+      error = QStringLiteral("Saving a JPEG original did not finish: "
+                             "visible=%1 busy=%2 previews=%3 status=%4")
+                  .arg(editor.isVisible())
+                  .arg(editor.busy_)
+                  .arg(jpegPreviews.size())
+                  .arg(editor.statusForTest());
+      return false;
+    }
+    OperationLog previewLog;
+    const QStringList exportsAfter =
+        QDir(runtime).entryList({QStringLiteral("export-*.png")}, QDir::Files);
+    for (const QString &name : exportsAfter) {
+      if (!exportsBefore.contains(name)) {
+        error = QStringLiteral("JPEG save left its temporary PNG behind: %1").arg(name);
+        return false;
+      }
+    }
+    if (!loadOperationLog(operationLogPath(jpegPreviews.last()), previewLog, error) ||
+        !previewLog.savedPath.endsWith(QStringLiteral(".jpg")) ||
+        !previewLog.jpegSource ||
+        QImageReader(previewLog.savedPath).format() != "jpeg" ||
+        QImageReader(previewLog.savedPath).size() != rendered.size() ||
+        QImage(jpegPreviews.last()).size() != rendered.size()) {
+      error = QStringLiteral("Saved JPEG lost its preview or pixels: %1 "
+                             "(saved %2x%3, pin %4x%5, rendered %6x%7)")
+                  .arg(previewLog.savedPath)
+                  .arg(QImageReader(previewLog.savedPath).size().width())
+                  .arg(QImageReader(previewLog.savedPath).size().height())
+                  .arg(QImage(jpegPreviews.last()).width())
+                  .arg(QImage(jpegPreviews.last()).height())
+                  .arg(rendered.width())
+                  .arg(rendered.height());
+      return false;
+    }
+    // The shelf document is what a later edit reopens while the capture is
+    // still one of the five recent ones, so that log keeps the JPEG preference.
+    const auto recent = findRecentSnap(previewLog.recentId, &error);
+    OperationLog recentLog;
+    if (!recent || !loadOperationLog(recent->logPath, recentLog, error) ||
+        !recentLog.jpegSource) {
+      error = QStringLiteral("Recent capture lost its JPEG source: %1")
+                  .arg(recent ? recent->logPath : QString());
+      return false;
+    }
+    editor.show();
+    const QString chosen = directory.filePath(QStringLiteral("chosen-photo.jpeg"));
+    editor.saveAsToPath(chosen);
+    if (!waitUntil([&] { return !editor.busy_ && !editor.isVisible(); }) ||
+        QImageReader(chosen).format() != "jpeg" ||
+        QImageReader(chosen).size() != rendered.size()) {
+      error = QStringLiteral("Save As did not write the opened JPEG as JPEG");
       return false;
     }
   }

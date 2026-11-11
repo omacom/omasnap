@@ -69,6 +69,12 @@ std::shared_ptr<PinSnapshotFile> copyPinDocument(const QString &path, QString &e
   OperationLog log;
   if (!loadSidecarOperationLog(path, log, error))
     return {};
+  // The private copy is always named .png, so the suffix check in main cannot
+  // see that the user pinned a JPEG. Remember it before that copy is made.
+  const QString pinnedSuffix = QFileInfo(path).suffix();
+  const bool pinnedJpeg =
+      pinnedSuffix.compare(QStringLiteral("jpg"), Qt::CaseInsensitive) == 0 ||
+      pinnedSuffix.compare(QStringLiteral("jpeg"), Qt::CaseInsensitive) == 0;
   // The visible PNG is flattened. If its capture is still on the shelf,
   // restore the working document so editing a preview retains its layers too.
   QString source = path;
@@ -82,6 +88,8 @@ std::shared_ptr<PinSnapshotFile> copyPinDocument(const QString &path, QString &e
     error = recentError;
     return {};
   }
+  if (!log.jpegSource && pinnedJpeg)
+    log.jpegSource = true;
   // This is a new working document, not a completed export. Further editing
   // must not keep pointing Reveal at the preceding saved version.
   log.savedPath.clear();

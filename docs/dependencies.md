@@ -34,6 +34,9 @@ Qt still reads every image and writes images with profiles/other text/offset met
 high-bit-depth formats, and captures exceeding the encoder's 128 MiB filtered
 buffer budget. Those use Qt's streaming writer at zlib level 1. PNG DPI metadata
 is preserved on both paths. No quality or compression setting is exposed.
+An image opened from a JPEG is saved through Qt's JPEG writer at quality 93.
+That uses the JPEG support already linked with Qt Gui; it is not a new dependency,
+and it is not on the screenshot path.
 
 ## Runtime: external processes, not libraries
 
