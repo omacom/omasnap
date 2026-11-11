@@ -101,7 +101,13 @@ a single full ARGB frame is over 80 MB before compositor copies.
 `CaptureEditor` therefore treats pointer chrome as damaged regions. Crosshair
 lines, measurement badges, toolbar hover, annotation previews, and drag shapes
 invalidate only their old/new pixels; Qt's backing store preserves the rest.
-High-rate mouse samples are coalesced to at most one repaint per 16 ms. The
+High-rate mouse samples accumulate damage and paint once per compositor frame
+callback: `queuePointerRepaint()` calls `QWindow::requestUpdate()`, which
+Wayland delivers when the surface is ready for its next frame, and the
+editor's event filter paints just the pending damage. Pointer chrome therefore
+tracks the monitor's real refresh rate. A bare `update()` is not paced (a
+1000 Hz mouse paints 1000 times a second), and a fixed-interval timer caps
+high-refresh displays and judders against their vsync; avoid both. The
 text-aware highlighter is stricter still: scanning screenshot pixels happens
 through `highlighterProbeWatcher_`, and mouse-down uses the latest completed
 probe rather than scanning in the input handler. Reintroducing a bare

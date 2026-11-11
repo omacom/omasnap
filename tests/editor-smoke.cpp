@@ -14,6 +14,7 @@
 #include "cut-smoke.hpp"
 #include "editor.hpp"
 #include "shortcut-guide.hpp"
+#include "pointer-pacing-smoke.hpp"
 #include "selection-repaint-smoke.hpp"
 #include "overlay-chrome.hpp"
 #include "recent-snaps.hpp"
@@ -12811,6 +12812,10 @@ int main(int argc, char **argv) {
   if (!runPointerDamageRepaintSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 138;
+  }
+  if (!runPointerPacingSmoke(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 237;
   }
   if (!runFramedLiveGrowthSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;

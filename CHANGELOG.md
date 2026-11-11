@@ -5,6 +5,13 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Fixed
+
+- Drawing on the overlay (the crosshair, dragging out a region, and carrying
+  or drawing annotations) now follows the monitor's refresh rate instead of
+  being capped near 60 fps, so it moves smoothly on 120, 165, and 240 Hz
+  displays while still painting at most once per frame on any display.
+
 ## 1.25.0
 
 ### Added
