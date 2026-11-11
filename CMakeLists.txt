@@ -1,5 +1,29 @@
 cmake_minimum_required(VERSION 3.24)
-project(omasnap VERSION 1.26.0 LANGUAGES C CXX)
+project(omasnap LANGUAGES C CXX)
+
+# The release tag is the version: git describe in a checkout, or the directory
+# name of a GitHub release tarball (omasnap-1.26.0). Pass -DOMASNAP_VERSION to
+# override it.
+set(OMASNAP_VERSION "" CACHE STRING "Version to report; derived from the release tag when empty")
+if(NOT OMASNAP_VERSION AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+  find_package(Git QUIET)
+  if(GIT_FOUND)
+    execute_process(
+      COMMAND "${GIT_EXECUTABLE}" describe --tags --match "v[0-9]*"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+      OUTPUT_VARIABLE OMASNAP_VERSION
+      OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    string(REGEX REPLACE "^v" "" OMASNAP_VERSION "${OMASNAP_VERSION}")
+  endif()
+endif()
+get_filename_component(omasnap_source_name "${CMAKE_CURRENT_SOURCE_DIR}" NAME)
+if(NOT OMASNAP_VERSION AND omasnap_source_name MATCHES "^omasnap-([0-9]+(\\.[0-9]+)*)$")
+  set(OMASNAP_VERSION "${CMAKE_MATCH_1}")
+endif()
+if(NOT OMASNAP_VERSION)
+  set(OMASNAP_VERSION dev)
+endif()
+message(STATUS "omasnap version: ${OMASNAP_VERSION}")
 include(GNUInstallDirs)
 include(CTest)
 set(CMAKE_AUTOMOC ON)
@@ -148,7 +172,7 @@ target_link_libraries(omasnap-core PUBLIC
 
 qt_add_executable(omasnap src/main.cpp src/pin.cpp src/pin.hpp)
 target_compile_options(omasnap PRIVATE -Wall -Wextra -Wpedantic)
-target_compile_definitions(omasnap PRIVATE OMASNAP_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(omasnap PRIVATE OMASNAP_VERSION="${OMASNAP_VERSION}")
 target_link_libraries(omasnap PRIVATE omasnap-core)
 target_precompile_headers(omasnap REUSE_FROM omasnap-core)
 

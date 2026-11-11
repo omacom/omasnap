@@ -19,12 +19,18 @@ jobs:
       - name: Install build and runtime dependencies
         run: >-
           pacman -Syu --noconfirm --needed
-          base-devel cmake ninja pkgconf qt6-base layer-shell-qt
+          base-devel cmake git ninja pkgconf qt6-base layer-shell-qt
           wayland wayland-protocols libdeflate wl-clipboard tesseract tesseract-data-eng
           clang
 
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          # The version comes from git describe, which needs the tags.
+          fetch-depth: 0
+
+      - name: Trust the checkout for git describe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Check installer scripts
         run: bash -n install-omarchy

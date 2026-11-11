@@ -134,16 +134,15 @@ wayland wayland-protocols libdeflate wl-clipboard xdg-utils tesseract tesseract-
 
 ## Release process
 
-1. Bump `project(omasnap VERSION ...)` in `CMakeLists.txt`.
-   Move the `Unreleased` entries in `CHANGELOG.md` into that version's
-   section, add its comparison link, and start a fresh `Unreleased` section.
-   Update the Unreleased comparison link to compare the new tag with `main`.
-2. Build and run the smoke test (above).
-3. Commit, tag `v<version>`, push main and the tag. The GitHub workflow
-   attaches the build artifact to the release automatically.
-   Copy the new changelog section into the GitHub release notes so users
-   can read the changes alongside the download.
-4. omarchy-pkgs picks up the new GitHub release on its own: the hourly
+The release tag is the version; nothing in the tree records it, so a release
+needs no commit. CMake reads it from `git describe` in a checkout, or from
+the `omasnap-<version>` directory of a GitHub release tarball.
+
+1. Build and run the smoke test (above) on `main`.
+2. `gh release create v<version> --target main --generate-notes`, then edit
+   the notes into a short list of user-facing changes. The GitHub workflow
+   attaches the build artifact to the release.
+3. omarchy-pkgs picks up the new GitHub release on its own: the hourly
    Sync Upstream run watches `omacom/omasnap` releases, bumps
    `pkgbuilds/omasnap/` (`pkgver` and checksum), and auto-merges once the
    build passes. No manual omarchy-pkgs PR is needed.

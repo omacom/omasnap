@@ -1,6 +1,6 @@
 # Omasnap
 
-See the [changelog](CHANGELOG.md) for release highlights and unreleased changes.
+See the [releases](https://github.com/omacom/omasnap/releases) for what changed in each version.
 
 A native Wayland screenshot and annotation overlay designed for Omarchy and Hyprland.
 It captures the focused monitor before mapping an exclusive layer-shell surface, so the
