@@ -141,6 +141,8 @@ private:
   void startInjector(bool continuing);
   void stopWorker();
   void finishCapture();
+  /// Back on the UI thread with the stitched page, or a null image and why.
+  void finishStitched(const QImage &result, const QString &error);
   void cancel();
   /// Region chosen (dragged or restored): remember it, expose the page, hand
   /// the keyboard over by zone, and offer the modes.
