@@ -205,6 +205,8 @@ qt_add_executable(omasnap-smoke
   tests/scroll-startup-smoke.hpp
   tests/save-as-smoke.cpp
   tests/save-as-smoke.hpp
+  tests/wayland-display-smoke.cpp
+  tests/wayland-display-smoke.hpp
 )
 target_include_directories(omasnap-smoke PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"
@@ -212,6 +214,8 @@ target_include_directories(omasnap-smoke PRIVATE
 target_compile_options(omasnap-smoke PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(omasnap-smoke PRIVATE omasnap-core Qt6::Test)
 target_precompile_headers(omasnap-smoke REUSE_FROM omasnap-core)
+# The display check runs the real omasnap binary beside the smoke.
+add_dependencies(omasnap-smoke omasnap)
 add_test(NAME omasnap-smoke COMMAND omasnap-smoke)
 set_tests_properties(omasnap-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()

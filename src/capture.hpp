@@ -261,6 +261,10 @@ private:
 
 [[nodiscard]] bool captureOutputSurface(const MonitorInfo &monitor,
                                         QImage &image, QString &error);
+/** Why the compositor named by `WAYLAND_DISPLAY` cannot be reached, or empty
+ *  once a test connection to it succeeds (or `WAYLAND_SOCKET` hands one
+ *  over). Safe to call before QApplication exists. */
+[[nodiscard]] QString waylandDisplayError();
 [[nodiscard]] QString operationLogPath(const QString &imagePath);
 [[nodiscard]] bool saveOperationLog(const QString &path, const OperationLog &log,
                                     QString &error);

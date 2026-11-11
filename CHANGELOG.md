@@ -14,6 +14,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Exit with code 1 and a "No Wayland display" message when `WAYLAND_DISPLAY`
+  is unset or its compositor socket is gone (a systemd service, a restarted
+  compositor), instead of aborting inside Qt with a core dump and a crash
+  notification.
 - Open the input method's candidate window under the text caret instead of at
   the editor's top-left corner, so fcitx5 users see their Chinese, Japanese, or
   Korean candidates next to the text they are typing.

@@ -34,6 +34,7 @@
 #include "overlay-dismissal.hpp"
 #include "text-band.hpp"
 #include "transform-smoke.hpp"
+#include "wayland-display-smoke.hpp"
 #include "eyedropper.hpp"
 #include "icons.hpp"
 
@@ -14385,6 +14386,11 @@ int main(int argc, char **argv) {
   if (!runInstanceLockReusedPidSmoke(instanceError)) {
     qWarning().noquote() << instanceError;
     return 233;
+  }
+  QString displayError;
+  if (!runWaylandDisplaySmoke(displayError)) {
+    qWarning().noquote() << displayError;
+    return 237;
   }
   if (!runChromeThemeSmoke(outputRoot, snapshotError)) {
     qWarning().noquote() << snapshotError;

@@ -579,6 +579,28 @@ bool captureOutputSurface(const MonitorInfo &monitor, QImage &image,
       QStringLiteral("Unsupported transform in native output capture"));
 }
 
+QString waylandDisplayError() {
+  // A socket handed over by the compositor: probing it would consume it.
+  if (qEnvironmentVariableIsSet("WAYLAND_SOCKET"))
+    return {};
+  const QString name = qEnvironmentVariable("WAYLAND_DISPLAY");
+  if (name.isEmpty())
+    return QStringLiteral("No Wayland display: WAYLAND_DISPLAY is not set");
+  errno = 0;
+  wl_display *display = wl_display_connect(nullptr);
+  if (!display) {
+    const int connectError = errno;
+    QString message =
+        QStringLiteral("Could not connect to Wayland display %1").arg(name);
+    if (connectError != 0)
+      message += QStringLiteral(": %1").arg(
+          QString::fromLocal8Bit(std::strerror(connectError)));
+    return message;
+  }
+  wl_display_disconnect(display);
+  return {};
+}
+
 struct OutputCapture::State : capture_detail::CaptureState {};
 
 OutputCapture::OutputCapture() = default;
