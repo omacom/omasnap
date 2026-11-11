@@ -325,6 +325,11 @@ preserving every native pixel. This also covers cropped, framed, and scrolling
 captures. Images without this metadata use their pixel dimensions; print DPI
 alone is not treated as a screenshot's display scale.
 
+Omasnap is also listed under Open With for images in a file manager, such as
+Folio, without becoming the default image viewer. After a manual install into
+`~/.local`, run `update-desktop-database ~/.local/share/applications` once so
+the list picks it up; a packaged install does this on its own.
+
 To open the image currently on the Wayland clipboard:
 
 ```bash
