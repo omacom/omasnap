@@ -5,10 +5,14 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+## 1.25.1
+
 ### Added
 
 - Offer Omasnap under Open With for images in file managers like Folio, so an
   image opens straight into the annotation editor.
+- Give Omasnap its own app icon, in Tokyo Night colors to match Hype and Files,
+  instead of the generic camera.
 
 ## 1.25.0
 
@@ -275,7 +279,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Keep the toolbar, capture tabs, hotkey legend, and canvas geometry aligned.
 - Remove the pixels actually covered by a cut-band drag.
 
-[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.25.0...main)
+[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.25.1...main)
+· [1.25.1 changes](https://github.com/omacom/omasnap/compare/v1.25.0...v1.25.1)
 · [1.25.0 changes](https://github.com/omacom/omasnap/compare/v1.24.0...v1.25.0)
 · [1.24.0 changes](https://github.com/omacom/omasnap/compare/v1.23.0...v1.24.0)
 · [1.23.0 changes](https://github.com/omacom/omasnap/compare/v1.22.0...v1.23.0)
