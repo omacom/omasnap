@@ -5,7 +5,7 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
-## 1.25.1
+## 1.26.0
 
 ### Added
 
@@ -13,6 +13,13 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   image opens straight into the annotation editor.
 - Give Omasnap its own app icon, in Tokyo Night colors to match Hype and Files,
   instead of the generic camera.
+
+### Fixed
+
+- Open the editor from a saved screenshot's Edit action on the focused
+  monitor, where you clicked it, instead of always on the primary one. Opening
+  an image from the command line or `--clipboard` follows the focused monitor
+  too.
 
 ## 1.25.0
 
@@ -23,10 +30,6 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
-- Open the editor from a saved screenshot's Edit action on the focused
-  monitor, where you clicked it, instead of always on the primary one. Opening
-  an image from the command line or `--clipboard` follows the focused monitor
-  too.
 - Open the input method's candidate window under the text caret instead of at
   the editor's top-left corner, so fcitx5 users see their Chinese, Japanese, or
   Korean candidates next to the text they are typing.
@@ -283,8 +286,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Keep the toolbar, capture tabs, hotkey legend, and canvas geometry aligned.
 - Remove the pixels actually covered by a cut-band drag.
 
-[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.25.1...main)
-· [1.25.1 changes](https://github.com/omacom/omasnap/compare/v1.25.0...v1.25.1)
+[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.26.0...main)
+· [1.26.0 changes](https://github.com/omacom/omasnap/compare/v1.25.0...v1.26.0)
 · [1.25.0 changes](https://github.com/omacom/omasnap/compare/v1.24.0...v1.25.0)
 · [1.24.0 changes](https://github.com/omacom/omasnap/compare/v1.23.0...v1.24.0)
 · [1.23.0 changes](https://github.com/omacom/omasnap/compare/v1.22.0...v1.23.0)
