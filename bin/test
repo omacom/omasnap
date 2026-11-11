@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Arguments go to ctest, so `bin/test -R theme` runs only the matching tests.
+# Arguments go to ctest, so `bin/test -V` shows every Qt test function as it runs.
 root="$(cd "$(dirname "$0")/.." && pwd)"
 "$root/bin/build"
 QT_QPA_PLATFORM=offscreen ctest --test-dir "$root/build" --output-on-failure "$@"
