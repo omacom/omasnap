@@ -472,6 +472,8 @@ controls to return focus from the live page.
 | `S` | Toggle scrolling-region mode |
 | `E` / `A` | Toggle annotation after capture; the capture guide shows on/off, and the choice also applies to scrolling captures |
 | `R` | Restore the last drawn region, including from a previous Omasnap launch in this login session (same monitor and overlay size) |
+| `Arrow` | Move the crosshair 1 px, 10 px with `Shift`, faster while held |
+| `Enter` after an `Arrow` | Set the region's first corner; arrows then size it, and `Enter` again captures it |
 | `SUPER + Arrow` | Move among windows in window mode |
 | `Enter` | Capture the highlighted window |
 | `Ctrl+A` | Select the full focused monitor |
