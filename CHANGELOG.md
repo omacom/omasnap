@@ -23,6 +23,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Open the editor from a saved screenshot's Edit action on the focused
+  monitor, where you clicked it, instead of always on the primary one. Opening
+  an image from the command line or `--clipboard` follows the focused monitor
+  too.
 - Open the input method's candidate window under the text caret instead of at
   the editor's top-left corner, so fcitx5 users see their Chinese, Japanese, or
   Korean candidates next to the text they are typing.

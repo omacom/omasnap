@@ -171,8 +171,10 @@ enum class AnnotationLayer { Redaction, Default };
  * Discovers the focused monitor (name, geometry, scale). Fast: only one
  * `hyprctl monitors` call. Safe to call on the main thread to position the
  * overlay after the pixel capture has already produced a frozen frame.
+ * `timeoutMs` bounds a stalled hyprctl.
  */
-[[nodiscard]] bool probeFocusedMonitor(MonitorInfo &monitor, QString &error);
+[[nodiscard]] bool probeFocusedMonitor(MonitorInfo &monitor, QString &error,
+                                       int timeoutMs = 10000);
 /**
  * Captures the focused monitor's pixels onto the given monitor, and its window
  * list when `includeWindows` is set. Window discovery runs alongside the screen

@@ -1353,11 +1353,12 @@ void paintCaptureImageShadow(QPainter &painter, const QRectF &imageRect,
   painter.restore();
 }
 
-bool probeFocusedMonitor(MonitorInfo &monitor, QString &error) {
+bool probeFocusedMonitor(MonitorInfo &monitor, QString &error, int timeoutMs) {
   StartupTimingScope timing("hyprctl monitors + parse");
   const ProcessResult monitors =
       runProcess(QStringLiteral("hyprctl"),
-                 {QStringLiteral("monitors"), QStringLiteral("-j")});
+                 {QStringLiteral("monitors"), QStringLiteral("-j")}, {},
+                 timeoutMs);
   if (!monitors.finished || monitors.exitCode != 0 ||
       !parseMonitor(monitors.output, monitor, error)) {
     if (error.isEmpty())
