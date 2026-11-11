@@ -19,7 +19,8 @@ preview keeps it on screen.
 
 - Smart selection by default: drag a freeform region, click a window to crop
   it, or click open monitor space for the full monitor. Explicit region,
-  window, fullscreen, and scrolling-region modes remain available.
+  window, fullscreen, and scrolling-region modes remain available. Visible
+  special-workspace windows take priority over windows behind them.
 - Fresh captures save, copy to the clipboard, and show a floating preview for 7 seconds
   without taking keyboard focus. Hover for Pin, Edit, Copy, file drag, and Close
   controls. Use the pin button, `Ctrl+P`, `T` while hovered, or drag the preview to

@@ -478,6 +478,10 @@ bool parseMonitor(const QByteArray &json, MonitorInfo &monitor,
                               .toObject()
                               .value(QStringLiteral("id"))
                               .toInt();
+    monitor.specialWorkspaceId = object.value(QStringLiteral("specialWorkspace"))
+                                     .toObject()
+                                     .value(QStringLiteral("id"))
+                                     .toInt();
     return !monitor.name.isEmpty() && logicalWidth > 0 && logicalHeight > 0;
   }
 
@@ -488,16 +492,20 @@ bool parseMonitor(const QByteArray &json, MonitorInfo &monitor,
 QVector<WindowTarget> parseWindows(const QByteArray &json,
                                    const MonitorInfo &monitor) {
   QVector<WindowTarget> result;
+  QVector<WindowTarget> specialWindows;
   const QJsonDocument document = QJsonDocument::fromJson(json);
   if (!document.isArray())
     return result;
 
   for (const QJsonValue value : document.array()) {
     const QJsonObject object = value.toObject();
-    if (object.value(QStringLiteral("workspace"))
-            .toObject()
-            .value(QStringLiteral("id"))
-            .toInt() != monitor.workspaceId)
+    const int workspaceId = object.value(QStringLiteral("workspace"))
+                                .toObject()
+                                .value(QStringLiteral("id"))
+                                .toInt();
+    const bool onSpecialWorkspace = monitor.specialWorkspaceId != 0 &&
+                                    workspaceId == monitor.specialWorkspaceId;
+    if (workspaceId != monitor.workspaceId && !onSpecialWorkspace)
       continue;
 
     const QJsonArray at = object.value(QStringLiteral("at")).toArray();
@@ -516,9 +524,11 @@ QVector<WindowTarget> parseWindows(const QByteArray &json,
     QString title = object.value(QStringLiteral("title")).toString();
     if (title.isEmpty())
       title = appClass.isEmpty() ? QStringLiteral("window") : appClass;
-    result.push_back({rect, object.value(QStringLiteral("stableId")).toString(),
-                      std::move(title), std::move(appClass)});
+    WindowTarget target{rect, object.value(QStringLiteral("stableId")).toString(),
+                         std::move(title), std::move(appClass)};
+    (onSpecialWorkspace ? specialWindows : result).push_back(std::move(target));
   }
+  result += specialWindows;
   return result;
 }
 
@@ -1824,7 +1834,8 @@ QString dominantAppClass(const QVector<WindowTarget> &windows,
                          const QRectF &selection) {
   QString best;
   qreal bestArea = 0.0;
-  for (const WindowTarget &window : windows) {
+  for (auto it = windows.crbegin(); it != windows.crend(); ++it) {
+    const WindowTarget &window = *it;
     if (window.appClass.isEmpty())
       continue;
     const QRectF overlap = QRectF(window.rect).intersected(selection);
