@@ -754,11 +754,16 @@ void ScrollCapturePanel::finishCapture() {
       if (!w.lastCrop.isNull())
         w.lastCrop.save(w.debugDir + QStringLiteral("/scroll-last-frame.png"), "PNG");
     }
-    QMetaObject::invokeMethod(this, [this, result, error, generation] {
-      if (!released_ && generation == captureGeneration_ &&
-          phase_ == Phase::Finishing)
-        finishStitched(result, error);
-    });
+    // Queued even from the UI thread: stopWorker() can run this job inline,
+    // and finishing inside that wait would wait on itself.
+    QMetaObject::invokeMethod(
+        this,
+        [this, result, error, generation] {
+          if (!released_ && generation == captureGeneration_ &&
+              phase_ == Phase::Finishing)
+            finishStitched(result, error);
+        },
+        Qt::QueuedConnection);
   });
 }
 
@@ -1197,6 +1202,11 @@ void ScrollCapturePanel::mousePressEvent(QMouseEvent *event) {
     else if (cancelButtonRect().contains(point))
       cancel();
     return; // clicks elsewhere in the chrome do nothing
+  }
+  if (phase_ == Phase::Finishing) {
+    if (cancelButtonRect().contains(event->position().toPoint()))
+      cancel();
+    return;
   }
   if (phase_ == Phase::Selected) {
     const QPoint point = event->position().toPoint();
