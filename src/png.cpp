@@ -21,6 +21,7 @@
 #include <array>
 #include <cstring>
 #include <memory>
+#include <utility>
 
 namespace {
 constexpr QLatin1StringView kLogicalSizeKey("Omasnap logical size");
@@ -51,6 +52,39 @@ void setPngLogicalSize(QImage &image, const QSize &size) {
   // Avoid detaching an already-tagged full-resolution render at output.
   if (image.text(kLogicalSizeKey) != text)
     image.setText(kLogicalSizeKey, text);
+}
+
+void clearPngLogicalSize(QImage &image) {
+  const QString key(kLogicalSizeKey);
+  if (image.isNull() || !image.textKeys().contains(key))
+    return;
+  // setText keeps the key when the value is empty, and one leftover key sends
+  // the fast PNG writer down Qt's slower path. Copy the pixels without that key.
+  QImage stripped(image.width(), image.height(), image.format());
+  if (stripped.isNull())
+    return;
+  if (image.colorCount() > 0)
+    stripped.setColorTable(image.colorTable());
+  stripped.setColorSpace(image.colorSpace());
+  stripped.setDevicePixelRatio(image.devicePixelRatio());
+  stripped.setDotsPerMeterX(image.dotsPerMeterX());
+  stripped.setDotsPerMeterY(image.dotsPerMeterY());
+  stripped.setOffset(image.offset());
+  const qsizetype bytes = image.bytesPerLine() < stripped.bytesPerLine()
+                              ? image.bytesPerLine()
+                              : stripped.bytesPerLine();
+  for (int y = 0; y < image.height(); ++y) {
+    std::memcpy(stripped.scanLine(y), image.constScanLine(y),
+                static_cast<std::size_t>(bytes));
+  }
+  for (const QString &textKey : image.textKeys()) {
+    if (textKey == key)
+      continue;
+    const QString value = image.text(textKey);
+    if (!value.isEmpty())
+      stripped.setText(textKey, value);
+  }
+  image = std::move(stripped);
 }
 
 bool logicalScaleAllowed(const QSize &pixels, const QSize &logical) {

@@ -67,8 +67,11 @@ and the last pin/editor owner removes the private source, log, and preview toget
 
 Scrolling captures retain the monitor's scale when they become editable
 documents. Their native pixels stay intact; only the logical presentation size
-changes. Loaded documents also retain their exact pixel dimensions on export,
-even when the logical size was rounded for a scaled display.
+changes. Loaded documents keep those exact pixel dimensions in the working
+image, even when the logical size was rounded for a scaled display. Save and
+Save As write that image unless the editor's export size is 50% or 20%, which
+resamples only the file. Copy stays at the full size, and the choice is not
+stored in the operation log.
 Flattened pins and previews record the logical size of the entire rendered
 image, including its backdrop and expanded canvas, so reopening them preserves
 their proportions. The editable source's log still uses its original coordinates.

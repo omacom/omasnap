@@ -523,11 +523,17 @@ region after changing the display layout.
 | `Ctrl+Shift+Z`, `Ctrl+Y` | Redo |
 | `Ctrl+C` | Copy PNG only |
 | `Ctrl+S` | Save PNG only |
+| `K` / `Shift+K` | Cycle the saved file through 100%, 50%, and 20%. Copy stays full size. The working image is unchanged, and the next editor starts at 100% again |
 | `Ctrl+Shift+S` | Save As: choose a PNG destination (`.png` is added when omitted; other formats are rejected) |
 | `Enter` | Copy and save (with a text layer selected: edit it) |
 | `Ctrl+P` / `P` | Keep the capture pinned on screen and close the editor |
 | `Esc` / `Super+W` | Dismiss the annotator; keep an originating pin in place with its edits and undo history |
 | Right-click | Return to Select; cancel active drawing |
+
+`K` cycles how large a file Save and Save As write: 100% keeps every pixel,
+and 50% or 20% resamples the flattened image, arrows included. Copy still
+places the full image on the clipboard. The editor keeps the full working
+image, and closing it returns the next save to 100%.
 
 Save As opens a centered file chooser. Saving from the editor with Save, Save As,
 or Copy + Save closes it and shows an unpinned preview in the lower-right stack,
