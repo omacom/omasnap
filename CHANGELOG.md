@@ -5,6 +5,11 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Added
+
+- Offer Omasnap under Open With for images in file managers like Folio, so an
+  image opens straight into the annotation editor.
+
 ## 1.25.0
 
 ### Added
