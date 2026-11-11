@@ -112,6 +112,12 @@ void drawToolbarIcon(QPainter &painter, const QRectF &bounds,
     if (label == QStringLiteral("filled"))
       painter.setBrush(color);
     painter.drawRoundedRect(QRectF(4, 4, 16, 16), 2, 2);
+  } else if (action == QStringLiteral("tool-label")) {
+    // A shorter box wearing a solid tab on its top-left edge.
+    painter.drawRoundedRect(QRectF(4, 9, 16, 11), 2, 2);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    painter.drawRoundedRect(QRectF(3.5, 3, 11, 6.5), 1.5, 1.5);
   } else if (action == QStringLiteral("tool-ellipse")) {
     if (label == QStringLiteral("filled"))
       painter.setBrush(color);
