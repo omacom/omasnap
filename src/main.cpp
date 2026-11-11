@@ -367,6 +367,7 @@ int main(int argc, char **argv) {
       // are in memory. Ordinary user files are excluded by the helper.
       removeEditorHandoff(localFile, parser.value(QStringLiteral("handoff-token")));
     }
+    dropEditsOfRefusedLog(image, restoredLog);
     describeFileCapture(capture, image, restoredLog);
     capture.monitor.name = parser.value(QStringLiteral("handoff-monitor"));
     captureMode = CaptureEditor::CaptureMode::File;

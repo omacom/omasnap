@@ -238,5 +238,40 @@ bool runPngLogicalSizeBoundsSmoke(QString &error) {
                 .arg(scale.height());
     return false;
   }
+  // A refused size takes the log's edits with it. They are in that size's
+  // coordinates: replayed on the 400x400 canvas, a full-canvas crop of the
+  // 40x40 log would select only the upper-left tenth of the image.
+  Operation fullCrop;
+  fullCrop.type = Operation::Type::Crop;
+  fullCrop.crop = QRectF(0, 0, 40, 40);
+  OperationLog refused;
+  refused.previewSize = {40, 40};
+  refused.ops.push_back(fullCrop);
+  refused.index = 1;
+  dropEditsOfRefusedLog(small, refused);
+  describeFileCapture(capture, small, refused);
+  if (!refused.ops.isEmpty() || refused.index != 0 ||
+      capture.previewSize != small.size()) {
+    error = QStringLiteral("A refused 40x40 log kept %1 edits on a 400x400 "
+                           "image (canvas %2x%3)")
+                .arg(refused.ops.size())
+                .arg(capture.previewSize.width())
+                .arg(capture.previewSize.height());
+    return false;
+  }
+  // A log within the bound keeps its edits, in its own coordinates.
+  OperationLog accepted;
+  accepted.previewSize = {200, 200};
+  fullCrop.crop = QRectF(0, 0, 200, 200);
+  accepted.ops.push_back(fullCrop);
+  accepted.index = 1;
+  const OperationLog before = accepted;
+  dropEditsOfRefusedLog(small, accepted);
+  describeFileCapture(capture, small, accepted);
+  if (accepted != before || capture.previewSize != QSize(200, 200)) {
+    error = QStringLiteral("A 200x200 log on a 400x400 image lost its edits "
+                           "or its size");
+    return false;
+  }
   return true;
 }

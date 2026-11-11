@@ -278,6 +278,12 @@ private:
 [[nodiscard]] bool loadSidecarOperationLog(const QString &imagePath,
                                            OperationLog &log, QString &error);
 [[nodiscard]] QString temporaryExportPath();
+/** Empties a log whose logical size describeFileCapture refuses for `image`
+ *  (a claim above the display-scale bound). Its operations are in that
+ *  size's coordinates, so replaying them on the image's own canvas would move
+ *  every crop and annotation; the image opens plain, as with no log. Call it
+ *  on a log before describeFileCapture and the editor see it. */
+void dropEditsOfRefusedLog(const QImage &image, OperationLog &log);
 /** Restore a document's logical size from its operation log or, for flattened
  *  exports, its PNG metadata. Untagged images use their pixel dimensions. */
 void describeFileCapture(CaptureData &capture, QImage image,
