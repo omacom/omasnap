@@ -241,3 +241,6 @@ install(FILES assets/JetBrainsMono-OFL.txt assets/Inter-OFL.txt assets/Lucide-IS
 install(FILES omasnap.desktop
   DESTINATION "${CMAKE_INSTALL_DATADIR}/applications"
 )
+install(FILES omasnap.svg
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
+)
