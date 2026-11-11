@@ -129,6 +129,7 @@ add_executable(omasnap_tests ${omasnap_test_sources})
 target_link_libraries(omasnap_tests PRIVATE omasnap_core Qt6::Test)
 target_precompile_headers(omasnap_tests REUSE_FROM omasnap_core)
 add_test(NAME omasnap_tests COMMAND omasnap_tests)
+set_tests_properties(omasnap_tests PROPERTIES ENVIRONMENT QT_QPA_PLATFORM=offscreen)
 
 # Static analysis with the checks in .clang-tidy, where any finding fails.
 # Qt adds a GCC-only flag that clang rejects, so it is dropped for the analysis.

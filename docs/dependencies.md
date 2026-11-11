@@ -132,7 +132,7 @@ adapted to the existing `QPainterPath` renderer. Its ISC notice is in
 SVG renderer, or theme lookup is needed.
 
 Single, statically-linked-where-practical binary, installed to
-`/usr/bin/omasnap` by its package (see `pkgbuild/PKGBUILD`). Every
+`/usr/bin/omasnap` by its package (`pkgbuilds/omasnap` in omacom/omarchy-pkgs). Every
 dependency added here is weight every user carries on every install and
 every update. If a feature can be built with what's already linked, that's
 the implementation to ship.

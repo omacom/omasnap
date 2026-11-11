@@ -113,13 +113,7 @@ Runtime commands used by the application:
 
 ## Install on Omarchy
 
-Omarchy installs Omasnap as a package. To build and install this checkout in its place:
-
-```bash
-bin/install
-```
-
-That builds `pkgbuild/PKGBUILD` with `makepkg -fsi`, which installs any missing dependencies and replaces the installed package. It does not modify Hyprland configuration.
+Omarchy installs Omasnap as a package, built by `pkgbuilds/omasnap` in [omacom/omarchy-pkgs](https://github.com/omacom/omarchy-pkgs) from each release. Installing it does not modify Hyprland configuration.
 
 Pinned-window placement uses the Lua dispatcher on Omarchy’s Hyprland.
 
@@ -166,7 +160,7 @@ extensions; they do not install native executables or system packages.
 
 ### Building by hand
 
-The dependencies are the `depends` and `makedepends` in `pkgbuild/PKGBUILD`. `bin/build` builds into `build/`, so `build/omasnap` runs without installing, and `cmake --install build --prefix ~/.local` installs the binary, desktop entry, icon and font licenses under `~/.local` instead of as a package.
+The dependencies are the `depends` and `makedepends` in that PKGBUILD. `bin/build` builds into `build/`, so `build/omasnap` runs without installing, and `cmake --install build --prefix ~/.local` installs the binary, desktop entry, icon and font licenses under `~/.local`.
 
 ## CLI capture modes
 
@@ -640,7 +634,7 @@ The trace also breaks native capture into Wayland registry, buffer allocation, f
 and pixel handoff stages, and marks output readiness separately from subsequent
 recent-history persistence. It is completely silent by default.
 
-`.github/workflows/test.yml` runs `bin/build` and `bin/test` in an Arch Linux container on every push and pull request, with the dependencies read from `pkgbuild/PKGBUILD`. A `v*` tag runs `.github/workflows/release.yml`, which attaches a staged Linux build to the GitHub release.
+`.github/workflows/test.yml` runs `bin/build` and `bin/test` in an Arch Linux container on every push and pull request, with the dependencies read from omarchy-pkgs' PKGBUILD. A `v*` tag runs `.github/workflows/release.yml`, which attaches a staged Linux build to the GitHub release.
 
 ## Acknowledgements
 

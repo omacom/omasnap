@@ -103,8 +103,7 @@ change that touches the principle, not just this summary.
 | `src/eyedropper.cpp/.hpp` | Display-to-source color sampling |
 | `tests/*-smoke.cpp/.hpp` | `omasnap_tests`, headless Qt Test coverage: offscreen region clicks, async capture, single-instance handover, stitching fixtures |
 | `docs/` | Longer writeups of the principles above — read before changing behavior they cover |
-| `bin/build`, `bin/test`, `bin/install` | Build, test through ctest, and install as a package |
-| `pkgbuild/PKGBUILD` | The dependency list, and the package `bin/install` builds from this checkout |
+| `bin/build`, `bin/test` | Build, and test through ctest |
 | `CMakeLists.txt` | Build definition; **the version lives here** (`project(omasnap VERSION ...)`) |
 
 ## Build and verify
@@ -113,7 +112,7 @@ change that touches the principle, not just this summary.
 bin/test
 ```
 
-`bin/test` builds everything (`bin/build`) and runs it through ctest offscreen: `omasnap_tests`, the headless smoke suite (simulated region clicks, asynchronous capture, single-instance handover, stitching fixtures), and `omasnap_lint`, clang-tidy with the checks in `.clang-tidy`, which fails on any finding and runs whenever `run-clang-tidy` is installed. `bin/test -R omasnap_tests` runs only the smoke suite. `bin/install` builds `pkgbuild/PKGBUILD` from this checkout with `makepkg -fsi`, so the package replaces the installed one.
+`bin/test` builds everything (`bin/build`) and runs it through ctest offscreen: `omasnap_tests`, the headless smoke suite (simulated region clicks, asynchronous capture, single-instance handover, stitching fixtures), and `omasnap_lint`, clang-tidy with the checks in `.clang-tidy`, which fails on any finding and runs whenever `run-clang-tidy` is installed. `bin/test -R omasnap_tests` runs only the smoke suite.
 
 Smoke artifacts belong in `build/smoke-output/` (or `smoke-output/` beside a
 custom build's executable). Direct smoke runs use that default too; use
@@ -122,7 +121,7 @@ screenshots and other debugging artifacts out of the repository root.
 
 Always run `bin/test` after behavioral changes. CI (`.github/workflows/test.yml`) runs the same `bin/build` and `bin/test` on every push and PR.
 
-Dependencies (Arch) are the `depends`, `makedepends` and `checkdepends` in `pkgbuild/PKGBUILD`, which CI installs from. See [docs/dependencies.md](docs/dependencies.md) before adding to that list.
+Dependencies (Arch) are the `depends`, `makedepends` and `checkdepends` in `pkgbuilds/omasnap/PKGBUILD` in omacom/omarchy-pkgs, which packages Omasnap and which CI installs from. See [docs/dependencies.md](docs/dependencies.md) before adding to that list.
 
 ## Release process
 

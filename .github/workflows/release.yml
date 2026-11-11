@@ -31,7 +31,8 @@ jobs:
 
       - name: Install the package's dependencies
         run: |
-          source pkgbuild/PKGBUILD
+          curl -fsSL "https://raw.githubusercontent.com/omacom/omarchy-pkgs/master/pkgbuilds/omasnap/PKGBUILD" -o "$RUNNER_TEMP/PKGBUILD"
+          source "$RUNNER_TEMP/PKGBUILD"
           deps=("${depends[@]}" "${makedepends[@]}")
           pacman -S --noconfirm --needed base-devel cmake "${deps[@]%%[<>=]*}"
 
