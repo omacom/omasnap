@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Omasnap
+Name=Screenshot
 Comment=Capture and annotate a screenshot
 Exec=omasnap %f
 Icon=omasnap
