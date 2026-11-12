@@ -69,14 +69,16 @@ QString editorFloatRuleScript(bool floating) {
   // window tiles for a frame and visibly pops out. The named rule
   // coalesces across editors, and a tiled config re-registers it disabled
   // so a floating session's rule cannot leak into tiled use. The title
-  // pattern skips the pins, whose titles have no space after the name.
+  // pattern skips the pins, which share the class but are titled omasnap-pin.
   return floating ? QStringLiteral(
                         "hl.window_rule({ name = \"omasnap-editor-float\", "
-                        "match = { title = \"^omasnap( .+)?$\" }, "
+                        "match = { class = \"^omasnap$\", "
+                        "title = \"^Screenshot( .+)?$\" }, "
                         "float = true, center = true })")
                   : QStringLiteral(
                         "hl.window_rule({ name = \"omasnap-editor-float\", "
-                        "match = { title = \"^omasnap( .+)?$\" }, "
+                        "match = { class = \"^omasnap$\", "
+                        "title = \"^Screenshot( .+)?$\" }, "
                         "enabled = false })");
 }
 

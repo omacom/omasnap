@@ -459,8 +459,8 @@ int main(int argc, char **argv) {
     editor.setWindowedBackdropOpaque(
         loadEditorWindowBackdropOpaque(defaultConfigPath()));
     editor.setWindowTitle(
-        filePath.isEmpty() ? QStringLiteral("omasnap")
-                           : QStringLiteral("omasnap %1")
+        filePath.isEmpty() ? QStringLiteral("Screenshot")
+                           : QStringLiteral("Screenshot %1")
                                  .arg(QFileInfo(filePath).fileName()));
     // Size to the visible selection, not the pristine canvas: a handed-off
     // capture keeps its whole monitor underneath, but the window should hug
@@ -548,7 +548,7 @@ int main(int argc, char **argv) {
       hyprctlOutput({QStringLiteral("eval"), editorFloatRuleScript(floatingWindow)});
       hyprctlOutput({QStringLiteral("eval"),
                      QStringLiteral("hl.window_rule({ name = \"omasnap-editor-opaque\", "
-                                    "match = { title = \"^omasnap( .+)?$\" }, opacity = 1 })")});
+                                    "match = { class = \"^omasnap$\", title = \"^Screenshot( .+)?$\" }, opacity = 1 })")});
     }));
     const int result = application.exec();
     // The closed editor may still be retaining its recent document. A fresh
