@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  archlinux:
+    name: Attach the Arch Linux x86_64 build
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install git for the checkout
+        run: pacman -Syu --noconfirm --needed git
+
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          # Tags, so git describe can name the version.
+          fetch-depth: 0
+
+      - name: Trust the checkout for git describe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install the package's dependencies
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/omacom/omarchy-pkgs/master/pkgbuilds/omasnap/PKGBUILD" -o "$RUNNER_TEMP/PKGBUILD"
+          source "$RUNNER_TEMP/PKGBUILD"
+          deps=("${depends[@]}" "${makedepends[@]}")
+          pacman -S --noconfirm --needed base-devel cmake "${deps[@]%%[<>=]*}"
+
+      - name: Build
+        run: bin/build
+
+      - name: Stage installation
+        run: cmake --install build --prefix "$PWD/stage/usr"
+
+      - name: Package Linux artifact
+        run: |
+          version="$(QT_QPA_PLATFORM=offscreen ./build/omasnap --version | cut -d' ' -f2)"
+          archive="omasnap-${version}-archlinux-x86_64.tar.gz"
+          echo "CAPTURE_ARCHIVE=${archive}" >> "$GITHUB_ENV"
+          tar -C stage -czf "$archive" .
+
+      - name: Attach artifact to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.CAPTURE_ARCHIVE }}

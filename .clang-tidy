@@ -1,0 +1,23 @@
+# bin/test fails on any finding. Each exclusion's only hits were false positives
+# (Qt parent ownership, tag-guarded optionals, moves inside a loop) or style.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-branch-clone,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-float-loop-counter,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-misplaced-widening-cast,
+  -bugprone-narrowing-conversions,
+  -bugprone-signed-bitwise,
+  -bugprone-suspicious-include,
+  -bugprone-throwing-static-initialization,
+  -bugprone-unchecked-optional-access,
+  clang-analyzer-*,
+  -clang-analyzer-cplusplus.Move,
+  -clang-analyzer-cplusplus.NewDeleteLeaks,
+  -clang-analyzer-deadcode.DeadStores,
+  -clang-analyzer-optin.*,
+  -clang-analyzer-security.FloatLoopCounter
+WarningsAsErrors: '*'
+HeaderFilterRegex: '/(src|tests)/'

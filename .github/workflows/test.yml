@@ -1,0 +1,48 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    # The app ships as an Arch package built against Arch's Qt, so it's tested there.
+    container: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install git for the checkout
+        run: pacman -Syu --noconfirm --needed git
+
+      - uses: actions/checkout@v4
+
+      - name: Install the package's dependencies
+        # The package lives in omarchy-pkgs, so its PKGBUILD is the one list of what the app needs and CI reads it rather than keeping a copy.
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/omacom/omarchy-pkgs/master/pkgbuilds/${{ github.event.repository.name }}/PKGBUILD" -o "$RUNNER_TEMP/PKGBUILD"
+          source "$RUNNER_TEMP/PKGBUILD"
+          deps=("${depends[@]}" "${makedepends[@]}" "${checkdepends[@]}")
+          pacman -S --noconfirm --needed base-devel cmake dbus "${deps[@]%%[<>=]*}"
+
+      - name: Set up a user and a locale like a desktop's
+        # Root can read any file, so tests about unreadable ones need an ordinary user, with a second group for tests that change a file's group; and the container generates no locale.
+        run: |
+          useradd -m tester
+          groupadd other
+          usermod -aG other tester
+          chown -R tester .
+          sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+          locale-gen
+
+      - name: Build
+        run: su tester -c bin/build
+
+      - name: Test
+        run: su tester -c 'LANG=en_US.UTF-8 dbus-run-session -- bin/test'

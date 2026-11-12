@@ -345,7 +345,7 @@ bool runSelectUndimHoleCheck(QString &error) {
     const QRect windowRect(160, 120, 400, 320);
     CaptureData capture = selectHoleCapture(
         preview, sourceSize, 1.0, QRectF(windowRect),
-        {{{windowRect}, QStringLiteral("w1"), QStringLiteral("one")}});
+        {{{windowRect}, QStringLiteral("w1"), QStringLiteral("one"), {}}});
     CaptureEditor editor(capture, CaptureEditor::CaptureMode::Window);
     prepareSelectEditor(editor, widget);
     QTest::mouseMove(&editor, QPoint(100, 90), 20);
@@ -365,7 +365,7 @@ bool runSelectUndimHoleCheck(QString &error) {
     const QRect windowRect(80, 200, 200, 280);
     CaptureData capture = selectHoleCapture(
         preview, sourceSize, 1.0, QRectF(windowRect),
-        {{{windowRect}, QStringLiteral("w1"), QStringLiteral("rotated")}});
+        {{{windowRect}, QStringLiteral("w1"), QStringLiteral("rotated"), {}}});
     CaptureEditor editor(capture, CaptureEditor::CaptureMode::Window);
     prepareSelectEditor(editor, widget);
     QTest::mouseMove(&editor, QPoint(320, 180), 20);
@@ -421,7 +421,7 @@ bool runSelectUndimHoleCheck(QString &error) {
     const QRect windowRect(160, 120, 400, 320);
     CaptureData capture = selectHoleCapture(
         preview, sourceSize, 2.0, QRectF(windowRect),
-        {{{windowRect}, QStringLiteral("w1"), QStringLiteral("hidpi")}});
+        {{{windowRect}, QStringLiteral("w1"), QStringLiteral("hidpi"), {}}});
     CaptureEditor editor(capture, CaptureEditor::CaptureMode::Window);
     prepareSelectEditor(editor, widget);
     QTest::mouseMove(&editor, QPoint(100, 90), 20);
@@ -451,7 +451,7 @@ bool runMeasurementReadoutCheck(QString &error) {
   capture.source.fill(QColor(QStringLiteral("#6480a0")));
   capture.previewSize = QSize(800, 600);
   capture.windows = {
-      {{80, 80, 300, 220}, QStringLiteral("1"), QStringLiteral("first")}};
+      {{80, 80, 300, 220}, QStringLiteral("1"), QStringLiteral("first"), {}}};
 
   CaptureEditor editor(capture);
   // The readout is overlay-only, so this check never needs the working
@@ -3705,17 +3705,22 @@ bool runEditorWindowConfigCheck(QString &error) {
     error = QStringLiteral("Editor float rule script is wrong");
     return false;
   }
-  const auto writeConf = [&path](const QString &body) {
+  const auto writeConf = [&path, &error](const QString &body) {
     QFile file(path);
-    file.open(QIODevice::WriteOnly | QIODevice::Truncate);
-    file.write(body.toUtf8());
-    file.close();
+    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+        file.write(body.toUtf8()) == body.toUtf8().size())
+      return true;
+    error = QStringLiteral("Could not write %1").arg(path);
+    return false;
   };
-  writeConf(QStringLiteral("[editor]\nmode = window\n"));
+  if (!writeConf(QStringLiteral("[editor]\nmode = window\n")))
+    return false;
   const bool window = loadEditorWindowMode(path);
-  writeConf(QStringLiteral("[editor]\nmode = overlay\n"));
+  if (!writeConf(QStringLiteral("[editor]\nmode = overlay\n")))
+    return false;
   const bool overlay = loadEditorWindowMode(path);
-  writeConf(QStringLiteral("[output]\ndirectory = /tmp\n"));
+  if (!writeConf(QStringLiteral("[output]\ndirectory = /tmp\n")))
+    return false;
   const bool absent = loadEditorWindowMode(path);
   QFile::remove(path);
   const bool missing =
@@ -3725,9 +3730,11 @@ bool runEditorWindowConfigCheck(QString &error) {
     return false;
   }
 
-  writeConf(QStringLiteral("[editor]\nwindow = tiled\n"));
+  if (!writeConf(QStringLiteral("[editor]\nwindow = tiled\n")))
+    return false;
   const bool tiled = loadEditorWindowFloating(path);
-  writeConf(QStringLiteral("[editor]\nwindow = floating\n"));
+  if (!writeConf(QStringLiteral("[editor]\nwindow = floating\n")))
+    return false;
   const bool floating = loadEditorWindowFloating(path);
   QFile::remove(path);
   const bool floatDefault =
@@ -3737,7 +3744,8 @@ bool runEditorWindowConfigCheck(QString &error) {
     return false;
   }
 
-  writeConf(QStringLiteral("[editor]\nbackdrop = translucent\n"));
+  if (!writeConf(QStringLiteral("[editor]\nbackdrop = translucent\n")))
+    return false;
   const bool translucent = loadEditorWindowBackdropOpaque(path);
   QFile::remove(path);
   const bool opaqueDefault =
@@ -6109,7 +6117,7 @@ bool runOpLogSmoke(QApplication &application, QString &error) {
   }
   capture.previewSize = capture.source.size();
   capture.windows = {
-      {{80, 80, 300, 220}, QStringLiteral("w1"), QStringLiteral("first")}};
+      {{80, 80, 300, 220}, QStringLiteral("w1"), QStringLiteral("first"), {}}};
 
   {
     const QImage original = capture.source.copy();
@@ -12620,6 +12628,7 @@ int main(int argc, char **argv) {
   if (!heldLockPath.isEmpty())
     return runInstanceLockHolder(heldLockPath);
 
+  qputenv("QT_QPA_PLATFORMTHEME", "generic"); // as main() does
   QApplication application(argc, argv);
   QCommandLineParser parser;
   parser.setApplicationDescription(QStringLiteral("Omasnap headless smoke checks"));
@@ -13290,8 +13299,8 @@ int main(int argc, char **argv) {
   }
   capture.previewSize = capture.source.size();
   capture.windows = {
-      {{80, 80, 300, 220}, QStringLiteral("1"), QStringLiteral("first")},
-      {{420, 120, 300, 320}, QStringLiteral("2"), QStringLiteral("second")}};
+      {{80, 80, 300, 220}, QStringLiteral("1"), QStringLiteral("first"), {}},
+      {{420, 120, 300, 320}, QStringLiteral("2"), QStringLiteral("second"), {}}};
 
   if (!runCrashSnapshotChecks(capture, snapshotError)) {
     qWarning().noquote() << snapshotError;
