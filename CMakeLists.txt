@@ -133,10 +133,13 @@ set_tests_properties(omasnap_tests PROPERTIES ENVIRONMENT QT_QPA_PLATFORM=offscr
 
 # Static analysis with the checks in .clang-tidy, where any finding fails.
 # Qt adds a GCC-only flag that clang rejects, so it is dropped for the analysis.
+# The config is named outright: clang-tidy otherwise looks for it upward from
+# the build folder, which a package build keeps outside the source tree.
 find_program(RUN_CLANG_TIDY run-clang-tidy)
 if(RUN_CLANG_TIDY)
   add_test(NAME omasnap_lint
     COMMAND "${RUN_CLANG_TIDY}" -p "${CMAKE_CURRENT_BINARY_DIR}" -quiet -hide-progress
+            -config-file "${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy"
             -removed-arg=-mno-direct-extern-access "/(src|tests)/[^/]+\\.cpp$")
 endif()
 
