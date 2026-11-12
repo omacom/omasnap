@@ -12628,6 +12628,7 @@ int main(int argc, char **argv) {
   if (!heldLockPath.isEmpty())
     return runInstanceLockHolder(heldLockPath);
 
+  qputenv("QT_QPA_PLATFORMTHEME", "generic"); // as main() does
   QApplication application(argc, argv);
   QCommandLineParser parser;
   parser.setApplicationDescription(QStringLiteral("Omasnap headless smoke checks"));

@@ -104,7 +104,7 @@ change that touches the principle, not just this summary.
 | `tests/*-smoke.cpp/.hpp` | `omasnap_tests`, headless Qt Test coverage: offscreen region clicks, async capture, single-instance handover, stitching fixtures |
 | `docs/` | Longer writeups of the principles above — read before changing behavior they cover |
 | `bin/build`, `bin/test` | Build, and test through ctest |
-| `CMakeLists.txt` | Build definition; **the version lives here** (`project(omasnap VERSION ...)`) |
+| `CMakeLists.txt` | Build definition; reads the version from the release tag |
 
 ## Build and verify
 
