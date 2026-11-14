@@ -495,3 +495,10 @@ void sendCaptureNotification(
     const QString &message, const QString &imagePath = {},
     const QString &recentId = {},
     const std::function<bool(const QString &, const QStringList &)> &launcher = {});
+/** sendCaptureNotification for a capture that finished, skipped when
+ *  [output] notify = false. Failures go through sendCaptureNotification
+ *  directly, so they are announced either way. */
+void announceCapture(
+    const QString &message, const QString &imagePath = {},
+    const QString &recentId = {},
+    const std::function<bool(const QString &, const QStringList &)> &launcher = {});

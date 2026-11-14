@@ -930,7 +930,7 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
       return;
     }
     setStatus(QStringLiteral("OCR copied to clipboard"));
-    sendCaptureNotification(QStringLiteral("Copied text from screenshot"));
+    announceCapture(QStringLiteral("Copied text from screenshot"));
     // Let the scan band finish the sweep it is on (and always at least one
     // full pass) before the card appears: a result that pops up mid-sweep
     // reads as a glitch, however fast tesseract was.
@@ -4278,10 +4278,10 @@ void CaptureEditor::finish(OutputMode mode) {
           return;
         }
       } else {
-        sendCaptureNotification(mode == OutputMode::Save
-                                    ? QStringLiteral("Screenshot saved")
-                                    : QStringLiteral("Screenshot saved and copied"),
-                                result.saved, log.recentId, launcher);
+        announceCapture(mode == OutputMode::Save
+                            ? QStringLiteral("Screenshot saved")
+                            : QStringLiteral("Screenshot saved and copied"),
+                        result.saved, log.recentId, launcher);
       }
       if (savedPreview || autosave) {
         result.savedPreview = true;
@@ -4317,7 +4317,7 @@ void CaptureEditor::completeFinish(const FinishResult &result) {
   // A copy-only preview's pin, or a saved capture's toast from the worker,
   // is the completion UI; only a plain copy still needs telling.
   if (result.mode == OutputMode::Copy)
-    sendCaptureNotification(QStringLiteral("Screenshot copied to clipboard"));
+    announceCapture(QStringLiteral("Screenshot copied to clipboard"));
   dismissEditor(false);
 }
 
