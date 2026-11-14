@@ -1765,7 +1765,7 @@ bool quickOutput(QImage image, QuickOutputMode mode, QString &error,
   if (mode == QuickOutputMode::Copy) {
     if (!copyImageToClipboard(image, error))
       return false;
-    sendCaptureNotification(QStringLiteral("Screenshot copied to clipboard"));
+    announceCapture(QStringLiteral("Screenshot copied to clipboard"));
     return true;
   }
   const QString path = temporarySnapshotPath();
@@ -1783,14 +1783,13 @@ bool quickOutput(QImage image, QuickOutputMode mode, QString &error,
     if (saved.isEmpty())
       return false;
     if (mode == QuickOutputMode::Save)
-      sendCaptureNotification(QStringLiteral("Screenshot saved"), saved,
-                              log.recentId);
+      announceCapture(QStringLiteral("Screenshot saved"), saved, log.recentId);
     else
-      sendCaptureNotification(QStringLiteral("Screenshot saved and copied"),
-                              saved, log.recentId);
+      announceCapture(QStringLiteral("Screenshot saved and copied"), saved,
+                      log.recentId);
   } else {
     QFile::remove(path);
-    sendCaptureNotification(QStringLiteral("Screenshot copied to clipboard"));
+    announceCapture(QStringLiteral("Screenshot copied to clipboard"));
   }
   return true;
 }
@@ -2844,6 +2843,13 @@ void sendCaptureNotification(
   if (!(launcher ? launcher(program, arguments)
                  : QProcess::startDetached(program, arguments)))
     qWarning("Could not start %s", qPrintable(program));
+}
+
+void announceCapture(
+    const QString &message, const QString &imagePath, const QString &recentId,
+    const std::function<bool(const QString &, const QStringList &)> &launcher) {
+  if (loadOutputConfig(defaultConfigPath()).notify)
+    sendCaptureNotification(message, imagePath, recentId, launcher);
 }
 
 void describeFileCapture(CaptureData &capture, QImage image,

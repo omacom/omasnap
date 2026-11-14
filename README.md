@@ -228,7 +228,8 @@ to view the saved PNG and **Edit** to annotate it, worded in Omarchy's language 
 `omarchy-i18n`. Omarchy passes it once its `omarchy-notification-send` takes `--action`
 buttons. Pins and editors opened from that
 capture keep the option. Copy-only captures still show their preview, since there is
-no file to open.
+no file to open. Set `[output] notify = false` in `omasnap.conf` to silence these and
+quick output's notifications; the capture still saves and copies.
 
 ### One instance, toggled by the same hotkey
 
@@ -348,6 +349,10 @@ backdrop = opaque
 # Save fresh captures while still copying and showing the timed preview.
 # Default: true. Set false to opt out.
 autosave = true
+# Announce finished captures ("Screenshot saved and copied", "Screenshot
+# copied to clipboard", OCR text) in a notification. Default: true. Set
+# false to silence them; failures are still announced.
+notify = true
 # Where saved screenshots go. Default: ~/Pictures/Screenshots
 directory = ~/Pictures/Captures
 # Filename pattern, without extension (.png is appended).

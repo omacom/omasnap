@@ -6658,6 +6658,36 @@ bool runNotificationArgvCheck(QString &error) {
     return false;
   }
   sendCaptureNotification(QStringLiteral("smoke"));
+
+  // [output] notify = false silences finished captures, not failures.
+  const QByteArray oldConfigHome = qgetenv("XDG_CONFIG_HOME");
+  const auto restoreConfig = qScopeGuard([&] {
+    oldConfigHome.isNull() ? qunsetenv("XDG_CONFIG_HOME")
+                           : qputenv("XDG_CONFIG_HOME", oldConfigHome);
+  });
+  qputenv("XDG_CONFIG_HOME",
+          directory.filePath(QStringLiteral("config")).toUtf8());
+  int launched = 0;
+  const auto count = [&](const QString &, const QStringList &) {
+    ++launched;
+    return true;
+  };
+  announceCapture(QStringLiteral("Screenshot saved"), shotPath, {}, count);
+  if (launched != 1) {
+    error = QStringLiteral("A finished capture was not announced by default");
+    return false;
+  }
+  QDir().mkpath(QFileInfo(defaultConfigPath()).absolutePath());
+  QFile config(defaultConfigPath());
+  if (!config.open(QIODevice::WriteOnly) ||
+      config.write("[output]\nnotify = false\n") < 0)
+    return false;
+  config.close();
+  announceCapture(QStringLiteral("Screenshot saved"), shotPath, {}, count);
+  if (launched != 1) {
+    error = QStringLiteral("notify = false still announced a finished capture");
+    return false;
+  }
   return true;
 }
 
