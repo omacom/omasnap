@@ -287,7 +287,7 @@ bool runSaveAsSmoke(QString &error) {
     editor.setPinDocument({});
     editor.saveAsToPath(directory.filePath(QStringLiteral("missing/file.png")));
     if (!waitUntil([&] { return !editor.busy_; }) || !editor.isVisible() ||
-        editor.operationIndex() != savedIndex ||
+        editor.operationIndex() != savedIndex || editor.outputPath_ != nudged ||
         !editor.statusForTest().contains(QStringLiteral("Could not"))) {
       error = QStringLiteral("Failed Save As changed or closed the editor");
       return false;
@@ -296,7 +296,7 @@ bool runSaveAsSmoke(QString &error) {
     editor.setProcessLauncherForTest([](const QString &, const QStringList &) { return false; });
     editor.saveAsToPath(failedPreview);
     if (!waitUntil([&] { return !editor.busy_; }) || !editor.isVisible() ||
-        QImage(failedPreview).isNull() ||
+        QImage(failedPreview).isNull() || editor.outputPath_ != failedPreview ||
         !editor.statusForTest().contains(QStringLiteral("could not show its preview"))) {
       error = QStringLiteral("A failed preview launch lost its saved PNG or closed the editor");
       return false;

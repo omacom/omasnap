@@ -4323,6 +4323,8 @@ void CaptureEditor::finish(OutputMode mode) {
 }
 
 void CaptureEditor::completeFinish(const FinishResult &result) {
+  if (!result.saved.isEmpty())
+    outputPath_ = result.saved;
   if (!result.error.isEmpty()) {
     busy_ = false;
     suppressSnapshots_ = result.snapshotsSuppressed;

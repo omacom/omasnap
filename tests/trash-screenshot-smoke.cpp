@@ -148,5 +148,57 @@ bool runTrashScreenshotSmoke(QString &error) {
     error = QStringLiteral("Trashed screenshot could not be recovered intact");
     return false;
   }
+  // A successful write must retarget Trash even when its preview cannot start.
+  const QByteArray oldSaveDir = qgetenv("OMASNAP_SCREENSHOT_DIR");
+  const QByteArray oldNotify = qgetenv("OMASNAP_NOTIFY");
+  const auto restoreOutput = qScopeGuard([&] {
+    oldSaveDir.isNull() ? qunsetenv("OMASNAP_SCREENSHOT_DIR")
+                        : qputenv("OMASNAP_SCREENSHOT_DIR", oldSaveDir);
+    oldNotify.isNull() ? qunsetenv("OMASNAP_NOTIFY")
+                       : qputenv("OMASNAP_NOTIFY", oldNotify);
+  });
+  qputenv("OMASNAP_NOTIFY", "0");
+  for (const bool saveAs : {false, true}) {
+    const QString outputDir = directory.filePath(saveAs ? QStringLiteral("save-as")
+                                                       : QStringLiteral("save"));
+    QDir().mkpath(outputDir);
+    qputenv("OMASNAP_SCREENSHOT_DIR", outputDir.toUtf8());
+    log.recentId = QUuid::createUuid().toString(QUuid::Id128);
+    if (!capture.source.save(log.outputPath))
+      return false;
+    CaptureEditor retry(capture, CaptureEditor::CaptureMode::File,
+                        QuickOutputMode::None, log);
+    retry.setSuppressSnapshots(true);
+    retry.setProcessLauncherForTest([](const QString &, const QStringList &) { return false; });
+    retry.show();
+    if (saveAs)
+      retry.saveAsToPath(QDir(outputDir).filePath(QStringLiteral("new.png")));
+    else
+      retry.finish(CaptureEditor::OutputMode::Save);
+    const auto waitForRetry = [&] {
+      QElapsedTimer timer;
+      timer.start();
+      while (retry.busy_ && timer.elapsed() < 3000) {
+        QCoreApplication::processEvents();
+        QThread::msleep(1);
+      }
+      return !retry.busy_;
+    };
+    if (!waitForRetry() || !retry.isVisible() ||
+        !retry.statusForTest().contains(QStringLiteral("could not show its preview")) ||
+        retry.outputPath_ == log.outputPath || QImage(retry.outputPath_).isNull()) {
+      error = QStringLiteral("Preview failure left Trash targeting the previous file (%1)")
+                  .arg(saveAs ? QStringLiteral("Save As") : QStringLiteral("Save"));
+      return false;
+    }
+    const QString latest = retry.outputPath_;
+    retry.confirmTrash();
+    retry.trashScreenshot();
+    if (!waitForRetry() || retry.isVisible() || QFile::exists(latest) ||
+        !QFile::exists(log.outputPath)) {
+      error = QStringLiteral("Trash after preview failure removed the wrong export");
+      return false;
+    }
+  }
   return true;
 }
