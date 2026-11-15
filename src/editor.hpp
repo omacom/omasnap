@@ -52,7 +52,7 @@ class Window;
 
 /// The edit-phase key guide entries, shared by painting and by the
 /// windowed layout that reserves room for the guide.
-[[nodiscard]] QVector<QPair<QString, QString>> editorHotkeyEntries();
+[[nodiscard]] QVector<QPair<QString, QString>> editorHotkeyEntries(bool savedScreenshot = false);
 
 class CaptureEditor final : public QWidget {
   Q_OBJECT
@@ -586,6 +586,10 @@ private:
   /// frozen screen is offered again for a new region or window.
   void returnToSelect();
   void dismissEditor(bool remember = true);
+  void confirmTrash();
+  void trashScreenshot();
+  [[nodiscard]] QRectF trashDialogRect() const;
+  void paintTrashConfirmation(QPainter &painter);
   [[nodiscard]] OperationLog currentOperationLog() const;
   void cancelEditInteraction();
   /// Scroll capture takes over the surface with `region` drawn.
@@ -664,6 +668,7 @@ private:
   void redoEdit();
   void selectWindowInDirection(int key);
   friend bool runSaveAsSmoke(QString &error);
+  friend bool runTrashScreenshotSmoke(QString &error);
   void cancelSaveAs();
   void restoreSaveAsFocus();
   void saveAs();
@@ -772,6 +777,9 @@ private:
   /// Coordinate space used by the capture being edited.
   CaptureMode editedMode_ = CaptureMode::Region;
   std::optional<RecentSnap> editingRecent_;
+  QString outputPath_;
+  bool confirmingTrash_ = false;
+  bool trashCancelFocused_ = false;
   QString recentId_;
   QVector<RecentSnap> recents_;
   QFutureWatcher<QVector<RecentSnap>> recentsWatcher_;
@@ -993,7 +1001,7 @@ private:
   quint64 saveAsRequest_ = 0;
   QPointer<QFileDialog> saveAsDialog_;
   QString saveAsDirectory_;
-  QFuture<QString> saveAsFuture_;
+  QFuture<FinishResult> saveAsFuture_;
   QFuture<QString> dismissFuture_;
   QFutureWatcher<ReopenResult> reopenWatcher_;
   QFutureWatcher<QImage> backdropWatcher_;

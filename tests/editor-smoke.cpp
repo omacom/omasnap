@@ -25,6 +25,7 @@
 #include "stitch-smoke.hpp"
 #include "scroll-startup-smoke.hpp"
 #include "save-as-smoke.hpp"
+#include "trash-screenshot-smoke.hpp"
 #include "stitch.hpp"
 #include "stroke-smoothing-smoke.hpp"
 #include "pin-lifecycle-smoke.hpp"
@@ -13256,6 +13257,10 @@ int main(int argc, char **argv) {
   if (!runNotificationArgvCheck(snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 83;
+  }
+  if (!runTrashScreenshotSmoke(snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 236;
   }
   if (!runOpLogCapKeepsLeadingCrop(application, snapshotError)) {
     qWarning().noquote() << snapshotError;

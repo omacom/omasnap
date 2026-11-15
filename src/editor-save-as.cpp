@@ -174,17 +174,19 @@ void CaptureEditor::saveAsToPath(const QString &path) {
   saveAsActive_ = true;
   const quint64 request = saveAsRequest_;
   setStatus(QStringLiteral("Saving screenshot…"));
-  auto *watcher = new QFutureWatcher<QString>(this);
-  connect(watcher, &QFutureWatcher<QString>::resultReadyAt, this,
+  auto *watcher = new QFutureWatcher<FinishResult>(this);
+  connect(watcher, &QFutureWatcher<FinishResult>::resultReadyAt, this,
           [this, watcher, request] {
-    const QString error = watcher->result();
+    const FinishResult result = watcher->result();
     watcher->deleteLater();
     if (request != saveAsRequest_)
       return;
     saveAsActive_ = false;
     busy_ = false;
-    if (!error.isEmpty()) {
-      setStatus(error);
+    if (!result.saved.isEmpty())
+      outputPath_ = result.saved;
+    if (!result.error.isEmpty()) {
+      setStatus(result.error);
       return;
     }
     close();
@@ -196,12 +198,15 @@ void CaptureEditor::saveAsToPath(const QString &path) {
        boundary = canvasBoundaryMode_, backdrop = customBackdrop_,
        source = pristineSource_, log = currentOperationLog(),
        previous = editingRecent_, document = pinDocument_,
-       launcher = processLauncher_, path](QPromise<QString> &completion) {
+       launcher = processLauncher_, path](QPromise<FinishResult> &completion) mutable {
     RecentSnapWriter recent(log.recentId);
     const QImage image = renderCapture(capture, selection, annotations,
                                        background, shadow, boundary, backdrop);
-    QString error;
+    FinishResult result;
+    QString &error = result.error;
     if (savePngFile(image, path, error)) {
+      result.saved = path;
+      log.outputPath = path;
       // Without --notify, the saved file keeps its timed preview.
       bool announced = true;
       if (notifySavedCaptures()) {
@@ -220,7 +225,7 @@ void CaptureEditor::saveAsToPath(const QString &path) {
     }
     // Close as soon as the file is announced; retain the editable source and
     // log afterward, just as other completed captures do.
-    completion.addResult(error);
+    completion.addResult(result);
     QString recentError;
     if (!recent.record(source, log, image, recentError,
                        previous ? &*previous : nullptr))

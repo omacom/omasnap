@@ -274,6 +274,7 @@ int main(int argc, char **argv) {
   // shelf, like the overlay's recent cards; the image given alongside is the
   // fallback once the shelf has dropped that capture.
   std::optional<RecentSnap> reopenedRecent;
+  const QString inputFilePath = filePath;
   if (parser.isSet(QStringLiteral("recent"))) {
     reopenedRecent = findRecentSnap(parser.value(QStringLiteral("recent")));
     if (reopenedRecent)
@@ -368,6 +369,15 @@ int main(int argc, char **argv) {
       removeEditorHandoff(localFile, parser.value(QStringLiteral("handoff-token")));
     }
     describeFileCapture(capture, image, restoredLog);
+    // A notification may reopen the recent source instead of its flattened
+    // export. Keep the original target for the editor's explicit Trash action.
+    if (!inputFilePath.isEmpty() && !pinDocument &&
+        !parser.isSet(QStringLiteral("handoff-token"))) {
+      QString localInput = QUrl(inputFilePath).toLocalFile();
+      if (localInput.isEmpty())
+        localInput = inputFilePath;
+      restoredLog.outputPath = QFileInfo(localInput).absoluteFilePath();
+    }
     capture.monitor.name = parser.value(QStringLiteral("handoff-monitor"));
     // Without a handoff, open where the user is, like a capture does: a
     // toast's Edit is clicked on the focused monitor, not the primary one.

@@ -62,7 +62,8 @@ bool runChromeThemeSmoke(const QString &outputRoot, QString &error) {
   const QString colors = QDir(themeDir).filePath(QStringLiteral("colors.toml"));
   const QString shell = QDir(themeDir).filePath(QStringLiteral("shell.toml"));
   const QByteArray dark =
-      "background = '#203040'\nforeground = '#edf2f7'\naccent = '#20c0a0'\n";
+      "background = '#203040'\nforeground = '#edf2f7'\naccent = '#20c0a0'\n"
+      "red = '#f04050'\n";
   const QByteArray light =
       "background = '#f7f0e5'\nforeground = '#252018'\naccent = '#a02065'\n";
   if (loadChromeTheme(themeDir) != ChromeTheme() || !writeFile(colors, dark)) {
@@ -75,6 +76,8 @@ bool runChromeThemeSmoke(const QString &outputRoot, QString &error) {
       simple.foreground != QColor("#edf2f7") ||
       simple.accent != QColor("#20c0a0") ||
       simple.accentText != simple.surface ||
+      simple.destructive != QColor("#f04050") ||
+      simple.destructiveText != simple.surface ||
       simple.selectionBorder.colors != QVector<QColor>{simple.accent}) {
     error =
         QStringLiteral("A colors-only theme did not supply the chrome palette");

@@ -163,6 +163,7 @@ namespace {
 constexpr std::array<qreal, 3> kTextSizes{2.0, 5.0, 9.0};
 constexpr std::array<const char *, 3> kTextSizeNames{"S", "M", "L"};
 constexpr qreal kToolbarWidth = 840;
+constexpr qreal kTrashButtonWidth = 38.5;
 // Toolbar row to the top of the image below it.
 constexpr qreal kToolbarImageGap = 18.0;
 // Preserve the editor's established top inset without capture-mode chrome.
@@ -301,11 +302,12 @@ constexpr qreal kRecentCardHeight = 84.0;
 constexpr qreal kRecentCardGap = 10.0;
 constexpr qreal kRecentEdgeMargin = 18.0;
 
-qreal toolbarScale(qreal availableWidth) {
+qreal toolbarScale(qreal availableWidth, bool savedScreenshot) {
   constexpr qreal sideMargins = 16.0;
   return std::min<qreal>(
       1.0,
-      std::max<qreal>(0.1, (availableWidth - sideMargins) / kToolbarWidth));
+      std::max<qreal>(0.1, (availableWidth - sideMargins) /
+                               (kToolbarWidth + (savedScreenshot ? kTrashButtonWidth : 0))));
 }
 // A spotlight at 1x is not a failed zoom, it is a plain highlight: the dimming
 // still isolates the region. Name that state so it reads as somewhere to stop
@@ -841,6 +843,7 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
       return image;
     }));
   }
+  outputPath_ = log.outputPath;
   if (!log.ops.isEmpty()) {
     ops_ = std::move(log.ops);
     opIndex_ = std::clamp(log.index, 0, static_cast<int>(ops_.size()));
@@ -2163,7 +2166,7 @@ void CaptureEditor::cycleRegionAspect(bool forward) {
 
 bool CaptureEditor::focusNextPrevChild(bool next) {
   // Tab cycles region aspects while selecting; it never moves focus there.
-  if (phase_ == Phase::Select)
+  if (phase_ == Phase::Select || confirmingTrash_)
     return false;
   return QWidget::focusNextPrevChild(next);
 }
@@ -2172,7 +2175,7 @@ QSizeF CaptureEditor::windowLegendSize() const {
   // Chrome fonts are pinned in code; only available width changes layout.
   if (legendWidth_ != width()) {
     legendWidth_ = width();
-    legendSize_ = hotkeyLegendAnchoredSize(editorHotkeyEntries(), width() - 28.0);
+    legendSize_ = hotkeyLegendAnchoredSize(editorHotkeyEntries(!outputPath_.isEmpty()), width() - 28.0);
   }
   return legendSize_;
 }
@@ -2190,7 +2193,7 @@ qreal CaptureEditor::imageTopMargin() const {
   // any window size, small ones included. Rounded to a whole pixel: a
   // fractional margin puts the image at a fractional offset even at scale 1,
   // which is needless sub-pixel blur for no visual benefit.
-  return std::round(toolbarTop() + 36.0 * toolbarScale(width()) +
+  return std::round(toolbarTop() + 36.0 * toolbarScale(width(), !outputPath_.isEmpty()) +
                     kToolbarImageGap);
 }
 
@@ -2674,11 +2677,11 @@ QVector<CaptureEditor::ToolbarButton>
 CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
                               bool includeSubmenus) const {
   QVector<ToolbarButton> buttons;
-  const qreal scale = toolbarScale(width());
+  const qreal scale = toolbarScale(width(), !outputPath_.isEmpty());
   const qreal height = 36 * scale;
   const qreal gap = 2.5 * scale;
   const qreal groupGap = kToolbarGroupGap * scale;
-  const qreal total = kToolbarWidth * scale;
+  const qreal total = (kToolbarWidth + (outputPath_.isEmpty() ? 0 : kTrashButtonWidth)) * scale;
   qreal x = (width() - total) / 2.0;
   const qreal y = toolbarTop();
   auto add = [&](qreal buttonWidth, QString action, QString label,
@@ -2695,6 +2698,20 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
       groupDividers->push_back(x - gap + groupGap / 2.0);
     x += groupGap;
   };
+
+  if (confirmingTrash_) {
+    const QRectF panel = trashDialogRect();
+    const qreal buttonY = panel.bottom() - 94;
+    const qreal confirmWidth = std::min<qreal>(190, (panel.width() - 60) * 0.6);
+    const qreal cancelWidth = panel.width() - 60 - confirmWidth;
+    buttons.push_back({QRectF(panel.left() + 24, buttonY, cancelWidth, 44),
+                       QStringLiteral("trash-cancel"), QStringLiteral("Cancel"),
+                       QStringLiteral("Keep screenshot · Esc"), {}});
+    buttons.push_back({QRectF(panel.right() - 24 - confirmWidth, buttonY, confirmWidth, 44),
+                       QStringLiteral("trash-confirm"), QStringLiteral("Move to Trash"),
+                       QStringLiteral("Move the saved screenshot to Trash · Enter"), {}});
+    return buttons;
+  }
 
   // History: undo/redo together, leading the bar.
   add(36, QStringLiteral("undo"), {}, QStringLiteral("Undo · Ctrl+Z"));
@@ -2768,6 +2785,8 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
   add(36, QStringLiteral("copy"), {}, QStringLiteral("Copy only · Ctrl+C"));
   add(40, QStringLiteral("both"), {}, QStringLiteral("Copy and save · Enter"));
   add(36, QStringLiteral("save"), {}, QStringLiteral("Save only · Ctrl+S"));
+  if (!outputPath_.isEmpty())
+    add(36, QStringLiteral("trash"), {}, QStringLiteral("Move saved screenshot to Trash · Ctrl+Delete"));
   add(36, QStringLiteral("close"), {}, QStringLiteral("Close · Esc"));
 
   if (includeSubmenus && shapeMenuOpen_) {
@@ -2934,6 +2953,7 @@ QString CaptureEditor::workingLogPath() const {
 OperationLog CaptureEditor::currentOperationLog() const {
   OperationLog log{ops_, opIndex_, nextAnnotationId_, nextMarker_,
                    pristineLogicalSize_, recentId_};
+  log.outputPath = outputPath_;
   // Quick capture skips enterEdit(), where the initial crop is normally
   // committed. Retain that selection so the shelf reopens the captured area.
   if (phase_ == Phase::Export && !selection_.isEmpty() &&
@@ -2952,6 +2972,7 @@ bool CaptureEditor::restoreOperationLog(const QString &path, QString &error) {
   OperationLog log;
   if (!loadOperationLog(path, log, error))
     return false;
+  outputPath_ = log.outputPath;
   if (!log.recentId.isEmpty())
     recentId_ = log.recentId;
   ops_ = std::move(log.ops);
@@ -3626,6 +3647,12 @@ void CaptureEditor::enterExport() {
 }
 
 void CaptureEditor::handleEscape() {
+  if (confirmingTrash_) {
+    confirmingTrash_ = false;
+    setStatus(QStringLiteral("Screenshot kept"));
+    update();
+    return;
+  }
   // Selecting: there is nothing to step back from, so one Esc closes (the
   // launch key then Esc is the quickest "never mind"). Only a drag in flight
   // is cancelled first. Editing: dismiss and return the document to its pin.
@@ -4197,7 +4224,7 @@ void CaptureEditor::finish(OutputMode mode) {
       appFilenameSlug(dominantAppClass(capture_.windows, selection_));
   const auto launcher = processLauncher_;
   const bool savedPreview = phase_ == Phase::Edit;
-  finishWatcher_.setFuture(QtConcurrent::run([captureCopy, source, log, previous, selection,
+  finishWatcher_.setFuture(QtConcurrent::run([captureCopy, source, log = log, previous, selection,
                                               annotations, background,
                                               imageShadow, canvasBoundary,
                                               backdrop, appSlug, mode, launcher, savedPreview,
@@ -4265,6 +4292,7 @@ void CaptureEditor::finish(OutputMode mode) {
         result.error = error;
         return;
       }
+      log.outputPath = result.saved;
       // Under --notify, the toast is the completion UI for every saved
       // capture; otherwise a fresh or edited capture keeps its timed preview.
       const bool preview = (savedPreview || autosave) && !notifySavedCaptures();
@@ -4295,6 +4323,8 @@ void CaptureEditor::finish(OutputMode mode) {
 }
 
 void CaptureEditor::completeFinish(const FinishResult &result) {
+  if (!result.saved.isEmpty())
+    outputPath_ = result.saved;
   if (!result.error.isEmpty()) {
     busy_ = false;
     suppressSnapshots_ = result.snapshotsSuppressed;
@@ -4322,6 +4352,18 @@ void CaptureEditor::completeFinish(const FinishResult &result) {
 }
 
 void CaptureEditor::handleToolbar(const QString &action) {
+  if (action == QStringLiteral("trash")) {
+    confirmTrash();
+    return;
+  }
+  if (action == QStringLiteral("trash-confirm")) {
+    trashScreenshot();
+    return;
+  }
+  if (action == QStringLiteral("trash-cancel")) {
+    handleEscape();
+    return;
+  }
   const Tool toolBefore = tool_;
   const QString statusBefore = status_;
   if (action == QStringLiteral("tool-select"))
@@ -4469,6 +4511,23 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     event->accept();
     return;
   }
+  if (confirmingTrash_) {
+    if (event->key() == Qt::Key_Escape) {
+      handleEscape();
+    } else if (event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) {
+      trashCancelFocused_ = !trashCancelFocused_;
+      update();
+    } else if (!event->isAutoRepeat() &&
+               (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter ||
+                event->key() == Qt::Key_Space)) {
+      if (trashCancelFocused_)
+        handleEscape();
+      else
+        trashScreenshot();
+    }
+    event->accept();
+    return;
+  }
   const Tool toolBefore = tool_;
   const QString statusBefore = status_;
   const bool dismiss = event->key() == Qt::Key_Escape ||
@@ -4487,6 +4546,13 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
       !textEditing() && shortcutGuideAllowed()) {
     if (!event->isAutoRepeat())
       shortcutGuide_->setExpanded(!shortcutGuide_->expanded());
+    event->accept();
+    return;
+  }
+  if (phase_ == Phase::Edit && event->key() == Qt::Key_Delete &&
+      event->modifiers() == Qt::ControlModifier && !textEditing()) {
+    if (!event->isAutoRepeat())
+      confirmTrash();
     event->accept();
     return;
   }
@@ -5363,6 +5429,15 @@ void CaptureEditor::queuePointerRepaint(const QRegion &damage) {
 }
 
 void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
+  if (confirmingTrash_) {
+    cursor_ = event->position();
+    bool overButton = false;
+    for (const ToolbarButton &button : toolbarButtons())
+      overButton = overButton || button.rect.contains(cursor_);
+    setCursor(overButton ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    update();
+    return;
+  }
   if (panning_) {
     panView(event->position() - panAnchor_);
     panAnchor_ = event->position();
@@ -5722,7 +5797,7 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void CaptureEditor::mouseDoubleClickEvent(QMouseEvent *event) {
-  if (phase_ != Phase::Edit || event->button() != Qt::LeftButton ||
+  if (busy_ || confirmingTrash_ || phase_ != Phase::Edit || event->button() != Qt::LeftButton ||
       !visibleEditImageRect().contains(event->position()))
     return;
   const int index = annotationAt(toAnnotationPoint(event->position()));
@@ -5736,6 +5811,17 @@ void CaptureEditor::mouseDoubleClickEvent(QMouseEvent *event) {
 }
 
 void CaptureEditor::mousePressEvent(QMouseEvent *event) {
+  if (confirmingTrash_) {
+    if (event->button() == Qt::LeftButton) {
+      for (const ToolbarButton &button : toolbarButtons()) {
+        if (button.rect.contains(event->position())) {
+          handleToolbar(button.action);
+          break;
+        }
+      }
+    }
+    return;
+  }
   if (phase_ == Phase::Export || busy_ || capturePending_)
     return;
   if (!ocrResultText_.isEmpty())
@@ -6130,6 +6216,8 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
 }
 
 void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
+  if (confirmingTrash_)
+    return;
   if (event->button() == Qt::MiddleButton && panning_) {
     panning_ = false;
     updatePointerCursor();
@@ -6426,7 +6514,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void CaptureEditor::wheelEvent(QWheelEvent *event) {
-  if (busy_) {
+  if (busy_ || confirmingTrash_) {
     event->accept();
     return;
   }
@@ -6883,6 +6971,7 @@ void CaptureEditor::adoptStitched(const QImage &image) {
 
 void CaptureEditor::adoptImage(QImage image, OperationLog log, CaptureMode kind,
                                const QString &status) {
+  outputPath_ = log.outputPath;
   pinDocument_.reset();
   recentId_ = log.recentId.isEmpty() ? QUuid::createUuid().toString(QUuid::Id128)
                                      : log.recentId;
@@ -7396,8 +7485,8 @@ qreal selectionBoundsRadius(const Annotation &annotation, qreal inset) {
   return 0.0;
 }
 
-QVector<QPair<QString, QString>> editorHotkeyEntries() {
-  return {{QStringLiteral("V"), QStringLiteral("Select / move layer")},
+QVector<QPair<QString, QString>> editorHotkeyEntries(bool savedScreenshot) {
+  QVector<QPair<QString, QString>> entries{{QStringLiteral("V"), QStringLiteral("Select / move layer")},
           {QStringLiteral("A"), QStringLiteral("Arrow")},
           {QStringLiteral("L"), QStringLiteral("Line")},
           {QStringLiteral("F / H"), QStringLiteral("Freehand / Highlighter")},
@@ -7418,6 +7507,10 @@ QVector<QPair<QString, QString>> editorHotkeyEntries() {
           {QStringLiteral("Ctrl+S"), QStringLiteral("Save only")},
           {QStringLiteral("Ctrl+Shift+S"), QStringLiteral("Save As…")},
           {QStringLiteral("Esc"), QStringLiteral("Close")}};
+  if (savedScreenshot)
+    entries.insert(entries.size() - 1,
+                   {QStringLiteral("Ctrl+Delete"), QStringLiteral("Move to Trash")});
+  return entries;
 }
 
 void CaptureEditor::paintEdit(QPainter &painter) {
@@ -7896,7 +7989,7 @@ void CaptureEditor::paintEdit(QPainter &painter) {
   QVector<qreal> toolbarDividers;
   const QVector<ToolbarButton> buttons = toolbarButtons(&toolbarDividers);
   if (!toolbarDividers.isEmpty()) {
-    const qreal scale = toolbarScale(width());
+    const qreal scale = toolbarScale(width(), !outputPath_.isEmpty());
     const qreal barHeight = 36 * scale;
     const qreal barY = toolbarTop();
     painter.setPen(QPen(chromeAlpha(chromeTheme().foreground, 30), 1));
@@ -7906,6 +7999,8 @@ void CaptureEditor::paintEdit(QPainter &painter) {
   }
   const ToolbarButton *hoveredButton = nullptr;
   for (const ToolbarButton &button : buttons) {
+    if (confirmingTrash_)
+      continue; // The modal paints its controls above the dimmed editor.
     const bool selected =
         button.action == currentTool ||
         (button.action.startsWith(QStringLiteral("tool-arrow-")) &&
@@ -7991,7 +8086,8 @@ void CaptureEditor::paintEdit(QPainter &painter) {
     painter.setPen(chromeAlpha(chromeTheme().foreground, hot ? 255 : 200));
     painter.drawText(pill, Qt::AlignCenter, QStringLiteral("SCROLL CAPTURE"));
   }
-  drawStatusPill(painter, rect(), status_);
+  if (!confirmingTrash_)
+    drawStatusPill(painter, rect(), status_);
   // A windowed editor has no clear margin for the overlay's key column; the
   // guide spreads as a card over the reserved band above the toolbar.
   if (windowedPresentation_) {
@@ -7999,7 +8095,7 @@ void CaptureEditor::paintEdit(QPainter &painter) {
     for (const ToolbarButton &button : buttons)
       legendAnchor = legendAnchor.isNull() ? button.rect
                                            : legendAnchor.united(button.rect);
-    drawAnchoredHotkeyLegend(painter, rect(), editorHotkeyEntries(),
+    drawAnchoredHotkeyLegend(painter, rect(), editorHotkeyEntries(!outputPath_.isEmpty()),
                              legendAnchor);
   }
   if (hoveredButton) {
@@ -8058,13 +8154,13 @@ void CaptureEditor::paintEdit(QPainter &painter) {
 }
 
 bool CaptureEditor::shortcutGuideAllowed() const {
-  return !windowedPresentation_ && !scrollPanel_ && phase_ != Phase::Export;
+  return !confirmingTrash_ && !windowedPresentation_ && !scrollPanel_ && phase_ != Phase::Export;
 }
 
 void CaptureEditor::paintEvent(QPaintEvent *event) {
   const bool showGuide = shortcutGuideAllowed();
   if (showGuide)
-    shortcutGuide_->setEntries(phase_ == Phase::Edit ? editorHotkeyEntries()
+    shortcutGuide_->setEntries(phase_ == Phase::Edit ? editorHotkeyEntries(!outputPath_.isEmpty())
                                                    : captureHotkeyEntries());
   shortcutGuide_->setVisible(showGuide && shortcutGuide_->expanded());
   const bool firstPaint = !firstPaintReported_;
@@ -8088,6 +8184,8 @@ void CaptureEditor::paintEvent(QPaintEvent *event) {
     paintEdit(painter);
     break;
   }
+  if (confirmingTrash_)
+    paintTrashConfirmation(painter);
   if (firstPaint) {
     firstPaintReported_ = true;
     startupTimingMark("first overlay paint completed");

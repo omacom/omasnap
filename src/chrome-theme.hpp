@@ -31,6 +31,8 @@ struct ChromeTheme {
   QColor accent{10, 132, 255};
   QColor accentText{255, 255, 255};
   QColor warning{255, 159, 10};
+  QColor destructive{255, 69, 58};
+  QColor destructiveText{255, 255, 255};
   QColor button{34, 34, 40, 244};
   QColor buttonHover{48, 48, 56, 248};
   QColor buttonSelected{66, 66, 75, 250};
