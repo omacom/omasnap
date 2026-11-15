@@ -2166,7 +2166,7 @@ void CaptureEditor::cycleRegionAspect(bool forward) {
 
 bool CaptureEditor::focusNextPrevChild(bool next) {
   // Tab cycles region aspects while selecting; it never moves focus there.
-  if (phase_ == Phase::Select)
+  if (phase_ == Phase::Select || confirmingTrash_)
     return false;
   return QWidget::focusNextPrevChild(next);
 }
@@ -2700,11 +2700,16 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
   };
 
   if (confirmingTrash_) {
-    x = (width() - 262 * scale) / 2.0;
-    add(160, QStringLiteral("trash-confirm"), QStringLiteral("Move to Trash"),
-        QStringLiteral("Move the saved screenshot to Trash"));
-    add(100, QStringLiteral("trash-cancel"), QStringLiteral("Cancel"),
-        QStringLiteral("Keep screenshot · Esc"));
+    const QRectF panel = trashDialogRect();
+    const qreal buttonY = panel.bottom() - 100;
+    const qreal confirmWidth = std::min<qreal>(190, (panel.width() - 60) * 0.6);
+    const qreal cancelWidth = panel.width() - 60 - confirmWidth;
+    buttons.push_back({QRectF(panel.left() + 24, buttonY, cancelWidth, 44),
+                       QStringLiteral("trash-cancel"), QStringLiteral("Cancel"),
+                       QStringLiteral("Keep screenshot · Esc"), {}});
+    buttons.push_back({QRectF(panel.right() - 24 - confirmWidth, buttonY, confirmWidth, 44),
+                       QStringLiteral("trash-confirm"), QStringLiteral("Move to Trash"),
+                       QStringLiteral("Move the saved screenshot to Trash · Enter"), {}});
     return buttons;
   }
 
@@ -4505,10 +4510,19 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
     return;
   }
   if (confirmingTrash_) {
-    if (event->key() == Qt::Key_Escape)
+    if (event->key() == Qt::Key_Escape) {
       handleEscape();
-    else if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)
-      trashScreenshot();
+    } else if (event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) {
+      trashCancelFocused_ = !trashCancelFocused_;
+      update();
+    } else if (!event->isAutoRepeat() &&
+               (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter ||
+                event->key() == Qt::Key_Space)) {
+      if (trashCancelFocused_)
+        handleEscape();
+      else
+        trashScreenshot();
+    }
     event->accept();
     return;
   }
@@ -5413,6 +5427,15 @@ void CaptureEditor::queuePointerRepaint(const QRegion &damage) {
 }
 
 void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
+  if (confirmingTrash_) {
+    cursor_ = event->position();
+    bool overButton = false;
+    for (const ToolbarButton &button : toolbarButtons())
+      overButton = overButton || button.rect.contains(cursor_);
+    setCursor(overButton ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    update();
+    return;
+  }
   if (panning_) {
     panView(event->position() - panAnchor_);
     panAnchor_ = event->position();
@@ -6191,6 +6214,8 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
 }
 
 void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
+  if (confirmingTrash_)
+    return;
   if (event->button() == Qt::MiddleButton && panning_) {
     panning_ = false;
     updatePointerCursor();
@@ -7972,6 +7997,8 @@ void CaptureEditor::paintEdit(QPainter &painter) {
   }
   const ToolbarButton *hoveredButton = nullptr;
   for (const ToolbarButton &button : buttons) {
+    if (confirmingTrash_)
+      continue; // The modal paints its controls above the dimmed editor.
     const bool selected =
         button.action == currentTool ||
         (button.action.startsWith(QStringLiteral("tool-arrow-")) &&
@@ -8057,7 +8084,8 @@ void CaptureEditor::paintEdit(QPainter &painter) {
     painter.setPen(chromeAlpha(chromeTheme().foreground, hot ? 255 : 200));
     painter.drawText(pill, Qt::AlignCenter, QStringLiteral("SCROLL CAPTURE"));
   }
-  drawStatusPill(painter, rect(), status_);
+  if (!confirmingTrash_)
+    drawStatusPill(painter, rect(), status_);
   // A windowed editor has no clear margin for the overlay's key column; the
   // guide spreads as a card over the reserved band above the toolbar.
   if (windowedPresentation_) {
@@ -8124,7 +8152,7 @@ void CaptureEditor::paintEdit(QPainter &painter) {
 }
 
 bool CaptureEditor::shortcutGuideAllowed() const {
-  return !windowedPresentation_ && !scrollPanel_ && phase_ != Phase::Export;
+  return !confirmingTrash_ && !windowedPresentation_ && !scrollPanel_ && phase_ != Phase::Export;
 }
 
 void CaptureEditor::paintEvent(QPaintEvent *event) {
@@ -8154,6 +8182,8 @@ void CaptureEditor::paintEvent(QPaintEvent *event) {
     paintEdit(painter);
     break;
   }
+  if (confirmingTrash_)
+    paintTrashConfirmation(painter);
   if (firstPaint) {
     firstPaintReported_ = true;
     startupTimingMark("first overlay paint completed");

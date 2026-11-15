@@ -82,6 +82,37 @@ bool runTrashScreenshotSmoke(QString &error) {
     error = QStringLiteral("Cancelling Trash changed the screenshot");
     return false;
   }
+  // The confirmation blocks canvas clicks and traps keyboard navigation.
+  const QRectF originalSelection = editor.currentSelection();
+  click(QStringLiteral("trash"));
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier, QPoint(10, 10));
+  if (!editor.confirmingTrash_ || editor.currentSelection() != originalSelection) {
+    error = QStringLiteral("Trash modal allowed a click through to the editor");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_Tab);
+  QTest::keyClick(&editor, Qt::Key_Return);
+  if (editor.confirmingTrash_ || !QFile::exists(log.outputPath)) {
+    error = QStringLiteral("Keyboard navigation did not cancel Trash safely");
+    return false;
+  }
+  // Long names remain inside the dialog at the minimum window size.
+  editor.resize(640, 420);
+  const QString originalPath = editor.outputPath_;
+  editor.outputPath_ = directory.filePath(
+      QString(180, QLatin1Char('x')) + QStringLiteral(".png"));
+  click(QStringLiteral("trash"));
+  const QRectF panel = editor.trashDialogRect();
+  for (const auto &button : editor.toolbarButtons()) {
+    if (!panel.contains(button.rect)) {
+      error = QStringLiteral("Trash modal controls escaped the dialog");
+      return false;
+    }
+  }
+  editor.grab().save(QDir(smokeOutput).filePath(QStringLiteral("trash-confirmation-small.png")));
+  QTest::keyClick(&editor, Qt::Key_Escape);
+  editor.outputPath_ = originalPath;
+  editor.resize(1000, 700);
   // A missing/untrashable file leaves the editor and recent document intact.
   const QString savedPath = editor.outputPath_;
   editor.outputPath_ = directory.filePath(QStringLiteral("missing.png"));

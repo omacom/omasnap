@@ -588,6 +588,8 @@ private:
   void dismissEditor(bool remember = true);
   void confirmTrash();
   void trashScreenshot();
+  [[nodiscard]] QRectF trashDialogRect() const;
+  void paintTrashConfirmation(QPainter &painter);
   [[nodiscard]] OperationLog currentOperationLog() const;
   void cancelEditInteraction();
   /// Scroll capture takes over the surface with `region` drawn.
@@ -777,6 +779,7 @@ private:
   std::optional<RecentSnap> editingRecent_;
   QString outputPath_;
   bool confirmingTrash_ = false;
+  bool trashCancelFocused_ = false;
   QString recentId_;
   QVector<RecentSnap> recents_;
   QFutureWatcher<QVector<RecentSnap>> recentsWatcher_;
