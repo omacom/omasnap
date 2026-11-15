@@ -78,7 +78,7 @@ void CaptureEditor::trashScreenshot() {
 
 QRectF CaptureEditor::trashDialogRect() const {
   const qreal dialogWidth = std::min<qreal>(480, width() - 32);
-  constexpr qreal dialogHeight = 280;
+  constexpr qreal dialogHeight = 236;
   return QRectF((width() - dialogWidth) / 2.0,
                 (height() - dialogHeight) / 2.0, dialogWidth, dialogHeight);
 }
@@ -90,7 +90,7 @@ void CaptureEditor::paintTrashConfirmation(QPainter &painter) {
   painter.fillRect(rect(), chromeAlpha(theme.scrim, 180));
   painter.setPen(QPen(theme.panelBorder.brush(panel), 1));
   painter.setBrush(theme.surface);
-  painter.drawRoundedRect(panel, 14, 14);
+  painter.drawRoundedRect(panel, 11, 11);
 
   const qreal left = panel.left() + 24;
   const qreal contentWidth = panel.width() - 48;
@@ -108,15 +108,14 @@ void CaptureEditor::paintTrashConfirmation(QPainter &painter) {
                    Qt::AlignLeft | Qt::AlignVCenter, visibleName);
   painter.setFont(chromeFont(14));
   painter.setPen(theme.muted);
-  painter.drawText(QRectF(left, panel.top() + 98, contentWidth, 48),
-                   Qt::AlignLeft | Qt::TextWordWrap,
-                   QStringLiteral("You can restore the saved image from Trash.\n"
-                                  "Unsaved edits will be discarded."));
+  painter.drawText(QRectF(left, panel.top() + 94, contentWidth, 22),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("Unsaved edits will be discarded."));
 
-  // Destructive red is deliberate, independent of the desktop accent.
-  const QColor destructive(190, 45, 58);
-  const QColor destructiveHover(166, 34, 46);
-  const QColor destructiveText(Qt::white);
+  // The theme's own red, darkened on hover, so the action follows Omarchy.
+  const QColor destructive = theme.destructive;
+  const QColor destructiveHover = theme.destructive.darker(115);
+  const QColor destructiveText = theme.destructiveText;
   painter.setFont(chromeFont(14, true));
   for (const ToolbarButton &button : toolbarButtons()) {
     const bool confirm = button.action == QStringLiteral("trash-confirm");
@@ -126,11 +125,11 @@ void CaptureEditor::paintTrashConfirmation(QPainter &painter) {
                              : (hover ? theme.buttonHover : theme.button));
     painter.setPen(QPen((hover ? theme.buttonHoverBorder : theme.buttonBorder)
                             .brush(button.rect), 1));
-    painter.drawRoundedRect(button.rect, 8, 8);
+    painter.drawRoundedRect(button.rect, 9, 9);
     if (focused) {
       painter.setBrush(Qt::NoBrush);
       painter.setPen(QPen(theme.foreground, 1));
-      painter.drawRoundedRect(button.rect.adjusted(-3, -3, 3, 3), 11, 11);
+      painter.drawRoundedRect(button.rect.adjusted(-3, -3, 3, 3), 12, 12);
     }
     const QColor text = confirm ? destructiveText
                                : (hover ? theme.buttonHoverText : theme.buttonText);

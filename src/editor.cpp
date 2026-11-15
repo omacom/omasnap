@@ -2701,7 +2701,7 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
 
   if (confirmingTrash_) {
     const QRectF panel = trashDialogRect();
-    const qreal buttonY = panel.bottom() - 100;
+    const qreal buttonY = panel.bottom() - 94;
     const qreal confirmWidth = std::min<qreal>(190, (panel.width() - 60) * 0.6);
     const qreal cancelWidth = panel.width() - 60 - confirmWidth;
     buttons.push_back({QRectF(panel.left() + 24, buttonY, cancelWidth, 44),

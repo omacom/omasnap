@@ -285,13 +285,18 @@ ChromeTheme loadChromeTheme(const QString &directory) {
   theme.muted = color(values, QStringLiteral("light_foreground"), foreground);
   theme.accent = color(values, QStringLiteral("accent"), foreground);
   theme.warning = color(values, QStringLiteral("orange"), theme.accent);
-  const auto contrast = [&theme](const QColor &candidate) {
-    const qreal a = luminance(theme.accent) + 0.05;
+  theme.destructive = color(values, QStringLiteral("red"), theme.destructive);
+  const auto contrast = [](const QColor &fill, const QColor &candidate) {
+    const qreal a = luminance(fill) + 0.05;
     const qreal b = luminance(candidate) + 0.05;
     return std::max(a, b) / std::min(a, b);
   };
-  theme.accentText =
-      contrast(background) > contrast(foreground) ? background : foreground;
+  const auto readableOn = [&](const QColor &fill) {
+    return contrast(fill, background) > contrast(fill, foreground) ? background
+                                                                   : foreground;
+  };
+  theme.accentText = readableOn(theme.accent);
+  theme.destructiveText = readableOn(theme.destructive);
   theme.buttonText =
       color(values, QStringLiteral("controls.normal-color"), foreground);
   theme.buttonHoverText =

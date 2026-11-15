@@ -497,7 +497,7 @@ layers and undo history.
 Open the saved capture with **Edit** (from its notification or preview), then
 click the editor's **Move saved screenshot to Trash** button or press `Ctrl+Delete`. Confirm with
 **Move to Trash** or `Enter`; **Cancel** or `Esc` keeps it. A centered modal dims
-the editor and highlights the destructive action in red. The confirmation names
+the editor and highlights the destructive action in the Omarchy theme's red. The confirmation names
 the file being moved. This closes the editor, removes that capture from the
 recent shelf, and retires its originating preview. Recover the saved image from
 your desktop's Trash if needed; unsaved annotations are discarded.
