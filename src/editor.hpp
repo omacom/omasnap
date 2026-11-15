@@ -586,6 +586,8 @@ private:
   /// frozen screen is offered again for a new region or window.
   void returnToSelect();
   void dismissEditor(bool remember = true);
+  void confirmTrash();
+  void trashScreenshot();
   [[nodiscard]] OperationLog currentOperationLog() const;
   void cancelEditInteraction();
   /// Scroll capture takes over the surface with `region` drawn.
@@ -664,6 +666,7 @@ private:
   void redoEdit();
   void selectWindowInDirection(int key);
   friend bool runSaveAsSmoke(QString &error);
+  friend bool runTrashScreenshotSmoke(QString &error);
   void cancelSaveAs();
   void restoreSaveAsFocus();
   void saveAs();
@@ -772,6 +775,8 @@ private:
   /// Coordinate space used by the capture being edited.
   CaptureMode editedMode_ = CaptureMode::Region;
   std::optional<RecentSnap> editingRecent_;
+  QString outputPath_;
+  bool confirmingTrash_ = false;
   QString recentId_;
   QVector<RecentSnap> recents_;
   QFutureWatcher<QVector<RecentSnap>> recentsWatcher_;

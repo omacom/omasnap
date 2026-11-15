@@ -492,6 +492,20 @@ timeout; its folder and Copy path buttons refer to the exact PNG you saved.
 Cancel or a failed save keeps the editor open. Recent captures retain the editable
 layers and undo history.
 
+### Delete a saved screenshot
+
+Open the saved capture with **Edit** (from its notification or preview), then
+click the editor's **Move saved screenshot to Trash** button. Confirm with
+**Move to Trash** or `Enter`; **Cancel** or `Esc` keeps it. The confirmation names
+the file being moved. This closes the editor, removes that capture from the
+recent shelf, and retires its originating preview. Recover the saved image from
+your desktop's Trash if needed; unsaved annotations are discarded.
+
+The button appears only when the capture has a saved file. If moving it to Trash
+fails, the editor stays open with an error; Omasnap never falls back to permanent
+deletion. `Delete` continues to remove annotation layers only. Trashing a file
+does not clear copies already placed on the clipboard or other exported copies.
+
 ### Capture previews and pins
 
 Normal captures show a preview that fades after 7 seconds of idle time, replacing

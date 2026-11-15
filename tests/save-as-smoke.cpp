@@ -229,6 +229,7 @@ bool runSaveAsSmoke(QString &error) {
     const qsizetype recentCount = listRecentSnaps(false).size();
     OperationLog savedLog;
     if (!recent || !loadOperationLog(recent->logPath, savedLog, error) ||
+        savedLog.outputPath != output ||
         savedLog.index != beforeNudge || savedLog.ops.size() != beforeNudge ||
         QImage(recent->sourcePath).convertToFormat(QImage::Format_ARGB32) != capture.source) {
       error = QStringLiteral("Save As did not retain its editable capture");
@@ -237,6 +238,7 @@ bool runSaveAsSmoke(QString &error) {
     OperationLog previewLog;
     if (previews.isEmpty() ||
         !loadOperationLog(operationLogPath(previews.last()), previewLog, error) ||
+        previewLog.outputPath != output ||
         previewLog.savedPath != output || previewLog.recentId != savedLog.recentId ||
         QImage(previews.last()) != QImage(output)) {
       error = QStringLiteral("Saved preview lost its file, pixels, or capture identity");
@@ -246,6 +248,12 @@ bool runSaveAsSmoke(QString &error) {
     const auto document = copyPinDocument(previews.last(), error);
     if (!document)
       return false;
+    OperationLog documentLog;
+    if (!loadOperationLog(operationLogPath(document->path()), documentLog, error) ||
+        !documentLog.savedPath.isEmpty() || documentLog.outputPath != output) {
+      error = QStringLiteral("Pin editing lost the exported image's Trash target");
+      return false;
+    }
     editor.setPinDocument(document);
     editor.selectedAnnotation_ = 0;
     editor.selectedAnnotations_ = {0};

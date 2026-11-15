@@ -196,12 +196,13 @@ void CaptureEditor::saveAsToPath(const QString &path) {
        boundary = canvasBoundaryMode_, backdrop = customBackdrop_,
        source = pristineSource_, log = currentOperationLog(),
        previous = editingRecent_, document = pinDocument_,
-       launcher = processLauncher_, path](QPromise<QString> &completion) {
+       launcher = processLauncher_, path](QPromise<QString> &completion) mutable {
     RecentSnapWriter recent(log.recentId);
     const QImage image = renderCapture(capture, selection, annotations,
                                        background, shadow, boundary, backdrop);
     QString error;
     if (savePngFile(image, path, error)) {
+      log.outputPath = path;
       // Without --notify, the saved file keeps its timed preview.
       bool announced = true;
       if (notifySavedCaptures()) {

@@ -53,7 +53,9 @@ void drawArrowStyleIcon(QPainter &painter, const QRectF &bounds,
 void drawToolbarIcon(QPainter &painter, const QRectF &bounds,
                      const QString &action, const QString &label,
                      const QColor &color) {
-  if (action == QStringLiteral("size")) {
+  if (action == QStringLiteral("size") ||
+      action == QStringLiteral("trash-confirm") ||
+      action == QStringLiteral("trash-cancel")) {
     painter.setPen(color);
     painter.drawText(bounds, Qt::AlignCenter, label);
     return;
@@ -322,6 +324,19 @@ void drawToolbarIcon(QPainter &painter, const QRectF &bounds,
     pin.arcTo(QRectF(7, 6, 2, 2), 90, -90);
     pin.closeSubpath();
     painter.drawPath(pin);
+  } else if (action == QStringLiteral("trash")) {
+    painter.drawLine(QPointF(4, 6), QPointF(20, 6));
+    painter.drawLine(QPointF(9, 3), QPointF(15, 3));
+    painter.drawLine(QPointF(9, 3), QPointF(9, 6));
+    painter.drawLine(QPointF(15, 3), QPointF(15, 6));
+    QPainterPath bin;
+    bin.moveTo(6, 6);
+    bin.lineTo(7, 21);
+    bin.lineTo(17, 21);
+    bin.lineTo(18, 6);
+    painter.drawPath(bin);
+    painter.drawLine(QPointF(10, 10), QPointF(10, 17));
+    painter.drawLine(QPointF(14, 10), QPointF(14, 17));
   } else if (action == QStringLiteral("close")) {
     painter.drawLine(QPointF(6, 6), QPointF(18, 18));
     painter.drawLine(QPointF(18, 6), QPointF(6, 18));

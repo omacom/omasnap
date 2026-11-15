@@ -150,6 +150,8 @@ struct OperationLog {
   /// Durable PNG represented by a rendered preview. A returned pin document
   /// sets this only after its replacement saved preview has been launched.
   QString savedPath = {};
+  /// Most recent exported image; retained when reopening its editable source.
+  QString outputPath = {};
 
   bool operator==(const OperationLog &) const = default;
 };

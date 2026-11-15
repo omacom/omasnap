@@ -1759,9 +1759,12 @@ bool quickOutput(QImage image, QuickOutputMode mode, QString &error,
   log.previewSize = logicalSize.isEmpty() ? image.size() : logicalSize;
   log.recentId = QUuid::createUuid().toString(QUuid::Id128);
   setPngLogicalSize(image, log.previewSize);
-  QString recentError;
-  if (!recordRecentSnap(image, log, image, recentError))
-    qWarning().noquote() << recentError;
+  RecentSnapWriter recent(log.recentId);
+  const auto retainCapture = qScopeGuard([&] {
+    QString recentError;
+    if (!recent.record(image, log, image, recentError))
+      qWarning().noquote() << recentError;
+  });
   if (mode == QuickOutputMode::Copy) {
     if (!copyImageToClipboard(image, error))
       return false;
@@ -1782,6 +1785,7 @@ bool quickOutput(QImage image, QuickOutputMode mode, QString &error,
     const QString saved = moveSnapshotToScreenshots(path, error);
     if (saved.isEmpty())
       return false;
+    log.outputPath = saved;
     if (mode == QuickOutputMode::Save)
       sendCaptureNotification(QStringLiteral("Screenshot saved"), saved,
                               log.recentId);
@@ -2011,6 +2015,7 @@ bool savePinnedSnapshot(QImage image, const QString &path,
   sidecar.recentId = recentId;
   if (!savedPath.isEmpty())
     sidecar.savedPath = QFileInfo(savedPath).absoluteFilePath();
+  sidecar.outputPath = sidecar.savedPath;
   if (!logicalSize.isEmpty() &&
       !saveOperationLog(operationLogPath(path), sidecar, error)) {
     QFile::remove(path);
@@ -2589,6 +2594,8 @@ bool saveOperationLog(const QString &path, const OperationLog &log,
     root.insert(QStringLiteral("recentId"), log.recentId);
   if (!log.savedPath.isEmpty())
     root.insert(QStringLiteral("savedPath"), log.savedPath);
+  if (!log.outputPath.isEmpty())
+    root.insert(QStringLiteral("outputPath"), log.outputPath);
   if (log.previewSize.isValid()) {
     root.insert(QStringLiteral("previewWidth"), log.previewSize.width());
     root.insert(QStringLiteral("previewHeight"), log.previewSize.height());
@@ -2650,6 +2657,7 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error,
   loaded.nextMarker = root.value(QStringLiteral("nextMarker")).toInt(1);
   loaded.recentId = root.value(QStringLiteral("recentId")).toString();
   loaded.savedPath = root.value(QStringLiteral("savedPath")).toString();
+  loaded.outputPath = root.value(QStringLiteral("outputPath")).toString();
   loaded.previewSize =
       QSize(root.value(QStringLiteral("previewWidth")).toInt(),
             root.value(QStringLiteral("previewHeight")).toInt());
