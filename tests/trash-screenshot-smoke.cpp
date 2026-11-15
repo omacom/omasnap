@@ -66,7 +66,12 @@ bool runTrashScreenshotSmoke(QString &error) {
     QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier,
                       editor.toolbarButtonCenterForTest(action));
   };
-  click(QStringLiteral("trash"));
+  QTest::keyClick(&editor, Qt::Key_Delete);
+  if (editor.confirmingTrash_ || !QFile::exists(log.outputPath)) {
+    error = QStringLiteral("Plain Delete opened screenshot Trash confirmation");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_Delete, Qt::ControlModifier);
   if (!editor.confirmingTrash_ || !QFile::exists(log.outputPath)) {
     error = QStringLiteral("Trash did not require confirmation");
     return false;
@@ -98,7 +103,7 @@ bool runTrashScreenshotSmoke(QString &error) {
     return false;
   }
   editor.outputPath_ = savedPath;
-  click(QStringLiteral("trash"));
+  QTest::keyClick(&editor, Qt::Key_Delete, Qt::ControlModifier);
   QTest::keyClick(&editor, Qt::Key_Return);
   if (!waitForWorker() || editor.isVisible() || QFile::exists(savedPath) ||
       findRecentSnap(log.recentId)) {

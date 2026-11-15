@@ -2175,7 +2175,7 @@ QSizeF CaptureEditor::windowLegendSize() const {
   // Chrome fonts are pinned in code; only available width changes layout.
   if (legendWidth_ != width()) {
     legendWidth_ = width();
-    legendSize_ = hotkeyLegendAnchoredSize(editorHotkeyEntries(), width() - 28.0);
+    legendSize_ = hotkeyLegendAnchoredSize(editorHotkeyEntries(!outputPath_.isEmpty()), width() - 28.0);
   }
   return legendSize_;
 }
@@ -2781,7 +2781,7 @@ CaptureEditor::toolbarButtons(QVector<qreal> *groupDividers,
   add(40, QStringLiteral("both"), {}, QStringLiteral("Copy and save · Enter"));
   add(36, QStringLiteral("save"), {}, QStringLiteral("Save only · Ctrl+S"));
   if (!outputPath_.isEmpty())
-    add(36, QStringLiteral("trash"), {}, QStringLiteral("Move saved screenshot to Trash"));
+    add(36, QStringLiteral("trash"), {}, QStringLiteral("Move saved screenshot to Trash · Ctrl+Delete"));
   add(36, QStringLiteral("close"), {}, QStringLiteral("Close · Esc"));
 
   if (includeSubmenus && shapeMenuOpen_) {
@@ -4530,6 +4530,13 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
       !textEditing() && shortcutGuideAllowed()) {
     if (!event->isAutoRepeat())
       shortcutGuide_->setExpanded(!shortcutGuide_->expanded());
+    event->accept();
+    return;
+  }
+  if (phase_ == Phase::Edit && event->key() == Qt::Key_Delete &&
+      event->modifiers() == Qt::ControlModifier && !textEditing()) {
+    if (!event->isAutoRepeat())
+      confirmTrash();
     event->accept();
     return;
   }
@@ -7451,8 +7458,8 @@ qreal selectionBoundsRadius(const Annotation &annotation, qreal inset) {
   return 0.0;
 }
 
-QVector<QPair<QString, QString>> editorHotkeyEntries() {
-  return {{QStringLiteral("V"), QStringLiteral("Select / move layer")},
+QVector<QPair<QString, QString>> editorHotkeyEntries(bool savedScreenshot) {
+  QVector<QPair<QString, QString>> entries{{QStringLiteral("V"), QStringLiteral("Select / move layer")},
           {QStringLiteral("A"), QStringLiteral("Arrow")},
           {QStringLiteral("L"), QStringLiteral("Line")},
           {QStringLiteral("F / H"), QStringLiteral("Freehand / Highlighter")},
@@ -7473,6 +7480,10 @@ QVector<QPair<QString, QString>> editorHotkeyEntries() {
           {QStringLiteral("Ctrl+S"), QStringLiteral("Save only")},
           {QStringLiteral("Ctrl+Shift+S"), QStringLiteral("Save As…")},
           {QStringLiteral("Esc"), QStringLiteral("Close")}};
+  if (savedScreenshot)
+    entries.insert(entries.size() - 1,
+                   {QStringLiteral("Ctrl+Delete"), QStringLiteral("Move to Trash")});
+  return entries;
 }
 
 void CaptureEditor::paintEdit(QPainter &painter) {
@@ -8054,7 +8065,7 @@ void CaptureEditor::paintEdit(QPainter &painter) {
     for (const ToolbarButton &button : buttons)
       legendAnchor = legendAnchor.isNull() ? button.rect
                                            : legendAnchor.united(button.rect);
-    drawAnchoredHotkeyLegend(painter, rect(), editorHotkeyEntries(),
+    drawAnchoredHotkeyLegend(painter, rect(), editorHotkeyEntries(!outputPath_.isEmpty()),
                              legendAnchor);
   }
   if (hoveredButton) {
@@ -8119,7 +8130,7 @@ bool CaptureEditor::shortcutGuideAllowed() const {
 void CaptureEditor::paintEvent(QPaintEvent *event) {
   const bool showGuide = shortcutGuideAllowed();
   if (showGuide)
-    shortcutGuide_->setEntries(phase_ == Phase::Edit ? editorHotkeyEntries()
+    shortcutGuide_->setEntries(phase_ == Phase::Edit ? editorHotkeyEntries(!outputPath_.isEmpty())
                                                    : captureHotkeyEntries());
   shortcutGuide_->setVisible(showGuide && shortcutGuide_->expanded());
   const bool firstPaint = !firstPaintReported_;

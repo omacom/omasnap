@@ -52,7 +52,7 @@ class Window;
 
 /// The edit-phase key guide entries, shared by painting and by the
 /// windowed layout that reserves room for the guide.
-[[nodiscard]] QVector<QPair<QString, QString>> editorHotkeyEntries();
+[[nodiscard]] QVector<QPair<QString, QString>> editorHotkeyEntries(bool savedScreenshot = false);
 
 class CaptureEditor final : public QWidget {
   Q_OBJECT

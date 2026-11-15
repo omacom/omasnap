@@ -495,7 +495,7 @@ layers and undo history.
 ### Delete a saved screenshot
 
 Open the saved capture with **Edit** (from its notification or preview), then
-click the editor's **Move saved screenshot to Trash** button. Confirm with
+click the editor's **Move saved screenshot to Trash** button or press `Ctrl+Delete`. Confirm with
 **Move to Trash** or `Enter`; **Cancel** or `Esc` keeps it. The confirmation names
 the file being moved. This closes the editor, removes that capture from the
 recent shelf, and retires its originating preview. Recover the saved image from
