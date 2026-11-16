@@ -601,7 +601,9 @@ Pins follow normal mouse focus while hovered and keep focus with the current
 app when first created.
 Closing an active or hovered pin focuses the next pin on that monitor, starting
 with the front of the remaining stack, so repeated `X` presses dismiss them
-without needing another mouse movement. Opening a pin for annotation keeps
+without needing another mouse movement. The pointer stays where it is, so
+clicking Close on one card after another does not pull it to the middle of the
+next card. Opening a pin for annotation keeps
 the pin in place and gives focus to the editor. One `Esc` dismisses the editor
 and updates that same pin, including any text being typed. Reopening it restores
 the editable layers and undo history. `P` / `Ctrl+P` in that editor returns to

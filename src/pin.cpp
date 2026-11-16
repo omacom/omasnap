@@ -181,6 +181,13 @@ bool hyprDispatch(const QString &expression) {
   return ok && output.trimmed() == QStringLiteral("ok");
 }
 
+bool hyprEval(const QString &chunk) {
+  bool ok = false;
+  const QString output =
+      runForOutput(QStringLiteral("hyprctl"), {QStringLiteral("eval"), chunk}, &ok);
+  return ok && output.trimmed() == QStringLiteral("ok");
+}
+
 bool preservePinFrame(const QString &address) {
   // A theme reload discards runtime window rules. Per-window properties
   // survive it, so the compositor cannot add a second frame around our card.
@@ -480,7 +487,10 @@ public:
       if (!next || pin.rect.bottom() > next->rect.bottom())
         next = &pin;
     }
-    if (next)
+    // The pointer stays put: clicking Close on one card after another must
+    // not drag it to the middle of each next card. A compositor without the
+    // eval calls keeps the plain, warping focus.
+    if (next && !hyprEval(pinFocusKeepingPointer(next->address)))
       hyprDispatch(pinFocusDispatch(next->address));
   }
   QVector<CompositorPin> pins;

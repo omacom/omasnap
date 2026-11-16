@@ -13,6 +13,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Closing a pin no longer moves the mouse pointer to the middle of the next
+  pin. Clicking Close on one capture after another keeps the pointer where it
+  was, and keyboard focus still moves to the next pin for repeated `X` presses.
 - Open the input method's candidate window under the text caret instead of at
   the editor's top-left corner, so fcitx5 users see their Chinese, Japanese, or
   Korean candidates next to the text they are typing.

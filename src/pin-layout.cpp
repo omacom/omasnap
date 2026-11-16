@@ -296,6 +296,21 @@ QString pinFocusDispatch(const QString &address) {
   return QStringLiteral("hl.dsp.focus({ %1 })").arg(windowSelector(address));
 }
 
+QString pinFocusKeepingPointer(const QString &address) {
+  // A focus dispatch warps the pointer to the window's center unless
+  // cursor:no_warps is set. Suspend warps for this one dispatch, inside a
+  // single compositor call so nothing else sees the change, and restore the
+  // user's value even when the dispatch fails.
+  return QStringLiteral(
+             "local warps = hl.get_config(\"cursor.no_warps\"); "
+             "if warps == nil then error(\"cursor.no_warps unavailable\") end; "
+             "hl.config({ cursor = { no_warps = true } }); "
+             "local ok, err = pcall(hl.dispatch, %1); "
+             "hl.config({ cursor = { no_warps = warps } }); "
+             "if not ok then error(err) end")
+      .arg(pinFocusDispatch(address));
+}
+
 QRect pinMonitorGeometry(const QJsonObject &monitor) {
   const qreal scale = std::max<qreal>(0.0001, monitor.value(QStringLiteral("scale")).toDouble(1));
   QSize pixels(monitor.value(QStringLiteral("width")).toInt(),
