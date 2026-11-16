@@ -221,7 +221,9 @@ It also records freely placed pins, which must stay free even when aligned with
 the screen edge. Fan moves use compositor animations and preserve the native
 windows; folding restores their stacking order without a focus dispatch.
 Closing an active pin compacts the deck and focuses the next pin on the same
-monitor in that worker transaction. Opening annotation leaves the pin alive,
+monitor in that worker transaction. That focus is one `hyprctl eval` that
+sets `cursor:no_warps` for that one dispatch and restores it, so the pointer stays
+put. Opening annotation leaves the pin alive,
 so there is no closing-pin focus transfer to compete with the editor.
 The same transaction publishes each card's tilt. A filesystem watcher triggers
 a small worker read when that state changes; it adds no idle polling. The UI
