@@ -65,11 +65,10 @@ bool loadEditorWindowMode(const QString &filePath) {
              .toLower() == QStringLiteral("window");
 }
 
-QString editorWindowTitle(const QString &filePath) {
+QString editorWindowTitle(const QString &filePath, bool internalSource) {
   // The compositor rule is registered against ^Screenshot( .+)?$ before the
-  // window maps, so an empty path is the bare name and anything else keeps
-  // its file name on that same line.
-  if (!filePath.isEmpty()) {
+  // window maps. A private handoff file is not a document the writer named.
+  if (!internalSource && !filePath.isEmpty()) {
     const QString name = QFileInfo(filePath).fileName();
     if (!name.isEmpty() && name != QLatin1String(".") && name != QLatin1String(".."))
       return QStringLiteral("Screenshot %1").arg(name);
