@@ -41,7 +41,8 @@ struct OutputConfig {
 [[nodiscard]] QString editorFloatRuleScript(bool floating);
 
 /** Title of the windowed editor. Matches the float rule's
- *  `^Screenshot( .+)?$`. An internal handoff has no document name. */
+ *  `^Screenshot( .+)?$`. An internal handoff has no document name, and a
+ *  name with a newline would miss that pattern. */
 [[nodiscard]] QString editorWindowTitle(const QString &filePath,
                                         bool internalSource);
 
