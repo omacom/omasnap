@@ -3,6 +3,8 @@
 #include "output-config.hpp"
 
 #include <QDir>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
 
@@ -62,6 +64,22 @@ bool loadEditorWindowMode(const QString &filePath) {
              .toString()
              .trimmed()
              .toLower() == QStringLiteral("window");
+}
+
+QString editorWindowTitle(const QString &filePath, bool internalSource) {
+  // The compositor rule is registered against ^Screenshot( .+)?$ before the
+  // window maps. A private handoff file is not a document the writer named,
+  // and a line break in the name makes that pattern miss, so the window
+  // tiles for a frame.
+  if (!internalSource && !filePath.isEmpty()) {
+    QString name = QFileInfo(filePath).fileName();
+    name.replace(QRegularExpression(QStringLiteral("[\\r\\n\\t]+")),
+                 QStringLiteral(" "));
+    name = name.simplified();
+    if (!name.isEmpty() && name != QLatin1String(".") && name != QLatin1String(".."))
+      return QStringLiteral("Screenshot %1").arg(name);
+  }
+  return QStringLiteral("Screenshot");
 }
 
 QString editorFloatRuleScript(bool floating) {

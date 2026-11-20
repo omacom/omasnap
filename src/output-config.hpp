@@ -40,6 +40,12 @@ struct OutputConfig {
  *  floats and centers the editor window as it maps. */
 [[nodiscard]] QString editorFloatRuleScript(bool floating);
 
+/** Title of the windowed editor. Matches the float rule's
+ *  `^Screenshot( .+)?$`. An internal handoff has no document name, and a
+ *  name with a newline would miss that pattern. */
+[[nodiscard]] QString editorWindowTitle(const QString &filePath,
+                                        bool internalSource);
+
 /** True unless [editor] backdrop = translucent: a windowed editor paints a
  *  solid backdrop instead of the overlay's see-through dim. */
 [[nodiscard]] bool loadEditorWindowBackdropOpaque(const QString &filePath);
