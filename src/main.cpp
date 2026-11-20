@@ -458,10 +458,8 @@ int main(int argc, char **argv) {
     editor.setWindowedPresentation(true);
     editor.setWindowedBackdropOpaque(
         loadEditorWindowBackdropOpaque(defaultConfigPath()));
-    editor.setWindowTitle(
-        filePath.isEmpty() ? QStringLiteral("Screenshot")
-                           : QStringLiteral("Screenshot %1")
-                                 .arg(QFileInfo(filePath).fileName()));
+    editor.setWindowTitle(editorWindowTitle(
+        filePath, !parser.value(QStringLiteral("handoff-token")).isEmpty()));
     // Size to the visible selection, not the pristine canvas: a handed-off
     // capture keeps its whole monitor underneath, but the window should hug
     // what is actually being annotated.
