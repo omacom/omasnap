@@ -40,6 +40,10 @@ struct OutputConfig {
  *  floats and centers the editor window as it maps. */
 [[nodiscard]] QString editorFloatRuleScript(bool floating);
 
+/** Title of the windowed editor. Matches the float rule's
+ *  `^Screenshot( .+)?$`. */
+[[nodiscard]] QString editorWindowTitle(const QString &filePath);
+
 /** True unless [editor] backdrop = translucent: a windowed editor paints a
  *  solid backdrop instead of the overlay's see-through dim. */
 [[nodiscard]] bool loadEditorWindowBackdropOpaque(const QString &filePath);

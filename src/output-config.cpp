@@ -3,6 +3,7 @@
 #include "output-config.hpp"
 
 #include <QDir>
+#include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
 
@@ -62,6 +63,18 @@ bool loadEditorWindowMode(const QString &filePath) {
              .toString()
              .trimmed()
              .toLower() == QStringLiteral("window");
+}
+
+QString editorWindowTitle(const QString &filePath) {
+  // The compositor rule is registered against ^Screenshot( .+)?$ before the
+  // window maps, so an empty path is the bare name and anything else keeps
+  // its file name on that same line.
+  if (!filePath.isEmpty()) {
+    const QString name = QFileInfo(filePath).fileName();
+    if (!name.isEmpty() && name != QLatin1String(".") && name != QLatin1String(".."))
+      return QStringLiteral("Screenshot %1").arg(name);
+  }
+  return QStringLiteral("Screenshot");
 }
 
 QString editorFloatRuleScript(bool floating) {
