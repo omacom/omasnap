@@ -1127,8 +1127,12 @@ CaptureEditor::~CaptureEditor() {
   finishWatcher_.waitForFinished();
   pinWatcher_.waitForFinished();
   dismissFuture_.waitForFinished();
-  pendingClipboardHex_.clear();
   clipboardCopyWatcher_.waitForFinished();
+  if (!pendingClipboardHex_.isEmpty()) {
+    QString clipboardError;
+    static_cast<void>(copyTextToClipboard(
+        std::exchange(pendingClipboardHex_, {}), clipboardError));
+  }
   // An accepted Save As owns its pixels. Finish it before application/static
   // teardown, after the editor surface and instance lock have been released.
   saveAsFuture_.waitForFinished();
