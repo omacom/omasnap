@@ -56,6 +56,7 @@
 #include <QWindow>
 #include <Qt>
 
+#include <cerrno>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <unistd.h>
@@ -677,6 +678,11 @@ public:
       if (std::exchange(documentReloadPending_, false))
         reloadPinDocument();
     });
+    toastTimer_.setSingleShot(true);
+    connect(&toastTimer_, &QTimer::timeout, this, [this] {
+      toast_.clear();
+      update();
+    });
     using DragPayload = QPair<QByteArray, QImage>;
     auto *payload = new QFutureWatcher<DragPayload>(this);
     connect(payload, &QFutureWatcher<DragPayload>::finished, this, [this, payload, path = path_] {
@@ -1070,8 +1076,22 @@ protected:
     struct input_event events[16];
     for (;;) {
       const ssize_t bytes = ::read(fd, events, sizeof events);
-      if (bytes <= 0)
+      if (bytes <= 0) {
+        if (bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+          return;
+        // Device disconnected (e.g. ENODEV) or EOF: drop this broken watch so
+        // QSocketNotifier does not spin at 100% CPU.
+        for (auto it = buttonWatches_.begin(); it != buttonWatches_.end(); ++it) {
+          if (it->first != fd)
+            continue;
+          it->second->setEnabled(false);
+          it->second->deleteLater();
+          ::close(it->first);
+          buttonWatches_.erase(it);
+          break;
+        }
         return;
+      }
       const int count = static_cast<int>(bytes / sizeof(input_event));
       for (int index = 0; index < count; ++index) {
         if (events[index].type != EV_KEY || events[index].code != BTN_LEFT ||
@@ -1626,10 +1646,7 @@ private:
   void showToast(QString message) {
     toast_ = std::move(message);
     update();
-    QTimer::singleShot(kToastMs, this, [this] {
-      toast_.clear();
-      update();
-    });
+    toastTimer_.start(kToastMs);
   }
 
   // Painting, hover feedback, and clicks all use the same control geometry.
@@ -1714,6 +1731,7 @@ private:
   int dragPolls_ = 0;
   int dragStablePolls_ = 0;
   QString toast_;
+  QTimer toastTimer_;
   bool hovered_ = false;
   int hoveredControl_ = -1;
 };
@@ -1847,5 +1865,7 @@ int runPinnedCapture(const QString &path, PinLifetime lifetime) {
     }));
   });
   rules->setFuture(QtConcurrent::run(&pinPool(), applyRules));
-  return QApplication::exec();
+  const int code = QApplication::exec();
+  pinPool().waitForDone();
+  return code;
 }

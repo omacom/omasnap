@@ -18,6 +18,7 @@
 
 #include <libdeflate.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <memory>
@@ -103,17 +104,37 @@ bool writePng(const QImage &image, QIODevice &device) {
     return writer.write(image);
   }
 
-  const QImage pixels = image.convertToFormat(alpha ? QImage::Format_RGBA8888
-                                                   : QImage::Format_RGB888);
-  if (pixels.isNull())
-    return false;
-  QByteArray filtered(stride * pixels.height(), Qt::Uninitialized);
-  for (int y = 0; y < pixels.height(); ++y) {
-    char *row = filtered.data() + qsizetype(y) * stride;
-    // No row prediction: screenshots compress well at level 1, and this
-    // also avoids an expensive inverse filter in downstream PNG readers.
-    *row = 0;
-    std::memcpy(row + 1, pixels.constScanLine(y), rowBytes);
+  const QImage::Format targetFormat =
+      alpha ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
+  QByteArray filtered(stride * image.height(), Qt::Uninitialized);
+  if (image.format() == targetFormat) {
+    for (int y = 0; y < image.height(); ++y) {
+      char *row = filtered.data() + qsizetype(y) * stride;
+      // No row prediction: screenshots compress well at level 1, and this
+      // also avoids an expensive inverse filter in downstream PNG readers.
+      *row = 0;
+      std::memcpy(row + 1, image.constScanLine(y), rowBytes);
+    }
+  } else {
+    // Convert in cache-sized strips instead of allocating a full-resolution
+    // converted QImage alongside `filtered`.
+    constexpr int kStripRows = 64;
+    const QList<QRgb> colorTable = image.colorTable();
+    for (int y = 0; y < image.height(); y += kStripRows) {
+      const int rows = std::min(kStripRows, image.height() - y);
+      QImage view(image.constScanLine(y), image.width(), rows,
+                  image.bytesPerLine(), image.format());
+      if (!colorTable.isEmpty())
+        view.setColorTable(colorTable);
+      const QImage converted = view.convertToFormat(targetFormat);
+      if (converted.isNull())
+        return false;
+      for (int i = 0; i < rows; ++i) {
+        char *row = filtered.data() + qsizetype(y + i) * stride;
+        *row = 0;
+        std::memcpy(row + 1, converted.constScanLine(i), rowBytes);
+      }
+    }
   }
   const std::unique_ptr<libdeflate_compressor, decltype(&libdeflate_free_compressor)>
       compressor(libdeflate_alloc_compressor(1), libdeflate_free_compressor);
@@ -130,8 +151,8 @@ bool writePng(const QImage &image, QIODevice &device) {
   compressed.truncate(static_cast<qsizetype>(bytes));
 
   QByteArray header(13, '\0');
-  qToBigEndian(static_cast<quint32>(pixels.width()), header.data());
-  qToBigEndian(static_cast<quint32>(pixels.height()), header.data() + 4);
+  qToBigEndian(static_cast<quint32>(image.width()), header.data());
+  qToBigEndian(static_cast<quint32>(image.height()), header.data() + 4);
   header[8] = 8; // bits per channel
   header[9] = alpha ? 6 : 2; // RGBA or RGB; standard PNG, non-interlaced
   if (device.write("\x89PNG\r\n\x1a\n", 8) != 8 ||
