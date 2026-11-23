@@ -149,6 +149,14 @@ autoProbeDecision(const ForwardLookaheadResolution &resolution,
 
 AutoCapture::AutoCapture(Axis axis) : axis_(axis) {}
 
+void AutoCapture::setNotchesPerTick(int notches) {
+  const int clamped = std::clamp(notches, 1, kMaxNotchesPerTick);
+  if (clamped == notchesPerTick_)
+    return;
+  notchesPerTick_ = clamped;
+  calibration_ = {};
+}
+
 AutoCapture::Outcome AutoCapture::outcome(Event event, Ack ack) const {
   Outcome result;
   result.event = event;
@@ -209,7 +217,8 @@ AutoCapture::Outcome AutoCapture::feed(const QImage &input) {
     const std::optional<int> bound = calibration_.endpointUpperBound();
     const std::optional<ForwardMatchCandidate> calibratedEnd =
         bound ? lookahead_->uniqueCandidateAtMost(*bound) : std::nullopt;
-    const ForwardLookaheadResolution resolution = lookahead_->resolveAuto(gray);
+    const ForwardLookaheadResolution resolution =
+        lookahead_->resolveAuto(gray, notchesPerTick_);
     const AutoProbeDecision decision =
         autoProbeDecision(resolution, stationaryProbes_, calibratedEnd);
     switch (decision.kind) {

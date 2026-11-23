@@ -629,6 +629,7 @@ void ScrollCapturePanel::autoCaptureLoop() {
       const int fitted = static_cast<int>(
           std::lround(extent * kTargetStepFraction / std::max(perNotch, 1.0)));
       w.notchesPerTick = std::clamp(fitted, 1, stitch::kMaxNotchesPerTick);
+      w.autoSession.setNotchesPerTick(w.notchesPerTick);
       w.notchesFitted = true;
       qInfo().noquote() << QStringLiteral("auto: %1 px per notch, region %2 px, "
                                           "%3 notches per tick from here")

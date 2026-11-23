@@ -45,6 +45,7 @@ struct CaptureState {
   wl_buffer *buffer = nullptr;
   std::vector<std::unique_ptr<OutputInfo>> outputs;
   std::vector<uint32_t> shmFormats;
+  std::vector<uint32_t> pendingShmFormats;
   uint32_t width = 0;
   uint32_t height = 0;
   uint32_t format = 0;
@@ -57,11 +58,13 @@ struct CaptureState {
   uint32_t bufferHeight = 0;
   uint32_t bufferFormat = 0;
   uint32_t transform = WL_OUTPUT_TRANSFORM_NORMAL;
+  /// True once the initial constraint batch has finished; distinguishes
+  /// subsequent re-announcements from the first setup.
+  bool hasConstraints = false;
   bool constraintsDone = false;
   /// Set when the session re-announces its constraints after the first done;
-  /// the next frame needs a fresh buffer.
+  /// the next frame waits for constraintsDone and builds a fresh buffer.
   bool constraintsChanged = false;
-  bool updatingConstraints = false;
   bool stopped = false;
   bool frameDone = false;
   bool frameReady = false;
@@ -153,13 +156,13 @@ constexpr wl_registry_listener kRegistryListener{registryGlobal,
                                                  registryRemoved};
 
 void beginConstraintUpdate(CaptureState &state) {
-  if (!state.constraintsDone || state.updatingConstraints)
+  if (!state.hasConstraints || !state.constraintsDone)
     return;
-  state.updatingConstraints = true;
+  state.constraintsDone = false;
   state.constraintsChanged = true;
-  // A re-announcement replaces the constraint set; drop the old formats so
-  // the rebuild chooses from the current ones.
-  state.shmFormats.clear();
+  // Collect the re-announcement's formats until sessionDone() commits them,
+  // so a batch split across reads never leaves shmFormats empty.
+  state.pendingShmFormats.clear();
 }
 
 void sessionBufferSize(void *data, ext_image_copy_capture_session_v1 *,
@@ -173,7 +176,10 @@ void sessionShmFormat(void *data, ext_image_copy_capture_session_v1 *,
                       uint32_t format) {
   auto &state = *static_cast<CaptureState *>(data);
   beginConstraintUpdate(state);
-  state.shmFormats.push_back(format);
+  if (state.hasConstraints)
+    state.pendingShmFormats.push_back(format);
+  else
+    state.shmFormats.push_back(format);
 }
 void sessionDmabufDevice(void *, ext_image_copy_capture_session_v1 *,
                          wl_array *) {}
@@ -181,8 +187,11 @@ void sessionDmabufFormat(void *, ext_image_copy_capture_session_v1 *, uint32_t,
                          wl_array *) {}
 void sessionDone(void *data, ext_image_copy_capture_session_v1 *) {
   auto &state = *static_cast<CaptureState *>(data);
+  if (state.hasConstraints && !state.pendingShmFormats.empty())
+    state.shmFormats = std::move(state.pendingShmFormats);
+  state.pendingShmFormats.clear();
+  state.hasConstraints = true;
   state.constraintsDone = true;
-  state.updatingConstraints = false;
 }
 void sessionStopped(void *data, ext_image_copy_capture_session_v1 *) {
   auto &state = *static_cast<CaptureState *>(data);
@@ -646,6 +655,13 @@ bool OutputCapture::grab(QImage &image, QString &error, int timeoutMs) {
   // sizes a new one.
   for (int attempt = 0; attempt < 2; ++attempt) {
     if (state.constraintsChanged) {
+      if (!state.constraintsDone &&
+          !dispatchUntil(state, &state.constraintsDone, timeoutMs, error))
+        return false;
+      if (state.stopped) {
+        error = QStringLiteral("Compositor stopped native output capture");
+        return false;
+      }
       state.constraintsChanged = false;
       destroyShmBuffer(state);
       if (!createShmBuffer(state, error)) {

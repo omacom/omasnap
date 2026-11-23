@@ -177,28 +177,58 @@ bool runWaylandCleanupChecks() {
   if (cleanupCallCount != expected.size() || cleanupCalls != expected)
     return false;
 
-  // Constraint re-announcements replace the format set even when buffer_size
-  // is unchanged or shm_format arrives before buffer_size.
+  // Constraint re-announcements mark constraintsDone=false until sessionDone()
+  // so updates split across Wayland reads wait for the full batch, replace
+  // formats regardless of event order, and preserve formats on size-only
+  // updates.
   CaptureState state;
   sessionBufferSize(&state, nullptr, 1920, 1080);
   sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_ARGB8888);
   sessionDone(&state, nullptr);
-  if (!state.constraintsDone || state.constraintsChanged ||
+  if (!state.hasConstraints || !state.constraintsDone ||
+      state.constraintsChanged ||
       state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_ARGB8888})
     return false;
 
-  sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_XRGB8888);
+  // Same-size update split across reads: read 1 brings buffer_size, read 2
+  // brings shm_format + done.
   sessionBufferSize(&state, nullptr, 1920, 1080);
+  if (!state.constraintsChanged || state.constraintsDone ||
+      state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_ARGB8888})
+    return false;
+  sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_XRGB8888);
+  if (state.constraintsDone)
+    return false;
   sessionDone(&state, nullptr);
-  if (!state.constraintsChanged ||
+  if (!state.constraintsDone || !state.constraintsChanged ||
       state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_XRGB8888})
     return false;
 
+  // Format-first re-announcement replaces the format set on done.
   state.constraintsChanged = false;
-  sessionBufferSize(&state, nullptr, 2560, 1440);
   sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_ABGR8888);
+  sessionBufferSize(&state, nullptr, 2560, 1440);
+  if (state.constraintsDone)
+    return false;
   sessionDone(&state, nullptr);
-  return state.constraintsChanged && state.width == 2560 &&
-         state.height == 1440 &&
-         state.shmFormats == std::vector<uint32_t>{WL_SHM_FORMAT_ABGR8888};
+  if (!state.constraintsDone || !state.constraintsChanged ||
+      state.width != 2560 || state.height != 1440 ||
+      state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_ABGR8888})
+    return false;
+
+  // Size-only update keeps the previously announced formats.
+  state.constraintsChanged = false;
+  sessionBufferSize(&state, nullptr, 1280, 720);
+  sessionDone(&state, nullptr);
+  if (!state.constraintsDone || !state.constraintsChanged ||
+      state.width != 1280 || state.height != 720 ||
+      state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_ABGR8888})
+    return false;
+
+  // sessionStopped mid-update unblocks waiting callers cleanly.
+  sessionBufferSize(&state, nullptr, 1280, 720);
+  if (state.constraintsDone)
+    return false;
+  sessionStopped(&state, nullptr);
+  return state.stopped && state.constraintsDone;
 }

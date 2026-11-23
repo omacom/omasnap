@@ -135,6 +135,9 @@ public:
   };
 
   explicit AutoCapture(Axis axis);
+  /// Updates the expected wheel-notch count per normal tick so cadence
+  /// tie-breaking and step calibration follow dynamic notch fitting.
+  void setNotchesPerTick(int notches);
   [[nodiscard]] Outcome feed(const QImage &cropped);
   /// Commit the paused best-effort path (an unverified seam the user chose to
   /// keep); counts toward unverifiedSeams().
@@ -177,6 +180,7 @@ private:
   AutoProbeDecision::PauseReason pausedReason_ =
       AutoProbeDecision::PauseReason::StillAmbiguous;
   AutoStepCalibration calibration_;
+  int notchesPerTick_ = kNotchesPerTick;
   int blankFirstFrames_ = 0;
   int consecutiveNoScroll_ = 0;
   int kept_ = 0;

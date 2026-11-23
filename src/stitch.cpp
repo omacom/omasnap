@@ -832,21 +832,25 @@ bool matcherGradeCandidate(const ForwardMatchCandidate &candidate) {
   return std::isfinite(candidate.error) && candidate.error <= kMaxMatchError;
 }
 
-/// The automatic worker uses 3 wheel notches followed by a 1-notch probe, or
-/// its keyboard fallback of 5 arrows followed by 2. Cadence is only a soft
-/// tie-breaker.
-double autoCadencePriorScore(const ForwardMatchPath &path) {
+/// The automatic worker uses `expectedNotches` wheel notches followed by a
+/// 1-notch probe (default 3, or its legacy 5:2 keyboard fallback when 3).
+/// Cadence is only a soft tie-breaker.
+double autoCadencePriorScore(const ForwardMatchPath &path,
+                             int expectedNotches) {
   const double ratio =
       static_cast<double>(path.firstDelta) / static_cast<double>(path.secondDelta);
-  return std::min(std::abs(ratio - 3.0), std::abs(ratio - 2.5));
+  const double target = static_cast<double>(std::max(1, expectedNotches));
+  const double score = std::abs(ratio - target);
+  return expectedNotches == 3 ? std::min(score, std::abs(ratio - 2.5)) : score;
 }
 
-bool autoPeriodicPathLess(const ForwardMatchPath &a, const ForwardMatchPath &b) {
+bool autoPeriodicPathLess(const ForwardMatchPath &a, const ForwardMatchPath &b,
+                          int expectedNotches) {
   if (a.totalError != b.totalError || std::isnan(a.totalError) ||
       std::isnan(b.totalError))
     return errorLess(a.totalError, b.totalError);
-  const double cadenceA = autoCadencePriorScore(a);
-  const double cadenceB = autoCadencePriorScore(b);
+  const double cadenceA = autoCadencePriorScore(a, expectedNotches);
+  const double cadenceB = autoCadencePriorScore(b, expectedNotches);
   if (cadenceA != cadenceB)
     return errorLess(cadenceA, cadenceB);
   if (a.firstDelta != b.firstDelta)
@@ -896,12 +900,17 @@ ForwardCandidateSet matcherGradeSet(const ForwardCandidateSet &set) {
 std::optional<ForwardMatchPath>
 bestMatcherGradeAutoPath(const ForwardCandidateSet &first,
                          const ForwardCandidateSet &second,
-                         const ForwardCandidateSet &cumulative) {
+                         const ForwardCandidateSet &cumulative,
+                         int expectedNotches) {
   std::vector<ForwardMatchPath> paths = consistentForwardPaths(
       matcherGradeSet(first), matcherGradeSet(second), matcherGradeSet(cumulative));
   if (paths.empty())
     return std::nullopt;
-  std::stable_sort(paths.begin(), paths.end(), autoPeriodicPathLess);
+  std::stable_sort(paths.begin(), paths.end(),
+                   [expectedNotches](const ForwardMatchPath &a,
+                                     const ForwardMatchPath &b) {
+                     return autoPeriodicPathLess(a, b, expectedNotches);
+                   });
   return paths.front();
 }
 
@@ -911,7 +920,8 @@ bestMatcherGradeAutoPath(const ForwardCandidateSet &first,
 std::optional<ForwardMatchPath>
 bestUnverifiableAutoPath(const ForwardCandidateSet &first,
                          const ForwardCandidateSet &second,
-                         const ForwardCandidateSet &cumulative) {
+                         const ForwardCandidateSet &cumulative,
+                         int expectedNotches) {
   if (!cumulative.searchMaxDelta)
     return std::nullopt;
   std::vector<ForwardMatchPath> paths;
@@ -929,7 +939,11 @@ bestUnverifiableAutoPath(const ForwardCandidateSet &first,
   }
   if (paths.empty())
     return std::nullopt;
-  std::stable_sort(paths.begin(), paths.end(), autoPeriodicPathLess);
+  std::stable_sort(paths.begin(), paths.end(),
+                   [expectedNotches](const ForwardMatchPath &a,
+                                     const ForwardMatchPath &b) {
+                     return autoPeriodicPathLess(a, b, expectedNotches);
+                   });
   return paths.front();
 }
 
@@ -1073,7 +1087,7 @@ ForwardLookaheadResolution
 resolveForwardCandidateSets(const ForwardCandidateSet &first,
                             const ForwardCandidateSet &second,
                             const ForwardCandidateSet &cumulative,
-                            bool allowPhysicalPrior) {
+                            bool allowPhysicalPrior, int expectedNotches) {
   std::vector<ForwardMatchPath> paths =
       consistentForwardPaths(first, second, cumulative);
   std::stable_sort(paths.begin(), paths.end(), forwardPathLess);
@@ -1086,8 +1100,8 @@ resolveForwardCandidateSets(const ForwardCandidateSet &first,
   ForwardLookaheadResolution resolution;
   if (!bestConsistent) {
     if (allowPhysicalPrior) {
-      if (std::optional<ForwardMatchPath> path =
-              bestUnverifiableAutoPath(first, second, cumulative)) {
+      if (std::optional<ForwardMatchPath> path = bestUnverifiableAutoPath(
+              first, second, cumulative, expectedNotches)) {
         resolution.tag = ForwardLookaheadResolution::Tag::LowErrorPeriodic;
         resolution.path = path;
         return resolution;
@@ -1107,8 +1121,8 @@ resolveForwardCandidateSets(const ForwardCandidateSet &first,
     return resolution;
   }
   if (allowPhysicalPrior) {
-    if (std::optional<ForwardMatchPath> path =
-            bestMatcherGradeAutoPath(first, second, cumulative)) {
+    if (std::optional<ForwardMatchPath> path = bestMatcherGradeAutoPath(
+            first, second, cumulative, expectedNotches)) {
       resolution.tag = ForwardLookaheadResolution::Tag::LowErrorPeriodic;
       resolution.path = path;
       return resolution;
@@ -1140,13 +1154,15 @@ ForwardLookahead::resolve(const GrayView &lookahead) const {
 }
 
 ForwardLookaheadResolution
-ForwardLookahead::resolveAuto(const GrayView &lookahead) const {
-  return resolveWithPhysicalPrior(lookahead, true);
+ForwardLookahead::resolveAuto(const GrayView &lookahead,
+                              int expectedNotches) const {
+  return resolveWithPhysicalPrior(lookahead, true, expectedNotches);
 }
 
 ForwardLookaheadResolution
 ForwardLookahead::resolveWithPhysicalPrior(const GrayView &lookahead,
-                                           bool allowPhysicalPrior) const {
+                                           bool allowPhysicalPrior,
+                                           int expectedNotches) const {
   // A probe can legitimately capture the pending viewport again (end of page,
   // wheel not yet applied, paint not advanced). The forward-only search
   // excludes zero and would find a periodic non-zero alias, fabricating a
@@ -1175,7 +1191,7 @@ ForwardLookahead::resolveWithPhysicalPrior(const GrayView &lookahead,
   const ForwardCandidateSet cumulative =
       forwardCandidateSet(origin_, lookahead, axis_);
   return resolveForwardCandidateSets(first_, second, cumulative,
-                                     allowPhysicalPrior);
+                                     allowPhysicalPrior, expectedNotches);
 }
 
 // --- Live manual capture session ------------------------------------------------
