@@ -12698,6 +12698,12 @@ int main(int argc, char **argv) {
   if (!smokeState.isValid())
     return 18;
   qputenv("XDG_STATE_HOME", smokeState.path().toUtf8());
+  // The developer's own omasnap.conf, such as a preferred [editor] size,
+  // stays out of checks that expect the built-in defaults.
+  QTemporaryDir smokeConfig;
+  if (!smokeConfig.isValid())
+    return 18;
+  qputenv("XDG_CONFIG_HOME", smokeConfig.path().toUtf8());
   // Outputs notify through omarchy-notification-send. Answer those with a
   // no-op so a run on a desktop does not post notifications for temporary
   // PNGs that are gone before the daemon loads them.
