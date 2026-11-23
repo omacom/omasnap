@@ -948,6 +948,12 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
   connect(&reopenWatcher_, &QFutureWatcher<ReopenResult>::finished, this,
           [this] { completeReopenRecent(reopenWatcher_.result()); });
 
+  connect(&clipboardCopyWatcher_, &QFutureWatcher<void>::finished, this,
+          [this] {
+            clipboardCopyBusy_ = false;
+            startPendingClipboardCopy();
+          });
+
   connect(&snapshotWatcher_, &QFutureWatcher<bool>::finished, this, [this] {
     snapshotBusy_ = false;
     snapshotWriteOk_ = snapshotWatcher_.result();
@@ -1117,10 +1123,12 @@ CaptureEditor::~CaptureEditor() {
   // the instance lock first so another capture cannot terminate this save.
   disconnect(&finishWatcher_, nullptr, this, nullptr);
   disconnect(&pinWatcher_, nullptr, this, nullptr);
+  disconnect(&clipboardCopyWatcher_, nullptr, this, nullptr);
   finishWatcher_.waitForFinished();
   pinWatcher_.waitForFinished();
   dismissFuture_.waitForFinished();
-  clipboardCopyFuture_.waitForFinished();
+  pendingClipboardHex_.clear();
+  clipboardCopyWatcher_.waitForFinished();
   // An accepted Save As owns its pixels. Finish it before application/static
   // teardown, after the editor surface and instance lock have been released.
   saveAsFuture_.waitForFinished();
@@ -4010,23 +4018,39 @@ void CaptureEditor::runOcr(const QRectF &localSelection) {
 
   // Render the OCR crop, recognize, and copy on the worker pool; both
   // tesseract and wl-copy/wl-paste would otherwise stall the GUI thread.
+  // Clear any queued eyedropper copy and wait for an in-flight one so an older
+  // sampled hex cannot overwrite the OCR text.
+  pendingClipboardHex_.clear();
+  QFuture<void> pendingClipboardCopy = clipboardCopyWatcher_.future();
   const CaptureData captureCopy = capture_;
-  ocrWatcher_.setFuture(QtConcurrent::run([captureCopy, target,
-                                           ocrAnnotations]() mutable {
-    OcrResult result;
-    const QImage image = renderCapture(captureCopy, target, ocrAnnotations,
-                                       BackgroundStyle::None);
-    if (image.isNull()) {
-      result.error = QStringLiteral("Could not prepare image for OCR");
-      return result;
-    }
-    result.text = recognizeText(image, result.error);
-    if (!result.error.isEmpty() || result.text.trimmed().isEmpty())
-      return result;
+  ocrWatcher_.setFuture(QtConcurrent::run(
+      [captureCopy, target, ocrAnnotations, pendingClipboardCopy]() mutable {
+        OcrResult result;
+        const QImage image = renderCapture(captureCopy, target, ocrAnnotations,
+                                           BackgroundStyle::None);
+        if (image.isNull()) {
+          result.error = QStringLiteral("Could not prepare image for OCR");
+          return result;
+        }
+        result.text = recognizeText(image, result.error);
+        if (!result.error.isEmpty() || result.text.trimmed().isEmpty())
+          return result;
+        pendingClipboardCopy.waitForFinished();
+        QString clipboardError;
+        if (!copyTextToClipboard(result.text, clipboardError))
+          result.error = clipboardError;
+        return result;
+      }));
+}
+
+void CaptureEditor::startPendingClipboardCopy() {
+  if (clipboardCopyBusy_ || pendingClipboardHex_.isEmpty())
+    return;
+  clipboardCopyBusy_ = true;
+  const QString hex = std::exchange(pendingClipboardHex_, {});
+  clipboardCopyWatcher_.setFuture(QtConcurrent::run([hex] {
     QString clipboardError;
-    if (!copyTextToClipboard(result.text, clipboardError))
-      result.error = clipboardError;
-    return result;
+    static_cast<void>(copyTextToClipboard(hex, clipboardError));
   }));
 }
 
@@ -4182,12 +4206,18 @@ void CaptureEditor::finish(OutputMode mode) {
       appFilenameSlug(dominantAppClass(capture_.windows, selection_));
   const auto launcher = processLauncher_;
   const bool savedPreview = phase_ == Phase::Edit;
+  QFuture<void> pendingClipboardCopy;
+  if (mode != OutputMode::Save) {
+    pendingClipboardHex_.clear();
+    pendingClipboardCopy = clipboardCopyWatcher_.future();
+  }
   finishWatcher_.setFuture(QtConcurrent::run([captureCopy, source, log, previous, selection,
                                               annotations, background,
                                               imageShadow, canvasBoundary,
                                               backdrop, appSlug, mode, launcher, savedPreview,
                                               document = pinDocument_,
                                               snapshotsSuppressed, pendingSnapshot,
+                                              pendingClipboardCopy,
                                               workingSource, workingLog](QPromise<FinishResult> &completion) mutable {
     FinishResult result;
     result.mode = mode;
@@ -4222,6 +4252,7 @@ void CaptureEditor::finish(OutputMode mode) {
     const bool autosave = mode == OutputMode::CopyAndPreview &&
                           loadOutputConfig(defaultConfigPath()).autosave;
     if (mode == OutputMode::CopyAndPreview && !autosave) {
+      pendingClipboardCopy.waitForFinished();
       static_cast<void>(launchPinnedCapture(
           image, renderedCaptureLogicalSize(captureCopy, image.size()),
           true, PinLifetime::Timed, result.error, launcher, log.recentId));
@@ -4237,6 +4268,7 @@ void CaptureEditor::finish(OutputMode mode) {
       return;
     }
     if (mode == OutputMode::Copy || mode == OutputMode::Both || autosave) {
+      pendingClipboardCopy.waitForFinished();
       if (!copyPngFileToClipboard(exportPath, error)) {
         QFile::remove(exportPath);
         result.error = error;
@@ -5877,10 +5909,8 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
       commitPatch({selectedAnnotation_});
     }
     const QString hex = customColor_.name(QColor::HexRgb).toUpper();
-    clipboardCopyFuture_ = QtConcurrent::run([hex] {
-      QString clipboardError;
-      static_cast<void>(copyTextToClipboard(hex, clipboardError));
-    });
+    pendingClipboardHex_ = hex;
+    startPendingClipboardCopy();
     // Sampling a color is something you do in order to keep working: it
     // hands back the tool that was in hand, and leaves the layer it just
     // recolored selected so another color can be tried on it. Dropping both
