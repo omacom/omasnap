@@ -1597,7 +1597,14 @@ QImage renderCapture(const CaptureData &capture, const QRectF &selection,
   painter.save();
   painter.translate(marginX, marginY);
   painter.scale(scaleX, scaleY);
-  painter.setClipRect(QRectF(QPointF(), selection.size()));
+  if (framedBackground) {
+    QPainterPath cardClip;
+    cardClip.addRoundedRect(QRectF(QPointF(), selection.size()),
+                            kCaptureImageRadius, kCaptureImageRadius);
+    painter.setClipPath(cardClip);
+  } else {
+    painter.setClipRect(QRectF(QPointF(), selection.size()));
+  }
   paintDefaultLayer(painter, cropped, QRectF(QPointF(), selection.size()),
                     annotations);
   painter.restore();

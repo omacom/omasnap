@@ -284,6 +284,11 @@ bool runSaveAsSmoke(QString &error) {
       error = QStringLiteral("Failed Save As changed or closed the editor");
       return false;
     }
+    editor.saveAsFuture_.waitForFinished();
+    if (!QFile::exists(updatedRecent->sourcePath)) {
+      error = QStringLiteral("Failed Save As evicted the retained recent capture");
+      return false;
+    }
     const QString failedPreview = directory.filePath(QStringLiteral("preview-failed.png"));
     editor.setProcessLauncherForTest([](const QString &, const QStringList &) { return false; });
     editor.saveAsToPath(failedPreview);

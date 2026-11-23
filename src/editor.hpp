@@ -995,6 +995,7 @@ private:
   QString saveAsDirectory_;
   QFuture<QString> saveAsFuture_;
   QFuture<QString> dismissFuture_;
+  QFuture<void> clipboardCopyFuture_;
   QFutureWatcher<ReopenResult> reopenWatcher_;
   QFutureWatcher<QImage> backdropWatcher_;
   bool reopenPending_ = false;

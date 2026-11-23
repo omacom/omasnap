@@ -152,16 +152,19 @@ bool runCutSmoke(QString &error) {
     return false;
   }
 
-  // Vertical band removal must preserve alpha: create ARGB32 image with
-  // semi-transparent pixel, remove a vertical band, verify alpha is unchanged.
+  // Vertical band removal must preserve alpha and native pixel coordinates
+  // on HiDPI images (DPR > 1) when the removed band starts past column 0.
   QImage alphaSource(4, 2, QImage::Format_ARGB32);
+  alphaSource.setDevicePixelRatio(2.0);
   alphaSource.fill(QColor(0, 0, 0, 255)); // Opaque black
-  alphaSource.setPixelColor(2, 0, QColor(255, 0, 0, 128)); // Semi-transparent red
-  const QImage alphaCut = removeBand(alphaSource, Qt::Vertical, 0, 2);
-  if (alphaCut.size() != QSize(2, 2) ||
-      alphaCut.pixelColor(0, 0) != QColor(255, 0, 0, 128) ||
-      alphaCut.pixelColor(0, 1) != QColor(0, 0, 0, 255)) {
-    error = QStringLiteral("vertical removeBand alpha preservation failed");
+  alphaSource.setPixelColor(0, 0, QColor(10, 20, 30, 255));
+  alphaSource.setPixelColor(3, 0, QColor(255, 0, 0, 128)); // Semi-transparent red
+  const QImage alphaCut = removeBand(alphaSource, Qt::Vertical, 1, 3);
+  if (alphaCut.devicePixelRatio() != 2.0 || alphaCut.size() != QSize(2, 2) ||
+      alphaCut.pixelColor(0, 0) != QColor(10, 20, 30, 255) ||
+      alphaCut.pixelColor(1, 0) != QColor(255, 0, 0, 128) ||
+      alphaCut.pixelColor(1, 1) != QColor(0, 0, 0, 255)) {
+    error = QStringLiteral("vertical removeBand HiDPI/alpha preservation failed");
     return false;
   }
 
