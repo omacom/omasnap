@@ -58,9 +58,10 @@ struct CaptureState {
   uint32_t bufferFormat = 0;
   uint32_t transform = WL_OUTPUT_TRANSFORM_NORMAL;
   bool constraintsDone = false;
-  /// Set when the session re-announces its constraints (buffer_size after the
-  /// first done); the next frame needs a fresh buffer.
+  /// Set when the session re-announces its constraints after the first done;
+  /// the next frame needs a fresh buffer.
   bool constraintsChanged = false;
+  bool updatingConstraints = false;
   bool stopped = false;
   bool frameDone = false;
   bool frameReady = false;
@@ -151,24 +152,27 @@ void registryRemoved(void *, wl_registry *, uint32_t) {}
 constexpr wl_registry_listener kRegistryListener{registryGlobal,
                                                  registryRemoved};
 
+void beginConstraintUpdate(CaptureState &state) {
+  if (!state.constraintsDone || state.updatingConstraints)
+    return;
+  state.updatingConstraints = true;
+  state.constraintsChanged = true;
+  // A re-announcement replaces the constraint set; drop the old formats so
+  // the rebuild chooses from the current ones.
+  state.shmFormats.clear();
+}
+
 void sessionBufferSize(void *data, ext_image_copy_capture_session_v1 *,
                        uint32_t width, uint32_t height) {
   auto &state = *static_cast<CaptureState *>(data);
-  if (state.constraintsDone &&
-      (width != state.width || height != state.height)) {
-    state.constraintsChanged = true;
-    // A re-announcement replaces the constraint set; drop the old formats so
-    // the rebuild chooses from the current ones.
-    state.shmFormats.clear();
-  }
+  beginConstraintUpdate(state);
   state.width = width;
   state.height = height;
 }
 void sessionShmFormat(void *data, ext_image_copy_capture_session_v1 *,
                       uint32_t format) {
   auto &state = *static_cast<CaptureState *>(data);
-  if (state.constraintsDone)
-    state.constraintsChanged = true;
+  beginConstraintUpdate(state);
   state.shmFormats.push_back(format);
 }
 void sessionDmabufDevice(void *, ext_image_copy_capture_session_v1 *,
@@ -176,7 +180,9 @@ void sessionDmabufDevice(void *, ext_image_copy_capture_session_v1 *,
 void sessionDmabufFormat(void *, ext_image_copy_capture_session_v1 *, uint32_t,
                          wl_array *) {}
 void sessionDone(void *data, ext_image_copy_capture_session_v1 *) {
-  static_cast<CaptureState *>(data)->constraintsDone = true;
+  auto &state = *static_cast<CaptureState *>(data);
+  state.constraintsDone = true;
+  state.updatingConstraints = false;
 }
 void sessionStopped(void *data, ext_image_copy_capture_session_v1 *) {
   auto &state = *static_cast<CaptureState *>(data);
@@ -230,32 +236,52 @@ bool dispatchUntil(CaptureState &state, const bool *done, int timeoutMs,
       if (*done)
         return true;
     }
-    if (wl_display_flush(state.display) < 0 && errno != EAGAIN) {
-      wl_display_cancel_read(state.display);
-      error = QStringLiteral("Could not flush Wayland surface capture request");
-      return false;
+    bool needFlush = false;
+    if (wl_display_flush(state.display) < 0) {
+      if (errno != EAGAIN) {
+        wl_display_cancel_read(state.display);
+        error = QStringLiteral("Could not flush Wayland surface capture request");
+        return false;
+      }
+      needFlush = true;
     }
 
-    const auto remaining =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            deadline - std::chrono::steady_clock::now());
-    if (remaining.count() <= 0) {
-      wl_display_cancel_read(state.display);
-      error = QStringLiteral("Wayland surface capture timed out");
-      return false;
+    pollfd descriptor{wl_display_get_fd(state.display),
+                      static_cast<short>(POLLIN | (needFlush ? POLLOUT : 0)), 0};
+    int result = 0;
+    for (;;) {
+      const auto remaining =
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              deadline - std::chrono::steady_clock::now());
+      if (remaining.count() <= 0) {
+        wl_display_cancel_read(state.display);
+        error = QStringLiteral("Wayland surface capture timed out");
+        return false;
+      }
+      descriptor.revents = 0;
+      result = poll(&descriptor, 1, static_cast<int>(remaining.count()));
+      if (result < 0 && errno == EINTR)
+        continue;
+      break;
     }
-    pollfd descriptor{wl_display_get_fd(state.display), POLLIN, 0};
-    const int result =
-        poll(&descriptor, 1, static_cast<int>(remaining.count()));
-    if (result <= 0 || !(descriptor.revents & POLLIN)) {
+    if (result <= 0 ||
+        (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL))) {
       wl_display_cancel_read(state.display);
       error = result == 0
                   ? QStringLiteral("Wayland surface capture timed out")
                   : QStringLiteral("Wayland surface capture connection failed");
       return false;
     }
-    if (wl_display_read_events(state.display) < 0) {
-      error = QStringLiteral("Could not read Wayland surface capture response");
+    if (descriptor.revents & POLLIN) {
+      if (wl_display_read_events(state.display) < 0) {
+        error = QStringLiteral("Could not read Wayland surface capture response");
+        return false;
+      }
+    } else if (descriptor.revents & POLLOUT) {
+      wl_display_cancel_read(state.display);
+    } else {
+      wl_display_cancel_read(state.display);
+      error = QStringLiteral("Wayland surface capture connection failed");
       return false;
     }
   }

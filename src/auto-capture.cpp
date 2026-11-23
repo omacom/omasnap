@@ -68,7 +68,7 @@ void CaptureHandshake::acknowledgeWithNotches(std::uint64_t cycle, int notches) 
   if (clamped <= ackCycle_)
     return;
   ackCycle_ = clamped;
-  ackNotches_ = std::clamp(notches, 1, kNotchesPerTick);
+  ackNotches_ = std::clamp(notches, 1, kMaxNotchesPerTick);
   ackConsumed_ = false;
 }
 

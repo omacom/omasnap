@@ -66,7 +66,12 @@ std::optional<bool> hyprlandNaturalScroll() {
   process.start(QStringLiteral("hyprctl"),
                 {QStringLiteral("getoption"), QStringLiteral("input:natural_scroll"),
                  QStringLiteral("-j")});
-  if (!process.waitForFinished(2000) || process.exitCode() != 0)
+  if (!process.waitForFinished(2000)) {
+    process.kill();
+    process.waitForFinished(500);
+    return std::nullopt;
+  }
+  if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0)
     return std::nullopt;
   const QByteArray out = process.readAllStandardOutput();
   const int key = out.indexOf("\"bool\"");
@@ -87,7 +92,7 @@ std::optional<bool> hyprlandNaturalScroll() {
 class UinputMouse {
 public:
   bool open(QString &error) {
-    fd_ = ::open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+    fd_ = ::open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
     if (fd_ < 0) {
       error = QStringLiteral("could not open /dev/uinput");
       return false;
@@ -175,13 +180,14 @@ struct WlrPointer {
   void park(int x, int y) {
     if (!pointer || !target)
       return;
-    const auto width = static_cast<std::uint32_t>(std::max(1, target->width));
-    const auto height = static_cast<std::uint32_t>(std::max(1, target->height));
+    const int maxX = std::max(0, target->width);
+    const int maxY = std::max(0, target->height);
+    const auto width = static_cast<std::uint32_t>(std::max(1, maxX));
+    const auto height = static_cast<std::uint32_t>(std::max(1, maxY));
     zwlr_virtual_pointer_v1_motion_absolute(
         pointer, timeMs(),
-        static_cast<std::uint32_t>(std::clamp(x, 0, target->width)),
-        static_cast<std::uint32_t>(std::clamp(y, 0, target->height)), width,
-        height);
+        static_cast<std::uint32_t>(std::clamp(x, 0, maxX)),
+        static_cast<std::uint32_t>(std::clamp(y, 0, maxY)), width, height);
     zwlr_virtual_pointer_v1_frame(pointer);
     wl_display_flush(display);
     sleepMs(kPointerNudgeSettleMs);
@@ -226,7 +232,7 @@ struct WlrPointer {
 };
 
 void injectOutputName(void *data, wl_output *, const char *name) {
-  static_cast<WlrPointer::Output *>(data)->name = name;
+  static_cast<WlrPointer::Output *>(data)->name = name ? name : "";
 }
 void injectOutputMode(void *data, wl_output *, std::uint32_t flags, int32_t w,
                       int32_t h, int32_t) {

@@ -742,6 +742,12 @@ QImage StitchAccumulator::finish(QString &error) {
   const int contentRight = width_ - trailing;
   const int totalWidth = width_ + totalDelta_;
   QImage image(totalWidth, height_, QImage::Format_RGBA8888);
+  if (image.isNull()) {
+    error = QStringLiteral("could not allocate the stitched image (%1x%2)")
+                .arg(totalWidth)
+                .arg(height_);
+    return {};
+  }
   for (int y = 0; y < height_; ++y) {
     std::uint8_t *dst = image.scanLine(y);
     std::size_t cursor = 0;

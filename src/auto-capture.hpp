@@ -20,8 +20,10 @@ namespace stitch {
 /// Consecutive stationary observations that confirm the end of content (a
 /// single one may be a delayed paint or a swallowed wheel event).
 inline constexpr int kAutoEndConfirmationProbes = 2;
-/// Wheel notches per normal automatic scroll tick and per alignment probe.
+/// Wheel notches per normal automatic scroll tick, its dynamic upper bound,
+/// and the single-notch alignment probe.
 inline constexpr int kNotchesPerTick = 3;
+inline constexpr int kMaxNotchesPerTick = 12;
 inline constexpr int kProbeNotches = 1;
 
 /// Short history of fully verified normal auto-scroll steps. At a confirmed

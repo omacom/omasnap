@@ -301,11 +301,15 @@ bool runAutoCaptureChecks() {
     handshake.acknowledge(1);
     // duplicate ack of an already-acknowledged cycle is ignored
     const std::uint64_t second = handshake.publishReady();
-    handshake.acknowledgeWithNotches(second + 5, 99); // clamps to published, 3
-    if (handshake.waitForCapture(second, stop) != std::optional(3))
+    handshake.acknowledgeWithNotches(second, 8); // fitted notch count > default
+    if (handshake.waitForCapture(second, stop) != std::optional(8))
+      return false;
+    const std::uint64_t third = handshake.publishReady();
+    handshake.acknowledgeWithNotches(third + 5, 99); // clamps to published, max
+    if (handshake.waitForCapture(third, stop) != std::optional(kMaxNotchesPerTick))
       return false;
     stop = true;
-    if (handshake.waitForCapture(second + 1, stop))
+    if (handshake.waitForCapture(third + 1, stop))
       return false; // stopped
   }
 

@@ -166,13 +166,39 @@ bool runWaylandCleanupChecks() {
     state.pool = reinterpret_cast<wl_shm_pool *>(11);
   }
   recordingCleanup = false;
-    constexpr std::array expected{
-        CleanupCall::Frame,          CleanupCall::Session,
-        CleanupCall::Source,         CleanupCall::Output,
-        CleanupCall::Output,         CleanupCall::OutputSourceManager,
-        CleanupCall::CaptureManager, CleanupCall::Buffer,
-        CleanupCall::Pool,           CleanupCall::Shm,
-        CleanupCall::Registry,       CleanupCall::Display,
-    };
-  return cleanupCallCount == expected.size() && cleanupCalls == expected;
+  constexpr std::array expected{
+      CleanupCall::Frame,          CleanupCall::Session,
+      CleanupCall::Source,         CleanupCall::Output,
+      CleanupCall::Output,         CleanupCall::OutputSourceManager,
+      CleanupCall::CaptureManager, CleanupCall::Buffer,
+      CleanupCall::Pool,           CleanupCall::Shm,
+      CleanupCall::Registry,       CleanupCall::Display,
+  };
+  if (cleanupCallCount != expected.size() || cleanupCalls != expected)
+    return false;
+
+  // Constraint re-announcements replace the format set even when buffer_size
+  // is unchanged or shm_format arrives before buffer_size.
+  CaptureState state;
+  sessionBufferSize(&state, nullptr, 1920, 1080);
+  sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_ARGB8888);
+  sessionDone(&state, nullptr);
+  if (!state.constraintsDone || state.constraintsChanged ||
+      state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_ARGB8888})
+    return false;
+
+  sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_XRGB8888);
+  sessionBufferSize(&state, nullptr, 1920, 1080);
+  sessionDone(&state, nullptr);
+  if (!state.constraintsChanged ||
+      state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_XRGB8888})
+    return false;
+
+  state.constraintsChanged = false;
+  sessionBufferSize(&state, nullptr, 2560, 1440);
+  sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_ABGR8888);
+  sessionDone(&state, nullptr);
+  return state.constraintsChanged && state.width == 2560 &&
+         state.height == 1440 &&
+         state.shmFormats == std::vector<uint32_t>{WL_SHM_FORMAT_ABGR8888};
 }
