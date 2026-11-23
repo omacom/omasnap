@@ -827,6 +827,7 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
   paletteConfig_ = loadPaletteConfig(defaultConfigPath());
   startupTimingMark("palette config loaded");
   customColor_ = paletteConfig_.custom;
+  annotationSize_ = loadEditorAnnotationSize(defaultConfigPath());
   backgroundConfig_ = loadBackgroundConfig(defaultConfigPath());
   connect(&backdropWatcher_, &QFutureWatcher<QImage>::finished, this,
           [this] { completeBackdropLoad(); });
@@ -6593,7 +6594,8 @@ void CaptureEditor::wheelEvent(QWheelEvent *event) {
              tool_ == Tool::Freehand || tool_ == Tool::Highlighter ||
              tool_ == Tool::Marker || tool_ == Tool::Rectangle ||
              tool_ == Tool::Ellipse) {
-    annotationSize_ = std::clamp(annotationSize_ + step, 2.0, 12.0);
+    annotationSize_ = std::clamp(annotationSize_ + step, kMinimumAnnotationSize,
+                                 kMaximumAnnotationSize);
     setStatus(tool_ == Tool::Highlighter
                   ? highlighterStatus()
                   : QStringLiteral("Size %1 · mouse wheel changes size")

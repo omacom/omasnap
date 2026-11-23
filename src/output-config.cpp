@@ -6,6 +6,8 @@
 #include <QSettings>
 #include <QStandardPaths>
 
+#include <algorithm>
+
 OutputConfig loadOutputConfig(const QString &filePath) {
   OutputConfig config;
   QSettings settings(filePath, QSettings::IniFormat);
@@ -96,6 +98,17 @@ bool loadEditorWindowBackdropOpaque(const QString &filePath) {
              .toString()
              .trimmed()
              .toLower() != QStringLiteral("translucent");
+}
+
+qreal loadEditorAnnotationSize(const QString &filePath) {
+  QSettings settings(filePath, QSettings::IniFormat);
+  bool isNumber = false;
+  const qreal size =
+      settings.value(QStringLiteral("editor/size")).toString().trimmed().toDouble(
+          &isNumber);
+  if (!isNumber)
+    return kDefaultAnnotationSize;
+  return std::clamp(size, kMinimumAnnotationSize, kMaximumAnnotationSize);
 }
 
 QString defaultConfigPath() {
