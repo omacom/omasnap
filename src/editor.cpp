@@ -5681,12 +5681,15 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
             QLineF(freehandPoints_.last(), point).length() >= 1.5)
           freehandPoints_.push_back(point);
         // Small hand tremor must not keep postponing the hold.
-        if (QLineF(straightAnchor_, point).length() > 4.0 ||
-            !straightHoldTimer_.isActive()) {
-          if (QLineF(straightAnchor_, point).length() > 4.0)
-            straightAnchor_ = point;
+        // The tremor allowance is measured on screen, so zoom does not
+        // change how still the pointer has to be.
+        const bool moved = QLineF(straightAnchor_, point).length() *
+                               editScale() >
+                           4.0;
+        if (moved)
+          straightAnchor_ = point;
+        if (moved || !straightHoldTimer_.isActive())
           straightHoldTimer_.start();
-        }
       }
     }
     bool overPaletteAnchor = false;
@@ -6363,7 +6366,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
   straightActive_ = false;
   if (straight) {
     const QPointF first = freehandPoints_.first();
-    freehandPoints_ = {first, straightEnd_};
+    freehandPoints_ = {first, straightStrokeEndpoint(first, end)};
   }
   if (tool_ == Tool::Freehand || tool_ == Tool::Highlighter) {
     if (straight) {

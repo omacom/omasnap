@@ -810,7 +810,7 @@ private:
   QTimer straightHoldTimer_;
   bool straightActive_ = false;
   void activateStraightStroke();
-  /// Pointer position the hold timer last restarted from (tremor reference).
+  /// Pointer position (annotation space) the hold timer last restarted from.
   QPointF straightAnchor_;
   QPointF straightEnd_;
   struct HighlighterLock {
