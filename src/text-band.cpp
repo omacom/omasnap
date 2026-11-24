@@ -36,31 +36,6 @@ int colorDistance(QRgb first, QRgb second) {
                    std::abs(qGreen(first) - qGreen(second)),
                    std::abs(qBlue(first) - qBlue(second))});
 }
-
-QRgb pixelInRow(const QImage &source, QImage::Format format,
-                const uchar *scanline, int x, int y) {
-  switch (format) {
-  case QImage::Format_RGB32:
-  case QImage::Format_ARGB32:
-    return reinterpret_cast<const QRgb *>(scanline)[x];
-  case QImage::Format_ARGB32_Premultiplied: {
-    const QRgb px = reinterpret_cast<const QRgb *>(scanline)[x];
-    return qAlpha(px) == 255 ? px : qUnpremultiply(px);
-  }
-  case QImage::Format_RGBX8888:
-  case QImage::Format_RGBA8888: {
-    const uchar *px = scanline + static_cast<std::size_t>(x) * 4;
-    return qRgb(px[0], px[1], px[2]);
-  }
-  case QImage::Format_RGBA8888_Premultiplied: {
-    const uchar *px = scanline + static_cast<std::size_t>(x) * 4;
-    return px[3] == 255 ? qRgb(px[0], px[1], px[2])
-                        : qUnpremultiply(qRgba(px[0], px[1], px[2], px[3]));
-  }
-  default:
-    return source.pixel(x, y);
-  }
-}
 } // namespace
 
 std::optional<TextBand>
@@ -111,14 +86,11 @@ detectTextBand(const QImage &source, const QPointF &sourcePoint,
   const int minimumEdges =
       std::max(3, static_cast<int>(std::ceil(
                       static_cast<qreal>(columns.size()) * kEdgeDensity)));
-  const QImage::Format format = source.format();
   for (int y = y0; y <= y1; ++y) {
-    const uchar *scanline = source.constScanLine(y);
     for (std::size_t index = 0; index < columns.size(); ++index) {
       const int x = columns[index];
       deltas[index] =
-          colorDistance(pixelInRow(source, format, scanline, x, y),
-                        pixelInRow(source, format, scanline, x + edgeReach, y));
+          colorDistance(source.pixel(x, y), source.pixel(x + edgeReach, y));
     }
 
     // Screenshot pixels are normally lossless, but images opened from files

@@ -350,13 +350,8 @@ ProcessResult runProcess(const QString &program, const QStringList &arguments,
           static_cast<int>(std::max<qint64>(1, deadline.remainingTime()));
       const bool ready = process.waitForReadyRead(remaining);
       output += process.readAllStandardOutput();
-      if (output.size() > maxOutputBytes) {
-        process.kill();
-        process.waitForFinished(1000);
-        ProcessResult refused;
-        refused.outputTooLarge = true;
-        return refused;
-      }
+      if (output.size() > maxOutputBytes)
+        break;
       // Once the child closes stdout before exiting, waitForReadyRead()
       // returns false immediately; wait for exit instead of busy-spinning.
       if (!ready && process.state() != QProcess::NotRunning) {
