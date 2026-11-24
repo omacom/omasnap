@@ -32,14 +32,16 @@ find_package(PkgConfig REQUIRED)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Core Gui Test Widgets)
 find_package(LayerShellQt REQUIRED)
 pkg_check_modules(WaylandClient REQUIRED IMPORTED_TARGET wayland-client)
+pkg_check_modules(WaylandProtocols REQUIRED wayland-protocols)
+pkg_get_variable(WAYLAND_PROTOCOLS_PKGDATADIR wayland-protocols pkgdatadir)
 pkg_check_modules(Libdeflate REQUIRED IMPORTED_TARGET libdeflate)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 
 set(PROTOCOL_XMLS
   # ext-image-capture-source references this interface even for output-only use.
-  /usr/share/wayland-protocols/staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml
-  /usr/share/wayland-protocols/staging/ext-image-capture-source/ext-image-capture-source-v1.xml
-  /usr/share/wayland-protocols/staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml
+  ${WAYLAND_PROTOCOLS_PKGDATADIR}/staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml
+  ${WAYLAND_PROTOCOLS_PKGDATADIR}/staging/ext-image-capture-source/ext-image-capture-source-v1.xml
+  ${WAYLAND_PROTOCOLS_PKGDATADIR}/staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml
   ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-virtual-pointer-unstable-v1.xml
 )
 set(PROTOCOL_SOURCES)
