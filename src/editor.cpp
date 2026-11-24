@@ -6181,8 +6181,10 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
 // Called by the hold timer or by Shift: from here until release the stroke is
 // one straight segment from its start to the pointer.
 void CaptureEditor::activateStraightStroke() {
+  // A Snap-locked highlighter is already a straight row-aligned bar.
   if (straightActive_ || !dragging_ || freehandPoints_.isEmpty() ||
-      (tool_ != Tool::Freehand && tool_ != Tool::Highlighter))
+      (tool_ != Tool::Freehand && tool_ != Tool::Highlighter) ||
+      (tool_ == Tool::Highlighter && highlighterLock_))
     return;
   straightHoldTimer_.stop();
   straightActive_ = true;
