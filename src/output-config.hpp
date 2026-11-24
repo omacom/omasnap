@@ -40,6 +40,16 @@ struct OutputConfig {
  *  floats and centers the editor window as it maps. */
 [[nodiscard]] QString editorFloatRuleScript(bool floating);
 
+/** Stroke size range the mouse wheel steps through for the stroke tools
+ *  (arrow, line, pen, highlighter, marker, rectangle, ellipse). */
+inline constexpr qreal kMinimumAnnotationSize = 2.0;
+inline constexpr qreal kMaximumAnnotationSize = 12.0;
+inline constexpr qreal kDefaultAnnotationSize = 4.0;
+
+/** [editor] size: the stroke tools' starting size, clamped to the wheel's
+ *  range. A missing file or key, or a non-number, gives the default. */
+[[nodiscard]] qreal loadEditorAnnotationSize(const QString &filePath);
+
 /** True unless [editor] backdrop = translucent: a windowed editor paints a
  *  solid backdrop instead of the overlay's see-through dim. */
 [[nodiscard]] bool loadEditorWindowBackdropOpaque(const QString &filePath);

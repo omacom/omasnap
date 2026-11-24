@@ -3755,6 +3755,31 @@ bool runEditorWindowConfigCheck(QString &error) {
     return false;
   }
 
+  if (!writeConf(QStringLiteral("[editor]\nsize = 7\n")))
+    return false;
+  const qreal configured = loadEditorAnnotationSize(path);
+  if (!writeConf(QStringLiteral("[editor]\nsize = 40\n")))
+    return false;
+  const qreal oversized = loadEditorAnnotationSize(path);
+  if (!writeConf(QStringLiteral("[editor]\nsize = thick\n")))
+    return false;
+  const qreal unreadable = loadEditorAnnotationSize(path);
+  QFile::remove(path);
+  const qreal sizeDefault =
+      loadEditorAnnotationSize(QStringLiteral("/nonexistent/omasnap.conf"));
+  const bool isSizeReadRight = configured == 7.0 &&
+                               oversized == kMaximumAnnotationSize &&
+                               unreadable == kDefaultAnnotationSize &&
+                               sizeDefault == kDefaultAnnotationSize;
+  if (!isSizeReadRight) {
+    error = QStringLiteral("[editor] size read %1 / %2 / %3 / %4")
+                .arg(configured)
+                .arg(oversized)
+                .arg(unreadable)
+                .arg(sizeDefault);
+    return false;
+  }
+
   // The window hugs the capture at 100% plus the measured chrome; only a
   // capture too large for the screen scales down, and the guide band is
   // whatever the entries need at the window's width.
@@ -12673,6 +12698,12 @@ int main(int argc, char **argv) {
   if (!smokeState.isValid())
     return 18;
   qputenv("XDG_STATE_HOME", smokeState.path().toUtf8());
+  // The developer's own omasnap.conf, such as a preferred [editor] size,
+  // stays out of checks that expect the built-in defaults.
+  QTemporaryDir smokeConfig;
+  if (!smokeConfig.isValid())
+    return 18;
+  qputenv("XDG_CONFIG_HOME", smokeConfig.path().toUtf8());
   // Outputs notify through omarchy-notification-send. Answer those with a
   // no-op so a run on a desktop does not post notifications for temporary
   // PNGs that are gone before the daemon loads them.

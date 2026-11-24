@@ -343,6 +343,10 @@ window = floating
 # opaque (default): a windowed editor paints a solid backdrop.
 # translucent: it keeps the overlay's see-through dim.
 backdrop = opaque
+# Starting stroke size for arrows, lines, pen, highlighter, markers,
+# rectangles, and ellipses, from 2 to 12. Default: 4. The mouse wheel still
+# changes it while editing.
+size = 4
 
 [output]
 # Save fresh captures while still copying and showing the timed preview.
