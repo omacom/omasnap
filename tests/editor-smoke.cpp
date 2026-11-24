@@ -3705,6 +3705,26 @@ bool runEditorWindowConfigCheck(QString &error) {
     error = QStringLiteral("Editor float rule script is wrong");
     return false;
   }
+  const QRegularExpression titleRule(QStringLiteral("^Screenshot( .+)?$"));
+  const auto expectTitle = [&](const QString &path, bool internal,
+                               const QString &want) {
+    const QString title = editorWindowTitle(path, internal);
+    if (title != want || !titleRule.match(title).hasMatch()) {
+      error = QStringLiteral("Editor title for \"%1\" was \"%2\", wanted \"%3\"")
+                  .arg(path, title, want);
+      return false;
+    }
+    return true;
+  };
+  if (!expectTitle(QString(), false, QStringLiteral("Screenshot")) ||
+      !expectTitle(QStringLiteral("/run/user/1000/omasnap/edit-4242-0123abcd0123abcd.png"),
+                   true, QStringLiteral("Screenshot")) ||
+      !expectTitle(QStringLiteral("/home/me/Pictures/Screenshots/capture.png"),
+                   false, QStringLiteral("Screenshot capture.png")) ||
+      !expectTitle(QStringLiteral("/home/me/Notes\nshot.png"), false,
+                   QStringLiteral("Screenshot Notes shot.png")) ||
+      !expectTitle(QStringLiteral("/home/me/   "), false, QStringLiteral("Screenshot")))
+    return false;
   const auto writeConf = [&path, &error](const QString &body) {
     QFile file(path);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
