@@ -2,7 +2,6 @@
  *  collapses the gap, or inserts transparent space at the seam. */
 #include "cut.hpp"
 
-#include <QPainter>
 #include <algorithm>
 #include <cstring>
 
@@ -33,38 +32,27 @@ QImage removeBand(const QImage &source, Qt::Orientation orientation,
   const int band = end - start;
   if (band <= 0 || band >= width)
     return source;
-  QImage out(width - band, source.height(), source.format());
-  if (!source.colorTable().isEmpty())
-    out.setColorTable(source.colorTable());
+  const QImage aligned =
+      (source.depth() >= 8 && source.depth() % 8 == 0)
+          ? source
+          : source.convertToFormat(QImage::Format_ARGB32);
+  QImage out(width - band, aligned.height(), aligned.format());
+  if (!aligned.colorTable().isEmpty())
+    out.setColorTable(aligned.colorTable());
   out.setDevicePixelRatio(source.devicePixelRatio());
   // Cut coordinates are native pixels; painting would apply the image's DPR.
-  const int depth = source.depth();
-  if (depth >= 8 && depth % 8 == 0) {
-    const auto pixelBytes = static_cast<std::size_t>(depth / 8);
-    const auto prefixBytes = static_cast<std::size_t>(start) * pixelBytes;
-    const auto suffixOffset = static_cast<std::size_t>(end) * pixelBytes;
-    const auto suffixBytes = static_cast<std::size_t>(width - end) * pixelBytes;
-    for (int y = 0; y < source.height(); ++y) {
-      uchar *dst = out.scanLine(y);
-      const uchar *src = source.constScanLine(y);
-      if (prefixBytes > 0)
-        std::memcpy(dst, src, prefixBytes);
-      if (suffixBytes > 0)
-        std::memcpy(dst + prefixBytes, src + suffixOffset, suffixBytes);
-    }
-    return out;
+  const auto pixelBytes = static_cast<std::size_t>(aligned.depth() / 8);
+  const auto prefixBytes = static_cast<std::size_t>(start) * pixelBytes;
+  const auto suffixOffset = static_cast<std::size_t>(end) * pixelBytes;
+  const auto suffixBytes = static_cast<std::size_t>(width - end) * pixelBytes;
+  for (int y = 0; y < aligned.height(); ++y) {
+    uchar *dst = out.scanLine(y);
+    const uchar *src = aligned.constScanLine(y);
+    if (prefixBytes > 0)
+      std::memcpy(dst, src, prefixBytes);
+    if (suffixBytes > 0)
+      std::memcpy(dst + prefixBytes, src + suffixOffset, suffixBytes);
   }
-  QImage nativeSource = source;
-  nativeSource.setDevicePixelRatio(1.0);
-  out.setDevicePixelRatio(1.0);
-  QPainter painter(&out);
-  painter.setCompositionMode(QPainter::CompositionMode_Source);
-  painter.drawImage(QPoint(0, 0), nativeSource,
-                    QRect(0, 0, start, source.height()));
-  painter.drawImage(QPoint(start, 0), nativeSource,
-                    QRect(end, 0, width - end, source.height()));
-  painter.end();
-  out.setDevicePixelRatio(source.devicePixelRatio());
   return out;
 }
 

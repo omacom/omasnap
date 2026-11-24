@@ -168,5 +168,18 @@ bool runCutSmoke(QString &error) {
     return false;
   }
 
+  // Sub-byte formats (1-bit mono) convert cleanly through the unified path.
+  QImage monoSource(4, 2, QImage::Format_Mono);
+  monoSource.setDevicePixelRatio(2.0);
+  monoSource.fill(0);
+  monoSource.setPixel(3, 0, 1);
+  const QImage monoCut = removeBand(monoSource, Qt::Vertical, 1, 3);
+  if (monoCut.devicePixelRatio() != 2.0 || monoCut.size() != QSize(2, 2) ||
+      monoCut.pixelColor(0, 0) != monoSource.pixelColor(0, 0) ||
+      monoCut.pixelColor(1, 0) != monoSource.pixelColor(3, 0)) {
+    error = QStringLiteral("vertical removeBand mono conversion failed");
+    return false;
+  }
+
   return true;
 }
