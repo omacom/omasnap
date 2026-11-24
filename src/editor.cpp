@@ -2909,6 +2909,8 @@ void CaptureEditor::applyEditState(const EditState &state) {
   editingAnnotation_ = -1;
   interaction_ = Interaction::None;
   freehandPoints_.clear();
+  straightActive_ = false;
+  straightHoldTimer_.stop();
   highlighterLock_.reset();
   if (textEditor_) {
     textEditor_->clear();
@@ -2931,6 +2933,8 @@ void CaptureEditor::cancelActiveDragForHistory() {
   dragStartStateValid_ = false;
   dragChanged_ = false;
   freehandPoints_.clear();
+  straightActive_ = false;
+  straightHoldTimer_.stop();
   highlighterLock_.reset();
   if (cutDragActive_) {
     cutDragActive_ = false;
@@ -3688,6 +3692,8 @@ void CaptureEditor::cancelEditInteraction() {
   colorPaletteOpen_ = false;
   customColorPickerOpen_ = false;
   freehandPoints_.clear();
+  straightActive_ = false;
+  straightHoldTimer_.stop();
   highlighterLock_.reset();
   tool_ = Tool::Select;
   setStatus(QStringLiteral("Select/move · Esc to close"));
@@ -4985,7 +4991,7 @@ CaptureEditor::liveLayers(const QPointF &pointer) const {
     if (tool_ == Tool::Freehand || tool_ == Tool::Highlighter) {
       preview.kind = tool_ == Tool::Highlighter ? Annotation::Kind::Highlighter
                                                 : Annotation::Kind::Freehand;
-      preview.points = straightActive_
+      preview.points = straightActive_ && !freehandPoints_.isEmpty()
                            ? QVector<QPointF>{freehandPoints_.first(),
                                               straightEnd_}
                            : freehandPoints_;
@@ -5675,7 +5681,6 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
         activateStraightStroke();
       if (straightActive_) {
         straightEnd_ = straightStrokeEndpoint(freehandPoints_.first(), point);
-        update();
       } else {
         if (freehandPoints_.isEmpty() ||
             QLineF(freehandPoints_.last(), point).length() >= 1.5)
@@ -6152,6 +6157,8 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
     dragStart_ = point;
     dragging_ = true;
     interaction_ = Interaction::None;
+    straightActive_ = false;
+    straightHoldTimer_.stop();
     creationConstraintActive_ = supportsCreationConstraint(tool_) &&
                                 heldModifiers(event->modifiers()).testFlag(Qt::ShiftModifier);
     creationCenteredActive_ = supportsCenteredCreation(tool_) &&
