@@ -62,7 +62,7 @@ enum class CanvasBoundaryMode { Framed, Overflow, Image };
 enum class QuickOutputMode { None, Copy, Save, Both, CopyAndPreview };
 
 enum class SpotlightShape { Ellipse, Rectangle, RoundedRectangle };
-enum class RedactionStyle { Solid, Pixelate, Blur };
+enum class RedactionStyle { Solid, Pixelate };
 enum class TextBackground { Plain, Pill, Outline };
 enum class TextFont { Neucha, JetBrainsMono, InterDisplay };
 enum class ArrowStyle { Standard, Pointy, Curved, Double };
@@ -78,6 +78,7 @@ struct Annotation {
     Ellipse,
     Text,
     Redaction,
+    Blur,
     Spotlight
   };
 

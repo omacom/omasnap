@@ -1634,6 +1634,106 @@ bool runSecureRedactionChecks(QString &error) {
   return true;
 }
 
+bool runCosmeticBlurChecks(QString &error) {
+  error = QStringLiteral("Cosmetic blur check failed");
+  if (annotationLayer(Annotation::Kind::Blur) != AnnotationLayer::Default) {
+    error = QStringLiteral("Cosmetic blur must stay on the default layer");
+    return false;
+  }
+
+  CaptureData capture;
+  capture.monitor.scale = 1.0;
+  capture.monitor.pixelSize = {96, 72};
+  capture.source = QImage(96, 72, QImage::Format_RGB32);
+  for (int y = 0; y < capture.source.height(); ++y) {
+    for (int x = 0; x < capture.source.width(); ++x) {
+      capture.source.setPixelColor(
+          x, y, ((x / 4 + y / 4) % 2 == 0) ? QColor(240, 20, 20)
+                                           : QColor(20, 20, 240));
+    }
+  }
+  capture.previewSize = capture.source.size();
+
+  Annotation blur;
+  blur.id = 1;
+  blur.kind = Annotation::Kind::Blur;
+  blur.start = {12, 12};
+  blur.end = {84, 60};
+  const QRect blurBounds(12, 12, 72, 48);
+  const QImage blurred = renderCapture(capture, QRectF(0, 0, 96, 72), {blur},
+                                       BackgroundStyle::None);
+  if (blurred.isNull() ||
+      blurred.pixelColor(2, 2) != capture.source.pixelColor(2, 2) ||
+      blurred.copy(blurBounds) == capture.source.copy(blurBounds)) {
+    error = QStringLiteral("Cosmetic blur rendering did not soften target");
+    return false;
+  }
+
+  // Blur sits above the redaction layer and samples redacted pixels, never
+  // leaking the underlying source through a redaction.
+  Annotation solid;
+  solid.id = 2;
+  solid.kind = Annotation::Kind::Redaction;
+  solid.start = blur.start;
+  solid.end = blur.end;
+  solid.redactionStyle = RedactionStyle::Solid;
+  const QImage redactedThenBlurred = renderCapture(
+      capture, QRectF(0, 0, 96, 72), {solid, blur}, BackgroundStyle::None);
+  const QColor solidColor(QStringLiteral("#121216"));
+  if (redactedThenBlurred.isNull() ||
+      redactedThenBlurred.pixelColor(48, 36) != solidColor) {
+    error = QStringLiteral("Cosmetic blur leaked source through redaction");
+    return false;
+  }
+
+  // Serialization round-trip keeps Blur distinct from Redaction.
+  QTemporaryDir tempDir;
+  if (!tempDir.isValid()) {
+    error = QStringLiteral("Could not create temporary dir for blur log check");
+    return false;
+  }
+  Operation op;
+  op.type = Operation::Type::Annotate;
+  op.annotations = {blur};
+  OperationLog log;
+  log.ops = {op};
+  log.index = 1;
+  log.nextId = 2;
+  log.previewSize = capture.previewSize;
+  const QString logPath = tempDir.filePath(QStringLiteral("blur.json"));
+  QString ioError;
+  if (!saveOperationLog(logPath, log, ioError)) {
+    error = QStringLiteral("Failed to save blur operation log: %1").arg(ioError);
+    return false;
+  }
+  OperationLog loaded;
+  if (!loadOperationLog(logPath, loaded, ioError) || loaded.ops.size() != 1 ||
+      loaded.ops.constFirst().annotations.size() != 1 ||
+      loaded.ops.constFirst().annotations.constFirst().kind !=
+          Annotation::Kind::Blur ||
+      loaded.ops.constFirst().annotations.constFirst().start != blur.start ||
+      loaded.ops.constFirst().annotations.constFirst().end != blur.end) {
+    error = QStringLiteral("Cosmetic blur operation log did not round-trip");
+    return false;
+  }
+
+  // Interaction: Shift+D arms cosmetic Blur; plain D still arms secure Redact.
+  CaptureEditor editor(capture);
+  editor.resize(400, 300);
+  editor.show();
+  QTest::keyClick(&editor, Qt::Key_D, Qt::ShiftModifier);
+  if (editor.armedToolForTest() != CaptureEditor::Tool::Blur) {
+    error = QStringLiteral("Shift+D did not arm the cosmetic Blur tool");
+    return false;
+  }
+  QTest::keyClick(&editor, Qt::Key_D);
+  if (editor.armedToolForTest() != CaptureEditor::Tool::Redact) {
+    error = QStringLiteral("Plain D did not arm the secure Redact tool");
+    return false;
+  }
+  return true;
+}
+
 bool runCreationConstraintCheck(QString &error) {
   const QPointF start(10, 10);
   const QPointF square = constrainedCreationEndpoint(
@@ -12347,6 +12447,10 @@ int main(int argc, char **argv) {
   if (!runSecureRedactionChecks(snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 71;
+  }
+  if (!runCosmeticBlurChecks(snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 72;
   }
   if (!runBackdropCacheRenderingCheck(snapshotError)) {
     qWarning().noquote() << snapshotError;
