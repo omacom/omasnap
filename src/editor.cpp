@@ -790,6 +790,24 @@ QPointF constrainedCreationEndpoint(CaptureEditor::Tool tool,
   return end;
 }
 
+// Endpoint of a held stroke: the exact pointer position, unless the segment is
+// within a few degrees of horizontal or vertical, where it is made exact so an
+// underline does not tilt by a pixel.
+QPointF straightStrokeEndpoint(const QPointF &start, const QPointF &end) {
+  const QPointF delta = end - start;
+  const qreal length = QLineF(start, end).length();
+  if (length < 1.0)
+    return end;
+  constexpr qreal snapDegrees = 5.0;
+  const qreal angle = std::atan2(std::abs(delta.y()), std::abs(delta.x())) *
+                      180.0 / std::numbers::pi_v<qreal>;
+  if (angle <= snapDegrees)
+    return {end.x(), start.y()};
+  if (angle >= 90.0 - snapDegrees)
+    return {start.x(), end.y()};
+  return end;
+}
+
 QPointF centeredCreationStart(CaptureEditor::Tool tool, const QPointF &center,
                               const QPointF &end) {
   if (!supportsCenteredCreation(tool))
@@ -890,6 +908,21 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
   nudgePersistTimer_.setInterval(kNudgeCoalesceMs);
   connect(&nudgePersistTimer_, &QTimer::timeout, this,
           [this] { endNudgeRun(); });
+
+  straightHoldTimer_.setSingleShot(true);
+  straightHoldTimer_.setInterval(400);
+  connect(&straightHoldTimer_, &QTimer::timeout, this, [this] {
+    if (!dragging_ || freehandPoints_.size() < 2 ||
+        (tool_ != Tool::Freehand && tool_ != Tool::Highlighter))
+      return;
+    straightActive_ = true;
+    QPointF point = toUnclampedAnnotationPoint(cursor_);
+    if (tool_ == Tool::Highlighter && highlighterLock_)
+      point.setY(highlighterLock_->centerY);
+    straightEnd_ = straightStrokeEndpoint(freehandPoints_.first(), point);
+    setStatus(QStringLiteral("Straight line · release to confirm"));
+    update();
+  });
 
   // Coalesce high-polling-rate pointer samples to one small damaged region per
   // display frame. QWidget's backing store keeps everything outside that
@@ -4960,7 +4993,10 @@ CaptureEditor::liveLayers(const QPointF &pointer) const {
     if (tool_ == Tool::Freehand || tool_ == Tool::Highlighter) {
       preview.kind = tool_ == Tool::Highlighter ? Annotation::Kind::Highlighter
                                                 : Annotation::Kind::Freehand;
-      preview.points = freehandPoints_;
+      preview.points = straightActive_
+                           ? QVector<QPointF>{freehandPoints_.first(),
+                                              straightEnd_}
+                           : freehandPoints_;
     } else {
       if (tool_ == Tool::Spotlight) {
         preview.kind = Annotation::Kind::Spotlight;
@@ -5642,9 +5678,21 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
       QPointF point = toUnclampedAnnotationPoint(cursor_);
       if (tool_ == Tool::Highlighter && highlighterLock_)
         point.setY(highlighterLock_->centerY);
-      if (freehandPoints_.isEmpty() ||
-          QLineF(freehandPoints_.last(), point).length() >= 1.5)
-        freehandPoints_.push_back(point);
+      if (straightActive_) {
+        straightEnd_ = straightStrokeEndpoint(freehandPoints_.first(), point);
+        update();
+      } else {
+        if (freehandPoints_.isEmpty() ||
+            QLineF(freehandPoints_.last(), point).length() >= 1.5)
+          freehandPoints_.push_back(point);
+        // Small hand tremor must not keep postponing the hold.
+        if (QLineF(straightAnchor_, point).length() > 4.0 ||
+            !straightHoldTimer_.isActive()) {
+          if (QLineF(straightAnchor_, point).length() > 4.0)
+            straightAnchor_ = point;
+          straightHoldTimer_.start();
+        }
+      }
     }
     bool overPaletteAnchor = false;
     bool overCustomAnchor = false;
@@ -6115,6 +6163,7 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
     if (tool_ == Tool::Freehand || tool_ == Tool::Highlighter) {
       freehandPoints_.clear();
       freehandPoints_.reserve(256);
+      straightActive_ = false;
       highlighterLock_.reset();
       QPointF strokeStart = point;
       if (tool_ == Tool::Highlighter &&
@@ -6125,6 +6174,8 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
       if (highlighterLock_)
         strokeStart.setY(highlighterLock_->centerY);
       freehandPoints_.push_back(strokeStart);
+      straightAnchor_ = strokeStart;
+      straightHoldTimer_.start();
       if (tool_ == Tool::Highlighter)
         updatePointerCursor();
     }
@@ -6293,8 +6344,18 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
     end.setY(highlighterLock_->centerY);
   creationConstraintActive_ = false;
   creationCenteredActive_ = false;
+  straightHoldTimer_.stop();
+  const bool straight = straightActive_ && !freehandPoints_.isEmpty() &&
+                        (tool_ == Tool::Freehand || tool_ == Tool::Highlighter);
+  straightActive_ = false;
+  if (straight) {
+    const QPointF first = freehandPoints_.first();
+    freehandPoints_ = {first, straightEnd_};
+  }
   if (tool_ == Tool::Freehand || tool_ == Tool::Highlighter) {
-    if (tool_ == Tool::Freehand) {
+    if (straight) {
+      // Exactly two points: nothing between them to smooth or sample.
+    } else if (tool_ == Tool::Freehand) {
       if (freehandPoints_.isEmpty())
         freehandPoints_.push_back(end);
       else if (freehandPoints_.size() == 1 ||
@@ -6331,7 +6392,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
         // Preserve exact endpoints and raw intermediate samples so level zero
         // is truly unsmoothed and later level changes never compound.
         annotation.rawPoints = std::move(freehandPoints_);
-        annotation.smoothingLevel = freehandSmoothingLevel_;
+        annotation.smoothingLevel = straight ? 0 : freehandSmoothingLevel_;
         annotation.points = stroke::smoothFreehand(annotation.rawPoints,
                                                     annotation.smoothingLevel);
         annotation.start = annotation.points.first();

@@ -1210,6 +1210,93 @@ bool runTextBandDetectionCheck(QString &error) {
 }
 
 /** The editor locks a detected text highlight and preserves freehand fallback. */
+bool runStraightStrokeHoldCheck(QApplication &application, QString &error) {
+  const QSize logicalSize(400, 240);
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("TEST");
+  capture.monitor.geometry = QRect(QPoint(), logicalSize);
+  capture.monitor.pixelSize = logicalSize;
+  capture.monitor.scale = 1.0;
+  capture.previewSize = logicalSize;
+  capture.source = QImage(logicalSize, QImage::Format_RGB32);
+  capture.source.fill(QColor(QStringLiteral("#20242c")));
+  CaptureEditor editor(capture, CaptureEditor::CaptureMode::Fullscreen);
+  editor.setSuppressSnapshots(true);
+  editor.resize(700, 500);
+  editor.show();
+  application.processEvents();
+
+  const auto send = [&](QEvent::Type type, const QPointF &point,
+                        Qt::MouseButton button, Qt::MouseButtons buttons) {
+    const QPointF at = editor.annotationPointToWidgetForTest(point);
+    QMouseEvent event(type, at, editor.mapToGlobal(at.toPoint()), button,
+                      buttons, Qt::NoModifier);
+    QApplication::sendEvent(&editor, &event);
+  };
+  const auto wait = [&](int ms) {
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < ms) {
+      application.processEvents();
+      QThread::msleep(5);
+    }
+  };
+
+  struct Case {
+    int key;
+    bool hold;
+    QPointF start;
+    QPointF end;
+    QPointF expected;
+  };
+  const Case cases[] = {
+      // Nearly horizontal: snapped flat on the start's Y.
+      {Qt::Key_F, true, QPointF(100, 30), QPointF(300, 34), QPointF(300, 30)},
+      // Nearly vertical: snapped onto the start's X.
+      {Qt::Key_F, true, QPointF(40, 60), QPointF(43, 200), QPointF(40, 200)},
+      // Diagonal keeps the pointer position.
+      {Qt::Key_H, true, QPointF(100, 80), QPointF(250, 200), QPointF(250, 200)},
+      // No hold: the wobbly stroke stays freehand with intermediate points.
+      {Qt::Key_H, false, QPointF(120, 220), QPointF(350, 224), QPointF(350, 224)},
+  };
+  for (const Case &c : cases) {
+    QTest::keyClick(&editor, static_cast<Qt::Key>(c.key));
+    application.processEvents();
+    const int before = editor.annotationCountForTest();
+    const QPointF start = c.start;
+    send(QEvent::MouseMove, start, Qt::NoButton, Qt::NoButton);
+    send(QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+    for (int step = 1; step <= 10; ++step) {
+      const QPointF point = start + (c.end - start) * (step / 10.0) +
+                            QPointF(0, step % 2 ? 2.0 : -2.0);
+      send(QEvent::MouseMove, point, Qt::NoButton, Qt::LeftButton);
+      wait(10);
+    }
+    send(QEvent::MouseMove, c.end, Qt::NoButton, Qt::LeftButton);
+    if (c.hold)
+      wait(700);
+    send(QEvent::MouseButtonRelease, c.end, Qt::LeftButton, Qt::NoButton);
+    application.processEvents();
+    if (editor.annotationCountForTest() != before + 1) {
+      error = QStringLiteral("Held stroke was not committed");
+      return false;
+    }
+    const Annotation &stroke = editor.currentAnnotationsForTest().last();
+    if (c.hold) {
+      if (stroke.points.size() != 2 ||
+          QLineF(stroke.points.last(), c.expected).length() > 1.0 ||
+          QLineF(stroke.points.first(), start).length() > 1.0) {
+        error = QStringLiteral("Held stroke did not become a straight line");
+        return false;
+      }
+    } else if (stroke.points.size() <= 2) {
+      error = QStringLiteral("Stroke without a hold was straightened");
+      return false;
+    }
+  }
+  return true;
+}
+
 bool runTextAwareHighlighterEditorCheck(QApplication &application,
                                         QString &error) {
   constexpr qreal sourceScale = 2.0;
@@ -12776,6 +12863,10 @@ int main(int argc, char **argv) {
   if (!runTextAwareHighlighterEditorCheck(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 129;
+  }
+  if (!runStraightStrokeHoldCheck(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 131;
   }
   if (!runArrowStyleSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;

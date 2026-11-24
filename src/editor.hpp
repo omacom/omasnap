@@ -805,6 +805,13 @@ private:
   bool resizeConstraintActive_ = false;
   Interaction interaction_ = Interaction::None;
   QVector<QPointF> freehandPoints_;
+  /// Holding the pointer still at the end of a pen/highlighter stroke turns it
+  /// into one straight segment from the stroke start to the pointer.
+  QTimer straightHoldTimer_;
+  bool straightActive_ = false;
+  /// Pointer position the hold timer last restarted from (tremor reference).
+  QPointF straightAnchor_;
+  QPointF straightEnd_;
   struct HighlighterLock {
     qreal centerY = 0.0;
     qreal annotationSize = 0.0;
