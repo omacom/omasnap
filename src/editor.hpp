@@ -678,6 +678,7 @@ private:
   void refreshBackdropCache();
   void refreshComposedCapture();
   void runOcr(const QRectF &localSelection = {});
+  void startPendingClipboardCopy();
   void dismissOcrOverlay();
   void paintOcrOverlay(QPainter &painter, const QRectF &image, qreal scale);
   void setStatus(QString status);
@@ -995,6 +996,9 @@ private:
   QString saveAsDirectory_;
   QFuture<QString> saveAsFuture_;
   QFuture<QString> dismissFuture_;
+  QFutureWatcher<void> clipboardCopyWatcher_;
+  bool clipboardCopyBusy_ = false;
+  QString pendingClipboardHex_;
   QFutureWatcher<ReopenResult> reopenWatcher_;
   QFutureWatcher<QImage> backdropWatcher_;
   bool reopenPending_ = false;

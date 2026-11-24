@@ -388,8 +388,7 @@ qreal strokeHitTolerance(const Annotation &annotation) {
 }
 void translateAnnotation(Annotation &annotation, const QPointF &delta) {
   annotation.start += delta;
-  if (hasEndpointHandles(annotation.kind) ||
-      annotation.kind == Annotation::Kind::Freehand)
+  if (hasEndpointHandles(annotation.kind) || isStrokeKind(annotation.kind))
     annotation.end += delta;
   if (annotation.curveControl)
     *annotation.curveControl += delta;
@@ -917,12 +916,6 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
       setStatus(result.error);
       return;
     }
-    QString clipboardError;
-    if (!copyTextToClipboard(result.text, clipboardError)) {
-      dismissOcrOverlay();
-      setStatus(clipboardError);
-      return;
-    }
     const QString shown = result.text.trimmed();
     if (shown.isEmpty()) {
       dismissOcrOverlay();
@@ -954,6 +947,12 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
 
   connect(&reopenWatcher_, &QFutureWatcher<ReopenResult>::finished, this,
           [this] { completeReopenRecent(reopenWatcher_.result()); });
+
+  connect(&clipboardCopyWatcher_, &QFutureWatcher<void>::finished, this,
+          [this] {
+            clipboardCopyBusy_ = false;
+            startPendingClipboardCopy();
+          });
 
   connect(&snapshotWatcher_, &QFutureWatcher<bool>::finished, this, [this] {
     snapshotBusy_ = false;
@@ -1124,9 +1123,16 @@ CaptureEditor::~CaptureEditor() {
   // the instance lock first so another capture cannot terminate this save.
   disconnect(&finishWatcher_, nullptr, this, nullptr);
   disconnect(&pinWatcher_, nullptr, this, nullptr);
+  disconnect(&clipboardCopyWatcher_, nullptr, this, nullptr);
   finishWatcher_.waitForFinished();
   pinWatcher_.waitForFinished();
   dismissFuture_.waitForFinished();
+  clipboardCopyWatcher_.waitForFinished();
+  if (!pendingClipboardHex_.isEmpty()) {
+    QString clipboardError;
+    static_cast<void>(copyTextToClipboard(
+        std::exchange(pendingClipboardHex_, {}), clipboardError));
+  }
   // An accepted Save As owns its pixels. Finish it before application/static
   // teardown, after the editor surface and instance lock have been released.
   saveAsFuture_.waitForFinished();
@@ -1508,24 +1514,9 @@ QString CaptureEditor::toolStatus() const {
   case Tool::Select:
     return QStringLiteral("Select · drag moves layers · Ctrl+wheel zooms · "
                           "outer handles crop");
-  case Tool::Spotlight: {
-    const QString shape =
-        spotlightShape_ == SpotlightShape::Ellipse ? QStringLiteral("ellipse")
-        : spotlightShape_ == SpotlightShape::Rectangle
-            ? QStringLiteral("rectangle")
-            : QStringLiteral("rounded");
-    const QString zoom =
-        spotlightMagnification_ <= 1.0
-            ? QStringLiteral("no zoom")
-            : QStringLiteral("%1×").arg(spotlightMagnification_, 0, 'f', 1);
-    const QString ring =
-        spotlightBorder_ <= 0.0
-            ? QStringLiteral("no border")
-            : QStringLiteral("border %1").arg(qRound(spotlightBorder_));
-    return QStringLiteral("Spotlight · %1 · %2 · %3 · S cycles shape · wheel "
-                          "zooms · Alt+wheel border")
-        .arg(shape, zoom, ring);
-  }
+  case Tool::Spotlight:
+    return spotlightStatus(spotlightShape_, spotlightMagnification_,
+                           spotlightBorder_);
   case Tool::Redact:
     return QStringLiteral("Redact · %1 · D toggles style")
         .arg(redactionStyleName(redactionStyle_).toLower());
@@ -4029,19 +4020,41 @@ void CaptureEditor::runOcr(const QRectF &localSelection) {
     ocrAnnotations.push_back(std::move(adjusted));
   }
 
-  // Render the OCR crop and recognize on the worker pool; a full-resolution
-  // selection would otherwise stall the overlay while tesseract runs.
+  // Render the OCR crop, recognize, and copy on the worker pool; both
+  // tesseract and wl-copy/wl-paste would otherwise stall the GUI thread.
+  // Clear any queued eyedropper copy and wait for an in-flight one so an older
+  // sampled hex cannot overwrite the OCR text.
+  pendingClipboardHex_.clear();
+  QFuture<void> pendingClipboardCopy = clipboardCopyWatcher_.future();
   const CaptureData captureCopy = capture_;
-  ocrWatcher_.setFuture(QtConcurrent::run([captureCopy, target,
-                                           ocrAnnotations]() mutable {
-    OcrResult result;
-    const QImage image = renderCapture(captureCopy, target, ocrAnnotations,
-                                       BackgroundStyle::None);
-    if (image.isNull())
-      result.error = QStringLiteral("Could not prepare image for OCR");
-    else
-      result.text = recognizeText(image, result.error);
-    return result;
+  ocrWatcher_.setFuture(QtConcurrent::run(
+      [captureCopy, target, ocrAnnotations, pendingClipboardCopy]() mutable {
+        OcrResult result;
+        const QImage image = renderCapture(captureCopy, target, ocrAnnotations,
+                                           BackgroundStyle::None);
+        if (image.isNull()) {
+          result.error = QStringLiteral("Could not prepare image for OCR");
+          return result;
+        }
+        result.text = recognizeText(image, result.error);
+        if (!result.error.isEmpty() || result.text.trimmed().isEmpty())
+          return result;
+        pendingClipboardCopy.waitForFinished();
+        QString clipboardError;
+        if (!copyTextToClipboard(result.text, clipboardError))
+          result.error = clipboardError;
+        return result;
+      }));
+}
+
+void CaptureEditor::startPendingClipboardCopy() {
+  if (clipboardCopyBusy_ || pendingClipboardHex_.isEmpty())
+    return;
+  clipboardCopyBusy_ = true;
+  const QString hex = std::exchange(pendingClipboardHex_, {});
+  clipboardCopyWatcher_.setFuture(QtConcurrent::run([hex] {
+    QString clipboardError;
+    static_cast<void>(copyTextToClipboard(hex, clipboardError));
   }));
 }
 
@@ -4197,12 +4210,18 @@ void CaptureEditor::finish(OutputMode mode) {
       appFilenameSlug(dominantAppClass(capture_.windows, selection_));
   const auto launcher = processLauncher_;
   const bool savedPreview = phase_ == Phase::Edit;
+  QFuture<void> pendingClipboardCopy;
+  if (mode != OutputMode::Save) {
+    pendingClipboardHex_.clear();
+    pendingClipboardCopy = clipboardCopyWatcher_.future();
+  }
   finishWatcher_.setFuture(QtConcurrent::run([captureCopy, source, log, previous, selection,
                                               annotations, background,
                                               imageShadow, canvasBoundary,
                                               backdrop, appSlug, mode, launcher, savedPreview,
                                               document = pinDocument_,
                                               snapshotsSuppressed, pendingSnapshot,
+                                              pendingClipboardCopy,
                                               workingSource, workingLog](QPromise<FinishResult> &completion) mutable {
     FinishResult result;
     result.mode = mode;
@@ -4237,6 +4256,7 @@ void CaptureEditor::finish(OutputMode mode) {
     const bool autosave = mode == OutputMode::CopyAndPreview &&
                           loadOutputConfig(defaultConfigPath()).autosave;
     if (mode == OutputMode::CopyAndPreview && !autosave) {
+      pendingClipboardCopy.waitForFinished();
       static_cast<void>(launchPinnedCapture(
           image, renderedCaptureLogicalSize(captureCopy, image.size()),
           true, PinLifetime::Timed, result.error, launcher, log.recentId));
@@ -4252,6 +4272,7 @@ void CaptureEditor::finish(OutputMode mode) {
       return;
     }
     if (mode == OutputMode::Copy || mode == OutputMode::Both || autosave) {
+      pendingClipboardCopy.waitForFinished();
       if (!copyPngFileToClipboard(exportPath, error)) {
         QFile::remove(exportPath);
         result.error = error;
@@ -4416,9 +4437,7 @@ void CaptureEditor::handleToolbar(const QString &action) {
   } else if (action == QStringLiteral("custom-color")) {
     usingCustomColor_ = true;
     customColorPickerOpen_ = !customColorPickerOpen_;
-  } else if (action == QStringLiteral("ocr"))
-    runOcr();
-  else if (action == QStringLiteral("background"))
+  } else if (action == QStringLiteral("background"))
     cycleBackground();
   else if (action == QStringLiteral("undo")) {
     undoEdit();
@@ -5441,23 +5460,8 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
       }
       const QPointF annotationDelta = selection_.topLeft() - updated.topLeft();
       if (!annotationDelta.isNull()) {
-        for (Annotation &annotation : annotations_) {
-          annotation.start += annotationDelta;
-          if (hasEndpointHandles(annotation.kind))
-            annotation.end += annotationDelta;
-          if (annotation.curveControl)
-            *annotation.curveControl += annotationDelta;
-          if (isStrokeKind(annotation.kind)) {
-            for (QPointF &point : annotation.points)
-              point += annotationDelta;
-            for (QPointF &point : annotation.rawPoints)
-              point += annotationDelta;
-            if (!annotation.points.isEmpty()) {
-              annotation.start = annotation.points.first();
-              annotation.end = annotation.points.last();
-            }
-          }
-        }
+        for (Annotation &annotation : annotations_)
+          translateAnnotation(annotation, annotationDelta);
       }
       selection_ = updated;
       refreshCanvasRect();
@@ -5908,16 +5912,15 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
       annotations_[selectedAnnotation_].color = customColor_;
       commitPatch({selectedAnnotation_});
     }
-    QString clipboardError;
-    static_cast<void>(copyTextToClipboard(
-        customColor_.name(QColor::HexRgb).toUpper(), clipboardError));
+    const QString hex = customColor_.name(QColor::HexRgb).toUpper();
+    pendingClipboardHex_ = hex;
+    startPendingClipboardCopy();
     // Sampling a color is something you do in order to keep working: it
     // hands back the tool that was in hand, and leaves the layer it just
     // recolored selected so another color can be tried on it. Dropping both
     // meant that taking a color cost you your place twice over.
     tool_ = toolBeforeEyedropper_;
-    setStatus(QStringLiteral("Sampled %1").arg(
-        customColor_.name(QColor::HexRgb).toUpper()));
+    setStatus(QStringLiteral("Sampled %1").arg(hex));
     updatePointerCursor();
     update();
     return;
@@ -7577,8 +7580,16 @@ void CaptureEditor::paintEdit(QPainter &painter) {
   // Clip to the same live canvas as the mat, including a text draft's growth.
   // Framed leaves carried layers unclipped so its counter ghost can float
   // over the surround.
-  if (!liveOutsidePreview || canvasBoundaryMode_ != CanvasBoundaryMode::Framed)
-    painter.setClipRect(previewClip, Qt::IntersectClip);
+  if (!liveOutsidePreview || canvasBoundaryMode_ != CanvasBoundaryMode::Framed) {
+    if (sourceRadius > 0.0) {
+      QPainterPath cardClip;
+      cardClip.addRoundedRect(previewClip, kCaptureImageRadius,
+                              kCaptureImageRadius);
+      painter.setClipPath(cardClip, Qt::IntersectClip);
+    } else {
+      painter.setClipRect(previewClip, Qt::IntersectClip);
+    }
+  }
   const bool hasSpotlight = showsSpotlight(defaultAnnotations);
   if (hasSpotlight && !redactionLayer.isNull()) {
     // Spotlights sample the complete composed canvas. Build that source only
@@ -7613,14 +7624,16 @@ void CaptureEditor::paintEdit(QPainter &painter) {
       basePainter.setRenderHints(QPainter::SmoothPixmapTransform);
       const BackgroundStyle spotlightBackground = canvas.backdrop;
       paintCaptureBackground(basePainter, defaultLayerSourceRect,
-                             spotlightBackground);
+                             spotlightBackground, customBackdrop_);
       const QRectF sourcePixels(-spotlightCanvas.left() * pixelScale,
                                 -spotlightCanvas.top() * pixelScale,
                                 selection_.width() * pixelScale,
                                 selection_.height() * pixelScale);
       const bool spotlightHasBackground =
           spotlightBackground != BackgroundStyle::None &&
-          spotlightBackground != BackgroundStyle::Off;
+          spotlightBackground != BackgroundStyle::Off &&
+          (spotlightBackground != BackgroundStyle::Custom ||
+           !customBackdrop_.isNull());
       if (imageShadow_ && spotlightHasBackground)
         paintCaptureImageShadow(basePainter, sourcePixels, pixelScale,
                                 pixelScale);

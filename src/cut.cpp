@@ -2,7 +2,6 @@
  *  collapses the gap, or inserts transparent space at the seam. */
 #include "cut.hpp"
 
-#include <QPainter>
 #include <algorithm>
 #include <cstring>
 
@@ -33,13 +32,27 @@ QImage removeBand(const QImage &source, Qt::Orientation orientation,
   const int band = end - start;
   if (band <= 0 || band >= width)
     return source;
-  QImage out(width - band, source.height(), source.format());
+  const QImage aligned =
+      (source.depth() >= 8 && source.depth() % 8 == 0)
+          ? source
+          : source.convertToFormat(QImage::Format_ARGB32);
+  QImage out(width - band, aligned.height(), aligned.format());
+  if (!aligned.colorTable().isEmpty())
+    out.setColorTable(aligned.colorTable());
   out.setDevicePixelRatio(source.devicePixelRatio());
-  QPainter painter(&out);
-  painter.setCompositionMode(QPainter::CompositionMode_Source);
-  painter.drawImage(QPoint(0, 0), source, QRect(0, 0, start, source.height()));
-  painter.drawImage(QPoint(start, 0), source,
-                    QRect(end, 0, width - end, source.height()));
+  // Cut coordinates are native pixels; painting would apply the image's DPR.
+  const auto pixelBytes = static_cast<std::size_t>(aligned.depth() / 8);
+  const auto prefixBytes = static_cast<std::size_t>(start) * pixelBytes;
+  const auto suffixOffset = static_cast<std::size_t>(end) * pixelBytes;
+  const auto suffixBytes = static_cast<std::size_t>(width - end) * pixelBytes;
+  for (int y = 0; y < aligned.height(); ++y) {
+    uchar *dst = out.scanLine(y);
+    const uchar *src = aligned.constScanLine(y);
+    if (prefixBytes > 0)
+      std::memcpy(dst, src, prefixBytes);
+    if (suffixBytes > 0)
+      std::memcpy(dst + prefixBytes, src + suffixOffset, suffixBytes);
+  }
   return out;
 }
 
