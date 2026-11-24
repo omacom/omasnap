@@ -211,7 +211,7 @@ public:
 private:
   [[nodiscard]] ForwardLookaheadResolution
   resolveWithPhysicalPrior(const GrayView &lookahead, bool allowPhysicalPrior,
-                           int expectedNotches = 3) const;
+                           int expectedNotches) const;
 
   GrayView origin_;
   GrayView pending_;

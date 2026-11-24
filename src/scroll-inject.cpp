@@ -180,14 +180,13 @@ struct WlrPointer {
   void park(int x, int y) {
     if (!pointer || !target)
       return;
-    const int maxX = std::max(0, target->width);
-    const int maxY = std::max(0, target->height);
-    const auto width = static_cast<std::uint32_t>(std::max(1, maxX));
-    const auto height = static_cast<std::uint32_t>(std::max(1, maxY));
+    const int width = std::max(1, target->width);
+    const int height = std::max(1, target->height);
     zwlr_virtual_pointer_v1_motion_absolute(
         pointer, timeMs(),
-        static_cast<std::uint32_t>(std::clamp(x, 0, maxX)),
-        static_cast<std::uint32_t>(std::clamp(y, 0, maxY)), width, height);
+        static_cast<std::uint32_t>(std::clamp(x, 0, width)),
+        static_cast<std::uint32_t>(std::clamp(y, 0, height)),
+        static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height));
     zwlr_virtual_pointer_v1_frame(pointer);
     wl_display_flush(display);
     sleepMs(kPointerNudgeSettleMs);

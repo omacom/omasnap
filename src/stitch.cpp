@@ -833,15 +833,12 @@ bool matcherGradeCandidate(const ForwardMatchCandidate &candidate) {
 }
 
 /// The automatic worker uses `expectedNotches` wheel notches followed by a
-/// 1-notch probe (default 3, or its legacy 5:2 keyboard fallback when 3).
-/// Cadence is only a soft tie-breaker.
+/// 1-notch probe. Cadence is only a soft tie-breaker.
 double autoCadencePriorScore(const ForwardMatchPath &path,
                              int expectedNotches) {
   const double ratio =
       static_cast<double>(path.firstDelta) / static_cast<double>(path.secondDelta);
-  const double target = static_cast<double>(std::max(1, expectedNotches));
-  const double score = std::abs(ratio - target);
-  return expectedNotches == 3 ? std::min(score, std::abs(ratio - 2.5)) : score;
+  return std::abs(ratio - static_cast<double>(std::max(1, expectedNotches)));
 }
 
 bool autoPeriodicPathLess(const ForwardMatchPath &a, const ForwardMatchPath &b,
@@ -1150,7 +1147,7 @@ ForwardLookahead::uniqueCandidateAtMost(int maxSourceDelta) const {
 
 ForwardLookaheadResolution
 ForwardLookahead::resolve(const GrayView &lookahead) const {
-  return resolveWithPhysicalPrior(lookahead, false);
+  return resolveWithPhysicalPrior(lookahead, false, 3);
 }
 
 ForwardLookaheadResolution

@@ -45,7 +45,6 @@ struct CaptureState {
   wl_buffer *buffer = nullptr;
   std::vector<std::unique_ptr<OutputInfo>> outputs;
   std::vector<uint32_t> shmFormats;
-  std::vector<uint32_t> pendingShmFormats;
   uint32_t width = 0;
   uint32_t height = 0;
   uint32_t format = 0;
@@ -58,9 +57,6 @@ struct CaptureState {
   uint32_t bufferHeight = 0;
   uint32_t bufferFormat = 0;
   uint32_t transform = WL_OUTPUT_TRANSFORM_NORMAL;
-  /// True once the initial constraint batch has finished; distinguishes
-  /// subsequent re-announcements from the first setup.
-  bool hasConstraints = false;
   bool constraintsDone = false;
   /// Set when the session re-announces its constraints after the first done;
   /// the next frame waits for constraintsDone and builds a fresh buffer.
@@ -156,13 +152,13 @@ constexpr wl_registry_listener kRegistryListener{registryGlobal,
                                                  registryRemoved};
 
 void beginConstraintUpdate(CaptureState &state) {
-  if (!state.hasConstraints || !state.constraintsDone)
+  if (!state.constraintsDone)
     return;
   state.constraintsDone = false;
   state.constraintsChanged = true;
-  // Collect the re-announcement's formats until sessionDone() commits them,
-  // so a batch split across reads never leaves shmFormats empty.
-  state.pendingShmFormats.clear();
+  // A re-announcement replaces the constraint set; grab() waits for
+  // sessionDone() before reading shmFormats again.
+  state.shmFormats.clear();
 }
 
 void sessionBufferSize(void *data, ext_image_copy_capture_session_v1 *,
@@ -176,22 +172,14 @@ void sessionShmFormat(void *data, ext_image_copy_capture_session_v1 *,
                       uint32_t format) {
   auto &state = *static_cast<CaptureState *>(data);
   beginConstraintUpdate(state);
-  if (state.hasConstraints)
-    state.pendingShmFormats.push_back(format);
-  else
-    state.shmFormats.push_back(format);
+  state.shmFormats.push_back(format);
 }
 void sessionDmabufDevice(void *, ext_image_copy_capture_session_v1 *,
                          wl_array *) {}
 void sessionDmabufFormat(void *, ext_image_copy_capture_session_v1 *, uint32_t,
                          wl_array *) {}
 void sessionDone(void *data, ext_image_copy_capture_session_v1 *) {
-  auto &state = *static_cast<CaptureState *>(data);
-  if (state.hasConstraints && !state.pendingShmFormats.empty())
-    state.shmFormats = std::move(state.pendingShmFormats);
-  state.pendingShmFormats.clear();
-  state.hasConstraints = true;
-  state.constraintsDone = true;
+  static_cast<CaptureState *>(data)->constraintsDone = true;
 }
 void sessionStopped(void *data, ext_image_copy_capture_session_v1 *) {
   auto &state = *static_cast<CaptureState *>(data);
@@ -273,19 +261,24 @@ bool dispatchUntil(CaptureState &state, const bool *done, int timeoutMs,
         continue;
       break;
     }
-    if (result <= 0 ||
-        (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL))) {
+    if (result <= 0) {
       wl_display_cancel_read(state.display);
       error = result == 0
                   ? QStringLiteral("Wayland surface capture timed out")
                   : QStringLiteral("Wayland surface capture connection failed");
       return false;
     }
+    // Read buffered events before checking hangup/error so final events
+    // (such as sessionStopped) delivered alongside POLLHUP are not dropped.
     if (descriptor.revents & POLLIN) {
       if (wl_display_read_events(state.display) < 0) {
         error = QStringLiteral("Could not read Wayland surface capture response");
         return false;
       }
+    } else if (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+      wl_display_cancel_read(state.display);
+      error = QStringLiteral("Wayland surface capture connection failed");
+      return false;
     } else if (descriptor.revents & POLLOUT) {
       wl_display_cancel_read(state.display);
     } else {
