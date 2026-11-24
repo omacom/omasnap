@@ -203,12 +203,15 @@ public:
   [[nodiscard]] ForwardLookaheadResolution resolve(const GrayView &lookahead) const;
   /// Known-forward automatic resolution: additionally accepts matcher-grade
   /// periodic paths using the worker's known direction (cadence only breaks
-  /// ties).
-  [[nodiscard]] ForwardLookaheadResolution resolveAuto(const GrayView &lookahead) const;
+  /// ties). `expectedNotches` is the wheel-notch count of the first step
+  /// before the single-notch probe.
+  [[nodiscard]] ForwardLookaheadResolution
+  resolveAuto(const GrayView &lookahead, int expectedNotches = 3) const;
 
 private:
   [[nodiscard]] ForwardLookaheadResolution
-  resolveWithPhysicalPrior(const GrayView &lookahead, bool allowPhysicalPrior) const;
+  resolveWithPhysicalPrior(const GrayView &lookahead, bool allowPhysicalPrior,
+                           int expectedNotches) const;
 
   GrayView origin_;
   GrayView pending_;
@@ -237,7 +240,7 @@ forwardCandidateSet(const GrayView &prev, const GrayView &cur, Axis axis);
 resolveForwardCandidateSets(const ForwardCandidateSet &first,
                             const ForwardCandidateSet &second,
                             const ForwardCandidateSet &cumulative,
-                            bool allowPhysicalPrior);
+                            bool allowPhysicalPrior, int expectedNotches = 3);
 
 // --- Accumulator (pixel assembly) ------------------------------------------
 /// Assembles overlapping forward frames into one tall/wide image. A trailing

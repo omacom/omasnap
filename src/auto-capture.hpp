@@ -20,8 +20,10 @@ namespace stitch {
 /// Consecutive stationary observations that confirm the end of content (a
 /// single one may be a delayed paint or a swallowed wheel event).
 inline constexpr int kAutoEndConfirmationProbes = 2;
-/// Wheel notches per normal automatic scroll tick and per alignment probe.
+/// Wheel notches per normal automatic scroll tick, its dynamic upper bound,
+/// and the single-notch alignment probe.
 inline constexpr int kNotchesPerTick = 3;
+inline constexpr int kMaxNotchesPerTick = 12;
 inline constexpr int kProbeNotches = 1;
 
 /// Short history of fully verified normal auto-scroll steps. At a confirmed
@@ -133,6 +135,9 @@ public:
   };
 
   explicit AutoCapture(Axis axis);
+  /// Updates the expected wheel-notch count per normal tick so cadence
+  /// tie-breaking and step calibration follow dynamic notch fitting.
+  void setNotchesPerTick(int notches);
   [[nodiscard]] Outcome feed(const QImage &cropped);
   /// Commit the paused best-effort path (an unverified seam the user chose to
   /// keep); counts toward unverifiedSeams().
@@ -175,6 +180,7 @@ private:
   AutoProbeDecision::PauseReason pausedReason_ =
       AutoProbeDecision::PauseReason::StillAmbiguous;
   AutoStepCalibration calibration_;
+  int notchesPerTick_ = kNotchesPerTick;
   int blankFirstFrames_ = 0;
   int consecutiveNoScroll_ = 0;
   int kept_ = 0;

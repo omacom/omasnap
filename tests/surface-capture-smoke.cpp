@@ -166,13 +166,58 @@ bool runWaylandCleanupChecks() {
     state.pool = reinterpret_cast<wl_shm_pool *>(11);
   }
   recordingCleanup = false;
-    constexpr std::array expected{
-        CleanupCall::Frame,          CleanupCall::Session,
-        CleanupCall::Source,         CleanupCall::Output,
-        CleanupCall::Output,         CleanupCall::OutputSourceManager,
-        CleanupCall::CaptureManager, CleanupCall::Buffer,
-        CleanupCall::Pool,           CleanupCall::Shm,
-        CleanupCall::Registry,       CleanupCall::Display,
-    };
-  return cleanupCallCount == expected.size() && cleanupCalls == expected;
+  constexpr std::array expected{
+      CleanupCall::Frame,          CleanupCall::Session,
+      CleanupCall::Source,         CleanupCall::Output,
+      CleanupCall::Output,         CleanupCall::OutputSourceManager,
+      CleanupCall::CaptureManager, CleanupCall::Buffer,
+      CleanupCall::Pool,           CleanupCall::Shm,
+      CleanupCall::Registry,       CleanupCall::Display,
+  };
+  if (cleanupCallCount != expected.size() || cleanupCalls != expected)
+    return false;
+
+  // Constraint re-announcements mark constraintsDone=false until sessionDone()
+  // so updates split across Wayland reads wait for the full batch, and replace
+  // the constraint set regardless of event order.
+  CaptureState state;
+  sessionBufferSize(&state, nullptr, 1920, 1080);
+  sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_ARGB8888);
+  sessionDone(&state, nullptr);
+  if (!state.constraintsDone || state.constraintsChanged ||
+      state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_ARGB8888})
+    return false;
+
+  // Same-size update split across reads: read 1 brings buffer_size, read 2
+  // brings shm_format + done.
+  sessionBufferSize(&state, nullptr, 1920, 1080);
+  if (!state.constraintsChanged || state.constraintsDone ||
+      !state.shmFormats.empty())
+    return false;
+  sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_XRGB8888);
+  if (state.constraintsDone)
+    return false;
+  sessionDone(&state, nullptr);
+  if (!state.constraintsDone || !state.constraintsChanged ||
+      state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_XRGB8888})
+    return false;
+
+  // Format-first re-announcement replaces the format set.
+  state.constraintsChanged = false;
+  sessionShmFormat(&state, nullptr, WL_SHM_FORMAT_ABGR8888);
+  sessionBufferSize(&state, nullptr, 2560, 1440);
+  if (state.constraintsDone)
+    return false;
+  sessionDone(&state, nullptr);
+  if (!state.constraintsDone || !state.constraintsChanged ||
+      state.width != 2560 || state.height != 1440 ||
+      state.shmFormats != std::vector<uint32_t>{WL_SHM_FORMAT_ABGR8888})
+    return false;
+
+  // sessionStopped mid-update unblocks waiting callers cleanly.
+  sessionBufferSize(&state, nullptr, 1280, 720);
+  if (state.constraintsDone)
+    return false;
+  sessionStopped(&state, nullptr);
+  return state.stopped && state.constraintsDone;
 }

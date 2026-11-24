@@ -215,6 +215,12 @@ bool runLookaheadChecks() {
     if (automatic.tag != Tag::LowErrorPeriodic ||
         automatic.path->firstDelta != 54 || automatic.path->secondDelta != 18)
       return false;
+    // Fitted notch counts above 3 (e.g. 7 notches * 18 px = 126 px, aliasing
+    // with 54 px on a 72 px period) must use the fitted ratio instead of 3:1.
+    const ForwardLookaheadResolution fitted = pending.resolveAuto(f2, 7);
+    if (fitted.tag != Tag::LowErrorPeriodic ||
+        fitted.path->firstDelta != 126 || fitted.path->secondDelta != 18)
+      return false;
     // A trusted physical bound isolates only the small repeated basin.
     const std::optional<ForwardMatchCandidate> bounded =
         pending.uniqueCandidateAtMost(60);
@@ -301,11 +307,15 @@ bool runAutoCaptureChecks() {
     handshake.acknowledge(1);
     // duplicate ack of an already-acknowledged cycle is ignored
     const std::uint64_t second = handshake.publishReady();
-    handshake.acknowledgeWithNotches(second + 5, 99); // clamps to published, 3
-    if (handshake.waitForCapture(second, stop) != std::optional(3))
+    handshake.acknowledgeWithNotches(second, 8); // fitted notch count > default
+    if (handshake.waitForCapture(second, stop) != std::optional(8))
+      return false;
+    const std::uint64_t third = handshake.publishReady();
+    handshake.acknowledgeWithNotches(third + 5, 99); // clamps to published, max
+    if (handshake.waitForCapture(third, stop) != std::optional(kMaxNotchesPerTick))
       return false;
     stop = true;
-    if (handshake.waitForCapture(second + 1, stop))
+    if (handshake.waitForCapture(third + 1, stop))
       return false; // stopped
   }
 

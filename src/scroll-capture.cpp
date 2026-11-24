@@ -53,7 +53,6 @@ constexpr int kMaxSettleMs = 2000;
 /// the stitcher aligns on; half the region leaves it plenty at any scroll
 /// speed, and the notch count is fitted to it after the first verified step.
 constexpr double kTargetStepFraction = 0.45;
-constexpr int kMaxNotchesPerTick = 12;
 constexpr int kMinRegion = 32; // logical px
 /// How far outside the region its grips and its draggable border reach. The
 /// region itself has to stay untouched: it is what the capture crops.
@@ -395,6 +394,7 @@ void ScrollCapturePanel::startInjector(bool continuing) {
       if (!error.isEmpty()) {
         if (continuing) {
           autoStalled_ = true;
+          applyInputRegion();
           setStatus(QStringLiteral("Could not start auto-scroll again: %1")
                         .arg(error), true);
           return;
@@ -628,7 +628,8 @@ void ScrollCapturePanel::autoCaptureLoop() {
                              : w.regionPhysical.width();
       const int fitted = static_cast<int>(
           std::lround(extent * kTargetStepFraction / std::max(perNotch, 1.0)));
-      w.notchesPerTick = std::clamp(fitted, 1, kMaxNotchesPerTick);
+      w.notchesPerTick = std::clamp(fitted, 1, stitch::kMaxNotchesPerTick);
+      w.autoSession.setNotchesPerTick(w.notchesPerTick);
       w.notchesFitted = true;
       qInfo().noquote() << QStringLiteral("auto: %1 px per notch, region %2 px, "
                                           "%3 notches per tick from here")
@@ -834,8 +835,10 @@ void ScrollCapturePanel::continueCapture() {
   // inside the frame.
   if (phase_ != Phase::Capturing || !worker_ || mode_ != Mode::Auto)
     return;
+  stopWorker();
   autoStalled_ = false;
   stopRequested_ = false;
+  applyInputRegion();
   // Pressing Continue means the pointer was on our chrome, which is where we
   // hold the keyboard, and Hyprland pins pointer focus to a layer that holds
   // it, so the injected wheel would land on us instead of the page. Let it go
