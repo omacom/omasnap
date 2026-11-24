@@ -911,18 +911,8 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
 
   straightHoldTimer_.setSingleShot(true);
   straightHoldTimer_.setInterval(400);
-  connect(&straightHoldTimer_, &QTimer::timeout, this, [this] {
-    if (!dragging_ || freehandPoints_.size() < 2 ||
-        (tool_ != Tool::Freehand && tool_ != Tool::Highlighter))
-      return;
-    straightActive_ = true;
-    QPointF point = toUnclampedAnnotationPoint(cursor_);
-    if (tool_ == Tool::Highlighter && highlighterLock_)
-      point.setY(highlighterLock_->centerY);
-    straightEnd_ = straightStrokeEndpoint(freehandPoints_.first(), point);
-    setStatus(QStringLiteral("Straight line · release to confirm"));
-    update();
-  });
+  connect(&straightHoldTimer_, &QTimer::timeout, this,
+          [this] { activateStraightStroke(); });
 
   // Coalesce high-polling-rate pointer samples to one small damaged region per
   // display frame. QWidget's backing store keeps everything outside that
@@ -4556,6 +4546,8 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
         isLayerResize(interaction_);
     if (resizing)
       resizeConstraintActive_ = true;
+    else if (tool_ == Tool::Freehand || tool_ == Tool::Highlighter)
+      activateStraightStroke();
     else if (supportsCreationConstraint(tool_))
       creationConstraintActive_ = true;
     if (resizing || supportsCreationConstraint(tool_)) {
@@ -5678,6 +5670,9 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
       QPointF point = toUnclampedAnnotationPoint(cursor_);
       if (tool_ == Tool::Highlighter && highlighterLock_)
         point.setY(highlighterLock_->centerY);
+      if (!straightActive_ &&
+          heldModifiers(event->modifiers()).testFlag(Qt::ShiftModifier))
+        activateStraightStroke();
       if (straightActive_) {
         straightEnd_ = straightStrokeEndpoint(freehandPoints_.first(), point);
         update();
@@ -6180,6 +6175,22 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
         updatePointerCursor();
     }
   }
+  update();
+}
+
+// Called by the hold timer or by Shift: from here until release the stroke is
+// one straight segment from its start to the pointer.
+void CaptureEditor::activateStraightStroke() {
+  if (straightActive_ || !dragging_ || freehandPoints_.isEmpty() ||
+      (tool_ != Tool::Freehand && tool_ != Tool::Highlighter))
+    return;
+  straightHoldTimer_.stop();
+  straightActive_ = true;
+  QPointF point = toUnclampedAnnotationPoint(cursor_);
+  if (tool_ == Tool::Highlighter && highlighterLock_)
+    point.setY(highlighterLock_->centerY);
+  straightEnd_ = straightStrokeEndpoint(freehandPoints_.first(), point);
+  setStatus(QStringLiteral("Straight line · release to confirm"));
   update();
 }
 

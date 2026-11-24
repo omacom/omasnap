@@ -1294,6 +1294,34 @@ bool runStraightStrokeHoldCheck(QApplication &application, QString &error) {
       return false;
     }
   }
+  // Shift mid-drag straightens at once, without waiting for the hold.
+  for (const int key : {Qt::Key_F, Qt::Key_H}) {
+    QTest::keyClick(&editor, static_cast<Qt::Key>(key));
+    application.processEvents();
+    const int before = editor.annotationCountForTest();
+    const QPointF start(60, 20 + (key == Qt::Key_H ? 15 : 0));
+    const QPointF end(220, start.y() + 3);
+    send(QEvent::MouseMove, start, Qt::NoButton, Qt::NoButton);
+    send(QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+    send(QEvent::MouseMove, start + QPointF(60, 8), Qt::NoButton,
+         Qt::LeftButton);
+    QTest::keyPress(&editor, Qt::Key_Shift);
+    send(QEvent::MouseMove, end, Qt::NoButton, Qt::LeftButton);
+    send(QEvent::MouseButtonRelease, end, Qt::LeftButton, Qt::NoButton);
+    QTest::keyRelease(&editor, Qt::Key_Shift);
+    application.processEvents();
+    if (editor.annotationCountForTest() != before + 1) {
+      error = QStringLiteral("Shift stroke was not committed");
+      return false;
+    }
+    const Annotation &stroke = editor.currentAnnotationsForTest().last();
+    if (stroke.points.size() != 2 ||
+        std::abs(stroke.points.last().y() - start.y()) > 0.5 ||
+        std::abs(stroke.points.last().x() - end.x()) > 1.0) {
+      error = QStringLiteral("Shift did not straighten the stroke");
+      return false;
+    }
+  }
   return true;
 }
 

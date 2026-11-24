@@ -809,6 +809,7 @@ private:
   /// into one straight segment from the stroke start to the pointer.
   QTimer straightHoldTimer_;
   bool straightActive_ = false;
+  void activateStraightStroke();
   /// Pointer position the hold timer last restarted from (tremor reference).
   QPointF straightAnchor_;
   QPointF straightEnd_;
