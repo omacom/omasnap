@@ -177,6 +177,7 @@ public:
     Rectangle,
     Ellipse,
     Redact,
+    Blur,
     Cut,
     Text,
     Ocr,

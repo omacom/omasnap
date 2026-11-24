@@ -51,8 +51,9 @@ preview keeps it on screen.
   strokes that automatically match and stay straight across screenshot text (with
   freehand fallback), plus hollow or filled rectangles (optionally rounded) and
   ellipses, numbered markers, editable text in Neucha, JetBrains Mono, or Inter
-  Display (plain, outlined, or on a readability pill), and secure redaction with
-  opaque or randomized non-spatial mosaic output.
+  Display (plain, outlined, or on a readability pill), secure redaction with
+  opaque or randomized non-spatial mosaic output, and a separate cosmetic blur
+  effect (`Shift+D`, non-secure — not a substitute for redaction).
 - Per-layer preset or custom colors (including highlighter ink), undo/redo history,
   one-click whole-image or drag-region OCR (the recognized text is shown beside
   the image and copied to the clipboard),
@@ -456,6 +457,7 @@ region after changing the display layout.
 | `R` | Rectangle; hover the shape button for rectangle, ellipse, and fill controls; `Alt`+wheel rounds corners |
 | `E` | Ellipse; shares the shape submenu and filled/hollow toggle |
 | `D` | Redact; press again to toggle randomized pixelation or solid redaction |
+| `Shift+D` | Cosmetic blur (non-secure effect; use `D` for secure redaction) |
 | `X` | Cut out a band; drag to preview the crossed-out strip, then release to remove and collapse it. **Ctrl** (with Cut armed, or **Ctrl+X**) inserts a band instead; the cut icon becomes a split-plus |
 | `T` | Text on a cream readability pill, with Neucha as the default. Click for a one-line label, or drag a box to give it room for several lines: Enter moves to the next line while there is room and commits on the last one; `Shift+Enter` always adds a line; `Esc` commits the text and dismisses the annotator; long text wraps at the current canvas edge by default, while moving it or dragging its width handle beyond that edge expands the canvas; clicking away keeps the text; press T again to toggle the pill |
 | `Shift+T` | Cycle the next or selected text through Neucha, JetBrains Mono, and Inter Display |

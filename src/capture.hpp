@@ -78,6 +78,7 @@ struct Annotation {
     Ellipse,
     Text,
     Redaction,
+    Blur,
     Spotlight
   };
 

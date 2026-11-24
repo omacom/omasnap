@@ -188,10 +188,11 @@ QRectF annotationPaintedBounds(const Annotation &annotation) {
     }
     return QRectF(QPointF(left, top), QPointF(right, bottom));
   };
-  // Redaction only replaces pixels inside the source frame. Its geometry
-  // can extend past that frame, but there are no painted pixels there for a
-  // larger canvas to reveal.
-  if (annotation.kind == Annotation::Kind::Redaction)
+  // Redaction and cosmetic blur only affect pixels inside the source frame.
+  // Their geometry can extend past that frame, but there are no painted pixels
+  // there for a larger canvas to reveal.
+  if (annotation.kind == Annotation::Kind::Redaction ||
+      annotation.kind == Annotation::Kind::Blur)
     return QRectF();
   if (annotation.kind == Annotation::Kind::Text)
     return annotationTextBounds(annotation).adjusted(-1, -1, 1, 1);
@@ -774,6 +775,7 @@ void drawAnnotation(QPainter &painter, const Annotation &annotation,
   // annotations are painted. They must never be approximated by a translucent
   // overlay here because that could leave recoverable source data in exports.
   if (annotation.kind == Annotation::Kind::Redaction ||
+      annotation.kind == Annotation::Kind::Blur ||
       annotation.kind == Annotation::Kind::Spotlight)
     return;
 
@@ -1220,13 +1222,54 @@ void paintSpotlights(QPainter &painter, const QImage &source,
   painter.restore();
 }
 
+void paintBlurs(QPainter &painter, const QImage &source,
+                const QRectF &targetBounds, const QRectF &sourceRect,
+                const QVector<Annotation> &annotations,
+                const QPoint &sourceOrigin) {
+  if (source.isNull() || targetBounds.isEmpty() || sourceRect.isEmpty())
+    return;
+
+  const qreal scaleX = sourceRect.width() / targetBounds.width();
+  const qreal scaleY = sourceRect.height() / targetBounds.height();
+  for (const Annotation &annotation : annotations) {
+    if (annotation.kind != Annotation::Kind::Blur)
+      continue;
+    const QRectF region =
+        QRectF(annotation.start, annotation.end).normalized().intersected(targetBounds);
+    if (region.width() < 1.0 || region.height() < 1.0)
+      continue;
+    const QRectF mapped(
+        sourceRect.left() + (region.left() - targetBounds.left()) * scaleX -
+            sourceOrigin.x(),
+        sourceRect.top() + (region.top() - targetBounds.top()) * scaleY -
+            sourceOrigin.y(),
+        region.width() * scaleX, region.height() * scaleY);
+    const QRect sampleRect =
+        mapped.toAlignedRect().intersected(source.rect());
+    if (sampleRect.isEmpty())
+      continue;
+    const QImage patch = source.copy(sampleRect);
+    const QImage blurred =
+        patch.scaled(qMax(1, sampleRect.width() / 14),
+                     qMax(1, sampleRect.height() / 14),
+                     Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    painter.save();
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    painter.drawImage(region, blurred);
+    painter.restore();
+  }
+}
+
 void paintDefaultLayer(QPainter &painter, const QImage &redacted,
                        const QRectF &logicalBounds,
                        const QVector<Annotation> &annotations,
                        qreal arrowDisplayScale, const QRectF &sourceRect,
                        const QPoint &sourceOrigin) {
-  paintSpotlights(painter, redacted, logicalBounds,
-                  sourceRect.isNull() ? QRectF(redacted.rect()) : sourceRect,
+  const QRectF resolvedSourceRect =
+      sourceRect.isNull() ? QRectF(redacted.rect()) : sourceRect;
+  paintBlurs(painter, redacted, logicalBounds, resolvedSourceRect, annotations,
+             sourceOrigin);
+  paintSpotlights(painter, redacted, logicalBounds, resolvedSourceRect,
                   annotations, sourceOrigin);
   // What a capture is annotated *with* goes over what it is annotated *on*:
   // text, then counters, after everything else. A label buried under a
@@ -2186,6 +2229,8 @@ QString annotationToolName(Annotation::Kind kind) {
     return QStringLiteral("text");
   case Annotation::Kind::Redaction:
     return QStringLiteral("redaction");
+  case Annotation::Kind::Blur:
+    return QStringLiteral("blur");
   case Annotation::Kind::Spotlight:
     return QStringLiteral("spotlight");
   }
@@ -2211,6 +2256,8 @@ bool annotationKindFromName(const QString &name, Annotation::Kind &kind) {
     kind = Annotation::Kind::Text;
   else if (name == QStringLiteral("redaction"))
     kind = Annotation::Kind::Redaction;
+  else if (name == QStringLiteral("blur"))
+    kind = Annotation::Kind::Blur;
   else if (name == QStringLiteral("spotlight"))
     kind = Annotation::Kind::Spotlight;
   else

@@ -346,6 +346,7 @@ bool hasEndpointHandles(Annotation::Kind kind) {
          kind == Annotation::Kind::Rectangle ||
          kind == Annotation::Kind::Ellipse ||
          kind == Annotation::Kind::Redaction ||
+         kind == Annotation::Kind::Blur ||
          kind == Annotation::Kind::Spotlight;
 }
 
@@ -485,6 +486,7 @@ bool supportsOffCanvasCreation(CaptureEditor::Tool tool) {
     return true;
   case CaptureEditor::Tool::Select:
   case CaptureEditor::Tool::Redact:
+  case CaptureEditor::Tool::Blur:
   case CaptureEditor::Tool::Cut:
   case CaptureEditor::Tool::Ocr:
   case CaptureEditor::Tool::Eyedropper:
@@ -495,6 +497,7 @@ bool supportsOffCanvasCreation(CaptureEditor::Tool tool) {
 
 bool requiresSourcePixels(CaptureEditor::Tool tool) {
   return tool == CaptureEditor::Tool::Redact ||
+         tool == CaptureEditor::Tool::Blur ||
          tool == CaptureEditor::Tool::Cut || tool == CaptureEditor::Tool::Ocr ||
          tool == CaptureEditor::Tool::Eyedropper;
 }
@@ -521,6 +524,8 @@ QString toolAction(CaptureEditor::Tool tool) {
     return QStringLiteral("tool-ellipse");
   case CaptureEditor::Tool::Redact:
     return QStringLiteral("tool-redact");
+  case CaptureEditor::Tool::Blur:
+    return QStringLiteral("tool-blur");
   case CaptureEditor::Tool::Cut:
     return QStringLiteral("tool-cut");
   case CaptureEditor::Tool::Text:
@@ -544,6 +549,8 @@ Annotation::Kind dragShapeKind(CaptureEditor::Tool tool) {
     return Annotation::Kind::Ellipse;
   case CaptureEditor::Tool::Line:
     return Annotation::Kind::Line;
+  case CaptureEditor::Tool::Blur:
+    return Annotation::Kind::Blur;
   case CaptureEditor::Tool::Arrow:
   default:
     return Annotation::Kind::Arrow;
@@ -1520,6 +1527,9 @@ QString CaptureEditor::toolStatus() const {
   case Tool::Redact:
     return QStringLiteral("Redact · %1 · D toggles style")
         .arg(redactionStyleName(redactionStyle_).toLower());
+  case Tool::Blur:
+    return QStringLiteral(
+        "Blur (cosmetic, not secure redaction) · drag to soften · D redacts");
   case Tool::Text:
     return QStringLiteral("Text · %1 · size %2 · Shift+T cycles font · click "
                           "to type")
@@ -1851,7 +1861,8 @@ void CaptureEditor::adjustSelectedAnnotation(int step) {
                   .arg(qRound(annotation.size)));
     commitPatch({selectedAnnotation_});
     return;
-  case Annotation::Kind::Redaction: {
+  case Annotation::Kind::Redaction:
+  case Annotation::Kind::Blur: {
     // A cover-up is all fill, so the only thing its wheel can mean is how
     // much it covers.
     const qreal factor = step > 0 ? 1.1 : 1.0 / 1.1;
@@ -1864,7 +1875,11 @@ void CaptureEditor::adjustSelectedAnnotation(int step) {
             : factor;
     annotation.start = center + (annotation.start - center) * scale;
     annotation.end = center + (annotation.end - center) * scale;
-    setStatus(QStringLiteral("Redaction · %1%").arg(qRound(scale * 100)));
+    setStatus(QStringLiteral("%1 · %2%")
+                  .arg(annotation.kind == Annotation::Kind::Blur
+                           ? QStringLiteral("Blur (cosmetic)")
+                           : QStringLiteral("Redaction"))
+                  .arg(qRound(scale * 100)));
     commitPatch({selectedAnnotation_});
     return;
   }
@@ -4797,6 +4812,12 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
       tool_ = Tool::Spotlight;
     }
     selectedAnnotation_ = -1;
+  } else if (event->key() == Qt::Key_D &&
+             event->modifiers().testFlag(Qt::ShiftModifier)) {
+    tool_ = Tool::Blur;
+    selectedAnnotation_ = -1;
+    setStatus(QStringLiteral(
+        "Blur (cosmetic, not secure redaction) · drag to soften · D redacts"));
   } else if (event->key() == Qt::Key_D) {
     if (selectedAnnotation_ >= 0 && selectedAnnotation_ < annotations_.size() &&
         annotations_.at(selectedAnnotation_).kind ==
@@ -5908,6 +5929,8 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
         annotations_.at(selectedAnnotation_).kind !=
             Annotation::Kind::Redaction &&
         annotations_.at(selectedAnnotation_).kind !=
+            Annotation::Kind::Blur &&
+        annotations_.at(selectedAnnotation_).kind !=
             Annotation::Kind::Spotlight) {
       annotations_[selectedAnnotation_].color = customColor_;
       commitPatch({selectedAnnotation_});
@@ -6383,7 +6406,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
   }
   const QRectF draggedRect(start, end);
   const bool validRedaction =
-      tool_ != Tool::Redact ||
+      (tool_ != Tool::Redact && tool_ != Tool::Blur) ||
       (draggedRect.normalized().width() >= kMinimumRedactionExtent &&
        draggedRect.normalized().height() >= kMinimumRedactionExtent);
   if (QLineF(dragStart_, end).length() > 4 && validRedaction) {
@@ -6414,15 +6437,24 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
         tool_ == Tool::Spotlight ? spotlightBorder_ : annotationSize_;
     selectedAnnotation_ = -1;
     const bool redacted = tool_ == Tool::Redact;
+    const bool blurred = tool_ == Tool::Blur;
     setStatus(redacted
                   ? QStringLiteral("%1 redaction added · V for select mode")
                         .arg(redactionStyleName(redactionStyle_))
-                  : QStringLiteral("Layer added · V for select mode"));
+                  : blurred
+                        ? QStringLiteral(
+                              "Cosmetic blur added (not secure redaction) · V "
+                              "for select mode")
+                        : QStringLiteral("Layer added · V for select mode"));
     commitAnnotate(std::move(annotation));
     updatePointerCursor();
-  } else if (tool_ == Tool::Redact) {
-    setStatus(QStringLiteral(
-        "Redaction needs both width and height · drag a rectangle"));
+  } else if (tool_ == Tool::Redact || tool_ == Tool::Blur) {
+    setStatus(tool_ == Tool::Blur
+                  ? QStringLiteral(
+                        "Blur needs both width and height · drag a rectangle")
+                  : QStringLiteral(
+                        "Redaction needs both width and height · drag a "
+                        "rectangle"));
   }
   dragging_ = false;
   update();
