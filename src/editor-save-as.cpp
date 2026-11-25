@@ -203,6 +203,7 @@ void CaptureEditor::saveAsToPath(const QString &path) {
     QString error;
     const bool saved = savePngFile(image, path, error);
     if (saved) {
+      rememberSavedScreenshot(path);
       // Without --notify, the saved file keeps its timed preview.
       bool announced = true;
       if (notifySavedCaptures()) {

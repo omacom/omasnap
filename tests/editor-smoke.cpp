@@ -20,6 +20,7 @@
 #include "state-marker.hpp"
 #include "recent-persistence-smoke.hpp"
 #include "instance-lock-smoke.hpp"
+#include "desktop-recent-smoke.hpp"
 #include "palette-config-smoke.hpp"
 #include "pin-layout-smoke.hpp"
 #include "stitch-smoke.hpp"
@@ -12629,6 +12630,11 @@ int main(int argc, char **argv) {
     return runInstanceLockHolder(heldLockPath);
 
   qputenv("QT_QPA_PLATFORMTHEME", "generic"); // as main() does
+  // Saves add to recently-used.xbel; keep the suite off the developer's own.
+  QTemporaryDir dataHome;
+  if (!dataHome.isValid())
+    return EXIT_FAILURE;
+  qputenv("XDG_DATA_HOME", dataHome.path().toUtf8());
   QApplication application(argc, argv);
   QCommandLineParser parser;
   parser.setApplicationDescription(QStringLiteral("Omasnap headless smoke checks"));
@@ -14383,6 +14389,13 @@ int main(int argc, char **argv) {
   QString paletteError;
   if (!runPaletteConfigSmoke(paletteError)) {
     qWarning().noquote() << "palette config smoke failed:" << paletteError;
+    return EXIT_FAILURE;
+  }
+
+  QString desktopRecentError;
+  if (!runDesktopRecentSmoke(desktopRecentError)) {
+    qWarning().noquote() << "desktop recent files smoke failed:"
+                         << desktopRecentError;
     return EXIT_FAILURE;
   }
 

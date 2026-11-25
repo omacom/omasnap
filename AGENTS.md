@@ -95,6 +95,7 @@ change that touches the principle, not just this summary.
 | `src/surface-capture.cpp` | In-process output/window capture via `ext-image-copy-capture` |
 | `src/cut.cpp/.hpp` | Cut-band tool: remove a strip and collapse the gap |
 | `src/recent-snaps.cpp/.hpp` | The recents shelf: shelving/reopening working documents |
+| `src/desktop-recent.cpp/.hpp` | Adds saved screenshots to the desktop's `recently-used.xbel` (Files > Recent), unrelated to the recents shelf |
 | `src/output-config.cpp/.hpp`, `src/palette-config.cpp/.hpp` | The optional `omasnap.conf` INI: output destination/filename, color presets |
 | `src/pin.cpp/.hpp`, `src/pin-file.cpp/.hpp`, `src/pin-layout.cpp/.hpp` | Floating pinned captures, their files, and compositor placement |
 | `src/pin-expiry.cpp/.hpp` | Preview countdown, interaction pauses, and fade |
