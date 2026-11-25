@@ -27,6 +27,8 @@
 #include <QtEnvironmentVariables>
 #include <QtMath>
 
+#include <functional>
+
 bool runPinThemeRenderingSmoke(const QString &path, QString &error) {
   const QTemporaryDir runtime;
   if (!runtime.isValid()) {
@@ -450,7 +452,7 @@ bool runPinInteractionSmoke(QString &error) {
       hyprctl.write("#!/bin/sh\ncase \"$*\" in\n"
                     "  '-j clients') /bin/cat \"${0%/*}/clients.json\";;\n"
                     "  '-j monitors') /bin/cat \"${0%/*}/monitors.json\";;\n"
-                    "  *) exit 1;;\nesac\n") < 0) {
+                    "  *) printf '%s\\n' \"$*\" >> \"${0%/*}/dispatches\"; exit 1;;\nesac\n") < 0) {
     error = QStringLiteral("Could not prepare the drag compositor fixture");
     return false;
   }
@@ -586,5 +588,53 @@ bool runPinInteractionSmoke(QString &error) {
     return false;
   }
   QToolTip::hideText();
+
+  // A focus dispatch warps the pointer, so it must only follow keyboard closes.
+  const QPoint closeButton = pinControlRect(image.size(), 0).center().toPoint();
+  const struct {
+    const char *name;
+    std::function<void(PinWindow &)> close;
+    bool focusesNext;
+  } closes[] = {
+      {"The close button",
+       [&](PinWindow &pin) {
+         QTest::mouseClick(&pin, Qt::LeftButton, Qt::NoModifier, closeButton);
+       },
+       false},
+      {"Middle-click",
+       [&](PinWindow &pin) {
+         QTest::mouseClick(&pin, Qt::MiddleButton, Qt::NoModifier, background);
+       },
+       false},
+      {"X", [](PinWindow &pin) { QTest::keyClick(&pin, Qt::Key_X); }, true},
+      {"Esc", [](PinWindow &pin) { QTest::keyClick(&pin, Qt::Key_Escape); }, true},
+      {"Super+W",
+       [](PinWindow &pin) { QTest::keyClick(&pin, Qt::Key_W, Qt::MetaModifier); },
+       true}};
+  if (!writePosition(origin))
+    return false;
+  for (const auto &how : closes) {
+    QFile::remove(runtime.filePath(QStringLiteral("dispatches")));
+    PinWindow pin(image, path, image.size(), PinLifetime::Timed);
+    pin.show();
+    pin.setPlacementSnapshot(screen, pinsAt(origin));
+    QApplication::sendEvent(&pin, &enter);
+    drainActions();
+    how.close(pin);
+    drainActions();
+    if (pin.isVisible()) {
+      error = QStringLiteral("%1 did not close the pin").arg(QString::fromLatin1(how.name));
+      return false;
+    }
+    QFile dispatches(runtime.filePath(QStringLiteral("dispatches")));
+    const bool focused = dispatches.open(QIODevice::ReadOnly) &&
+                         dispatches.readAll().contains("hl.dsp.focus(");
+    if (focused != how.focusesNext) {
+      error = QStringLiteral("%1 %2 the next pin")
+                  .arg(QString::fromLatin1(how.name),
+                       focused ? QStringLiteral("focused") : QStringLiteral("did not focus"));
+      return false;
+    }
+  }
   return true;
 }

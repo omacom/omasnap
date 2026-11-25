@@ -607,10 +607,8 @@ public:
       opacity_ = opacity;
       update();
     });
-    connect(&expiry_, &PinExpiry::expired, this, [this] {
-      expired_ = true;
-      close();
-    });
+    connect(&expiry_, &PinExpiry::expired, this,
+            [this] { closeWithoutFocusHandoff(); });
     dragWatchTimer_.setInterval(80);
     connect(&dragWatchTimer_, &QTimer::timeout, this,
             [this] { requestDragSnapshot(); });
@@ -939,13 +937,13 @@ protected:
 
   void mousePressEvent(QMouseEvent *event) override {
     if (event->button() == Qt::MiddleButton) {
-      close();
+      closeWithoutFocusHandoff();
       return;
     }
     const QPointF position = event->position();
     if (event->button() == Qt::LeftButton) {
       if (closeButtonRect().contains(position)) {
-        close();
+        closeWithoutFocusHandoff();
         return;
       }
       if (pinButtonRect().contains(position)) {
@@ -1511,6 +1509,13 @@ protected:
     QWidget::keyReleaseEvent(event);
   }
 
+  // Hyprland warps the pointer to a window focused by dispatch, so only a
+  // keyboard close may hand focus to the next pin.
+  void closeWithoutFocusHandoff() {
+    handOffFocus_ = false;
+    close();
+  }
+
   void closeEvent(QCloseEvent *event) override {
     // Hyprland consumes Super+W and closes its active compositor window,
     // which can still be a pin underneath the exclusive layer-shell editor.
@@ -1530,7 +1535,7 @@ protected:
     // excluded by name rather than trusted to be gone.
     static_cast<void>(QtConcurrent::run(&pinPool(),
         [title = windowTitle(), screen = dragScreen_,
-         advanceFocus = !expired_ && (hovered_ || isActiveWindow())] {
+         advanceFocus = handOffFocus_ && (hovered_ || isActiveWindow())] {
       PinPlacement placement;
       if (!placement.ready())
         return;
@@ -1680,7 +1685,7 @@ private:
   bool painted_ = false;
   PinExpiry expiry_;
   qreal opacity_ = 1.0;
-  bool expired_ = false;
+  bool handOffFocus_ = true;
   bool stackInteracting_ = false;
   bool fileDragActive_ = false;
   qreal tilt_ = 0.0;
