@@ -3,8 +3,10 @@
 
 #include "desktop-recent.hpp"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QProcess>
 #include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QUrl>
@@ -42,7 +44,62 @@ bool bookmarkHrefs(const QByteArray &contents, QStringList &hrefs,
 QString href(const QString &path) {
   return QString::fromUtf8(QUrl::fromLocalFile(path).toEncoded());
 }
+
+// Several Omasnap processes saving at once must not drop each other's entry.
+bool checkConcurrentProcesses(const QTemporaryDir &files, const QString &list,
+                              QString &error) {
+  constexpr int kWriters = 8;
+  QFile::remove(list);
+  QStringList expected;
+  QList<QProcess *> writers;
+  const auto cleanup = qScopeGuard([&] { qDeleteAll(writers); });
+  for (int i = 0; i < kWriters; ++i) {
+    const QString path = files.filePath(QStringLiteral("parallel-%1.png").arg(i));
+    if (!writeFile(path, "png")) {
+      error = QStringLiteral("could not write parallel fixture");
+      return false;
+    }
+    expected.append(href(path));
+    auto *writer = new QProcess;
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QString::fromLatin1(kDesktopRecentChild), path);
+    writer->setProcessEnvironment(environment);
+    writers.append(writer);
+  }
+  for (QProcess *writer : writers)
+    writer->start(QCoreApplication::applicationFilePath(), {});
+  for (QProcess *writer : writers) {
+    if (!writer->waitForFinished(10000) ||
+        writer->exitStatus() != QProcess::NormalExit || writer->exitCode() != 0) {
+      error = QStringLiteral("parallel recent writer failed: %1")
+                  .arg(QString::fromUtf8(writer->readAllStandardError()));
+      return false;
+    }
+  }
+  QStringList hrefs;
+  if (!bookmarkHrefs(readFile(list), hrefs, error))
+    return false;
+  hrefs.sort();
+  expected.sort();
+  if (hrefs != expected) {
+    error = QStringLiteral("parallel writers left %1 of %2 entries")
+                .arg(hrefs.size())
+                .arg(kWriters);
+    return false;
+  }
+  return true;
+}
 } // namespace
+
+int runDesktopRecentChild(int argc, char **argv) {
+  const QCoreApplication application(argc, argv);
+  QString error;
+  if (!addToDesktopRecentFiles(qEnvironmentVariable(kDesktopRecentChild), error)) {
+    qWarning().noquote() << error;
+    return 1;
+  }
+  return 0;
+}
 
 bool runDesktopRecentSmoke(QString &error) {
   QTemporaryDir data;
@@ -133,6 +190,47 @@ bool runDesktopRecentSmoke(QString &error) {
     error = QStringLiteral("foreign entry not preserved: %1").arg(hrefs.join(u' '));
     return false;
   }
+
+  // An entry for the same file in another writer's style (attribute order,
+  // single quotes, a line break, GLib's percent-encoding of '&') is still
+  // replaced rather than duplicated.
+  contents = readFile(list);
+  const QByteArray restyled =
+      "  <bookmark added='2026-01-01T00:00:00Z'\n"
+      "            href='" +
+      QUrl::fromLocalFile(second).toEncoded().replace("&", "%26") +
+      "' modified='2026-01-01T00:00:00Z' visited='2026-01-01T00:00:00Z'/>\n";
+  contents.insert(contents.indexOf("</xbel>"), restyled);
+  if (!writeFile(list, contents) || !addToDesktopRecentFiles(second, error))
+    return false;
+  contents = readFile(list);
+  hrefs.clear();
+  if (!bookmarkHrefs(contents, hrefs, error))
+    return false;
+  if (hrefs.count(href(second)) != 1 || hrefs.size() != 3 ||
+      contents.contains("2026-01-01T00:00:00Z'")) {
+    error = QStringLiteral("restyled entry was not replaced: %1").arg(hrefs.join(u' '));
+    return false;
+  }
+
+  // Non-ASCII names survive, and so do other entries' bytes.
+  const QString accented = files.filePath(QStringLiteral("café 😀.png"));
+  if (!writeFile(accented, "png") || !addToDesktopRecentFiles(accented, error))
+    return false;
+  const QByteArray beforeAccented = readFile(list);
+  if (!addToDesktopRecentFiles(first, error))
+    return false;
+  hrefs.clear();
+  if (!bookmarkHrefs(readFile(list), hrefs, error))
+    return false;
+  if (hrefs.count(href(accented)) != 1 || hrefs.last() != href(first) ||
+      !beforeAccented.contains(QUrl::fromLocalFile(accented).toEncoded())) {
+    error = QStringLiteral("non-ASCII entry was lost: %1").arg(hrefs.join(u' '));
+    return false;
+  }
+
+  if (!checkConcurrentProcesses(files, list, error))
+    return false;
 
   // A list that is not XBEL is left alone.
   const QByteArray garbage = "not xml at all <";

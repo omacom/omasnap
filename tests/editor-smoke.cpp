@@ -12629,6 +12629,9 @@ int main(int argc, char **argv) {
   if (!heldLockPath.isEmpty())
     return runInstanceLockHolder(heldLockPath);
 
+  if (qEnvironmentVariableIsSet(kDesktopRecentChild))
+    return runDesktopRecentChild(argc, argv);
+
   qputenv("QT_QPA_PLATFORMTHEME", "generic"); // as main() does
   // Saves add to recently-used.xbel; keep the suite off the developer's own.
   QTemporaryDir dataHome;
