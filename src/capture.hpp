@@ -430,6 +430,10 @@ QImage applyRedactionsScaled(QImage image, const QVector<Annotation> &redactions
 /** Saves an already-rendered PNG without consuming the live pin's source. */
 [[nodiscard]] QString copySnapshotToScreenshots(const QString &sourcePath,
                                                 QString &error);
+/** Lists a saved screenshot in the desktop's recent files (Files > Recent).
+ * A failure only logs a warning. Disk I/O: call on a worker. Both functions
+ * above already call it. */
+void rememberSavedScreenshot(const QString &path);
 [[nodiscard]] QString temporarySnapshotPath();
 [[nodiscard]] QString pinnedSnapshotPath(int index);
 void prunePinnedSnapshots();

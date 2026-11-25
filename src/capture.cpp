@@ -2,6 +2,8 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include "capture.hpp"
+
+#include "desktop-recent.hpp"
 #include "pin-file.hpp"
 #include "pin-layout.hpp"
 #include "png.hpp"
@@ -1865,15 +1867,24 @@ QString suggestedScreenshotPath(const QString &appSlug) {
   return suggestedScreenshotPathImpl(appSlug);
 }
 
+void rememberSavedScreenshot(const QString &path) {
+  QString error;
+  if (!addToDesktopRecentFiles(path, error))
+    qWarning("Could not add screenshot to recent files: %s", qPrintable(error));
+}
+
 QString moveSnapshotToScreenshots(const QString &sourcePath, QString &error,
                                   const QString &appSlug) {
   const QString targetPath = screenshotTargetPath(error, appSlug);
   if (targetPath.isEmpty())
     return {};
-  if (QFile::rename(sourcePath, targetPath))
-    return targetPath;
-  if (QFile::copy(sourcePath, targetPath)) {
+  bool moved = QFile::rename(sourcePath, targetPath);
+  if (!moved && QFile::copy(sourcePath, targetPath)) {
     QFile::remove(sourcePath);
+    moved = true;
+  }
+  if (moved) {
+    rememberSavedScreenshot(targetPath);
     return targetPath;
   }
   error = QStringLiteral("Could not move screenshot snapshot to: %1")
@@ -1885,8 +1896,10 @@ QString copySnapshotToScreenshots(const QString &sourcePath, QString &error) {
   const QString targetPath = screenshotTargetPath(error, {});
   if (targetPath.isEmpty())
     return {};
-  if (QFile::copy(sourcePath, targetPath))
+  if (QFile::copy(sourcePath, targetPath)) {
+    rememberSavedScreenshot(targetPath);
     return targetPath;
+  }
   error = QStringLiteral("Could not save screenshot to: %1").arg(targetPath);
   return {};
 }

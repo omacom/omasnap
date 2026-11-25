@@ -81,7 +81,9 @@ preview keeps it on screen.
   operation log. Undo still works after a crash or `--file` reopen. Saving and
   copying write a normal flattened PNG to the clipboard or `~/Pictures/Screenshots`.
 - Verified PNG clipboard output through `wl-copy`/`wl-paste`, plus timestamped files
-  under `~/Pictures/Screenshots` by default.
+  under `~/Pictures/Screenshots` by default. Every saved file is added to the
+  desktop's recent files (`~/.local/share/recently-used.xbel`), so it shows up in
+  Files > Recent and in file pickers.
 - Open an image already on the clipboard directly in the annotation editor.
 - A recents shelf: the select overlay stacks small cards of the last five captures
   along the right edge; hover to fan them out, click one to reopen it in the editor
