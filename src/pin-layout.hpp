@@ -26,6 +26,16 @@
 [[nodiscard]] QRect pinVisibleRect(const QRect &rect, const QRect &screen,
                                     int margin);
 
+/// Stack space: the monitor-local coordinates the packing below works in,
+/// where the deck lives in the bottom-right corner. `mirrored` (a
+/// bottom-left deck, [preview] corner = bottom-left) flips x across the
+/// monitor, so the same packing, fanning and drag insertion build the deck
+/// in the bottom-left corner. pinFromStackSpace undoes pinToStackSpace.
+[[nodiscard]] QRect pinToStackSpace(const QRect &global, const QRect &screen,
+                                    bool mirrored);
+[[nodiscard]] QRect pinFromStackSpace(const QRect &local, const QRect &screen,
+                                      bool mirrored);
+
 /// Where a frame of `frame` size lands so it covers none of `blockers`:
 /// snug in the bottom-right corner, or one gap above whatever occupies it,
 /// climbing the column and starting a new column to the left when this one

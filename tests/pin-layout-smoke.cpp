@@ -514,5 +514,20 @@ bool runPinLayoutSmoke(QString &error) {
     error = QStringLiteral("Reserved edges were scaled or rotated a second time");
     return false;
   }
+  // A bottom-left deck packs in mirrored stack space: the corner spot the
+  // packer picks (bottom-right of the stack space) lands in the monitor's
+  // bottom-left corner, on a monitor that does not start at the origin, and
+  // converting back gives the same window rect.
+  const QRect output(1000, 50, 400, 300);
+  const QSize card(100, 80);
+  const QPoint corner = pinPackedPosition({}, output.size(), card, 10, 14).value_or(QPoint());
+  const QRect leftCorner = pinFromStackSpace(QRect(corner, card), output, true);
+  if (leftCorner != QRect(QPoint(1014, 256), card) ||
+      pinFromStackSpace(QRect(corner, card), output, false) != QRect(QPoint(1286, 256), card) ||
+      pinToStackSpace(leftCorner, output, true) != QRect(corner, card) ||
+      !pinInColumn(pinToStackSpace(leftCorner, output, true), output.size(), 14, 10)) {
+    error = QStringLiteral("A bottom-left deck did not mirror the bottom-right corner");
+    return false;
+  }
   return true;
 }

@@ -98,6 +98,14 @@ bool loadEditorWindowBackdropOpaque(const QString &filePath) {
              .toLower() != QStringLiteral("translucent");
 }
 
+bool loadPreviewCornerLeft(const QString &filePath) {
+  QSettings settings(filePath, QSettings::IniFormat);
+  return settings.value(QStringLiteral("preview/corner"))
+             .toString()
+             .trimmed()
+             .toLower() == QStringLiteral("bottom-left");
+}
+
 QString defaultConfigPath() {
   return QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
          QStringLiteral("/omasnap/omasnap.conf");

@@ -354,6 +354,11 @@ directory = ~/Pictures/Captures
 # Default: screenshot-{date}_{time}-{app}
 filename = screenshot-{date}_{time}-{app}
 
+[preview]
+# Corner the previews and pins stack in: bottom-right (default) or
+# bottom-left. Bottom-left mirrors the whole deck, fan and lean included.
+corner = bottom-right
+
 [colors]
 # Up to eight preset colors for the palette, and the initial custom color.
 palette = #ff375f, #ff9f0a, #ffd60a, #30d158, #0a84ff, #bf5af2, #000000, #ffffff
@@ -513,7 +518,8 @@ In the editor, `Ctrl+P` or `P` renders a capture that stays pinned. It writes a
 the same `omasnap` executable in
 detached pin mode. Hyprland floats and pins each window on every workspace.
 Idle pins overlap in a compact deck at the focused monitor's bottom-right
-corner, newest in front. The front card stays straight; the cards behind it
+corner (bottom-left with `[preview] corner = bottom-left`, which mirrors the
+deck, fan, lean and drag insertion), newest in front. The front card stays straight; the cards behind it
 alternate the same growing lean as the recents shelf: −3°, +6°, −9°, +12°.
 Omasnap paints the rounded frames with the images so their edges tilt together,
 with transparent corners that take no input. Theme changes keep this single frame
