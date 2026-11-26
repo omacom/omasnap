@@ -44,5 +44,9 @@ struct OutputConfig {
  *  solid backdrop instead of the overlay's see-through dim. */
 [[nodiscard]] bool loadEditorWindowBackdropOpaque(const QString &filePath);
 
+/** True when [preview] corner = bottom-left: previews and pins stack in the
+ *  bottom-left corner of the monitor instead of the default bottom-right. */
+[[nodiscard]] bool loadPreviewCornerLeft(const QString &filePath);
+
 /** ~/.config/omasnap/omasnap.conf (XDG config location). */
 [[nodiscard]] QString defaultConfigPath();

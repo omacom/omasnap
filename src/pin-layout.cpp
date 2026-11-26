@@ -55,6 +55,20 @@ QRect pinVisibleRect(const QRect &rect, const QRect &screen, int margin) {
                  std::clamp(rect.y(), top, bottom)), rect.size()};
 }
 
+QRect pinToStackSpace(const QRect &global, const QRect &screen, bool mirrored) {
+  QRect local = global.translated(-screen.topLeft());
+  if (mirrored)
+    local.moveLeft(screen.width() - local.x() - local.width());
+  return local;
+}
+
+QRect pinFromStackSpace(const QRect &local, const QRect &screen, bool mirrored) {
+  QRect global = local;
+  if (mirrored)
+    global.moveLeft(screen.width() - global.x() - global.width());
+  return global.translated(screen.topLeft());
+}
+
 std::optional<QPoint> pinPackedPosition(const QVector<QRect> &blockers,
                          const QSize &screenSize, const QSize &frame, int gap,
                          int margin) {

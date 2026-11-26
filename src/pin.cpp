@@ -11,6 +11,7 @@
 #include "pin-file.hpp"
 #include "pin-expiry.hpp"
 #include "pin-layout.hpp"
+#include "output-config.hpp"
 #include "icons.hpp"
 #include "overlay-chrome.hpp"
 #include "overlay-dismissal.hpp"
@@ -75,6 +76,13 @@ constexpr int kPinGap = 10;
 constexpr int kToastMs = 1200;
 constexpr int kStackWatchMs = 180;
 constexpr int kStackCloseMs = 360;
+
+/// [preview] corner = bottom-left: the deck is built in mirrored stack
+/// space (pinToStackSpace), so it sits in the bottom-left corner. Read once.
+bool stackMirrored() {
+  static const bool mirrored = loadPreviewCornerLeft(defaultConfigPath());
+  return mirrored;
+}
 
 // Every pin's title starts with this, followed by the process id, so pins
 // can recognize each other in the compositor's client list and a dispatcher
@@ -396,7 +404,7 @@ public:
                                        const QString &excluded = {}) const {
     QVector<QPair<QString, QRect>> result;
     for (const CompositorPin &pin : pins) {
-      const QRect local = pin.rect.translated(-screen.topLeft());
+      const QRect local = pinToStackSpace(pin.rect, screen, stackMirrored());
       if (!pin.free && pin.title != excluded && screen.intersects(pin.rect) &&
           pinInColumn(local, screen.size(), qRound(kCornerMargin), kPinGap))
         result.push_back({pin.title, local});
@@ -418,12 +426,12 @@ public:
       if (pin.title == excluded)
         continue;
       if (pin.title == newFront) {
-        ordered.prepend({pin.title, pin.rect.translated(-screen.topLeft())});
+        ordered.prepend({pin.title, pinToStackSpace(pin.rect, screen, stackMirrored())});
       } else if (screen.intersects(pin.rect) &&
                  std::none_of(ordered.cbegin(), ordered.cend(), [&](const auto &card) {
                    return card.first == pin.title;
                  })) {
-        blockers.push_back(pin.rect.translated(-screen.topLeft()));
+        blockers.push_back(pinToStackSpace(pin.rect, screen, stackMirrored()));
       }
     }
     const auto layout = pinStackLayout(ordered, blockers, screen.size(),
@@ -438,7 +446,9 @@ public:
         columnRight = rect.right();
         depth = 0;
       }
-      tilts.insert(title, stackCardTilt(depth++, expanded ? 1.0 : 0.0));
+      // A mirrored deck leans the other way, so both corners look alike.
+      const qreal tilt = stackCardTilt(depth++, expanded ? 1.0 : 0.0);
+      tilts.insert(title, stackMirrored() ? -tilt : tilt);
     }
     if (tilts != state_.value(QStringLiteral("tilts")).toObject()) {
       state_.insert(QStringLiteral("tilts"), tilts);
@@ -450,7 +460,7 @@ public:
       const auto pin = std::find_if(pins.cbegin(), pins.cend(), [&](const CompositorPin &p) {
         return p.title == title;
       });
-      const QRect target = rect.translated(screen.topLeft());
+      const QRect target = pinFromStackSpace(rect, screen, stackMirrored());
       if (pin != pins.cend() && pin->rect != target) {
         if (!move(title, target))
           return false;
@@ -560,7 +570,7 @@ StackSnapshot watchPinStack(const QString &title, const QRect &screen,
     return {screen, placement.pins, true};
   QVector<QRect> cards;
   for (const auto &card : placement.column(screen))
-    cards.push_back(card.second.translated(screen.topLeft()));
+    cards.push_back(pinFromStackSpace(card.second, screen, stackMirrored()));
   const QPoint pointer(cursor.value(QStringLiteral("x")).toInt(),
                         cursor.value(QStringLiteral("y")).toInt());
   const bool outside = !pinStackHotZone(cards, screen).contains(pointer);
@@ -1224,13 +1234,14 @@ protected:
     for (const CompositorPin &pin : cachedPins_) {
       if (pin.title == windowTitle() || !dragScreen_.intersects(pin.rect))
         continue;
-      if (!pin.free && pinInColumn(pin.rect.translated(-dragScreen_.topLeft()), dragScreen_.size(), qRound(kCornerMargin), kPinGap))
-        column.push_back({pin.title, pin.rect.translated(-dragScreen_.topLeft())});
+      const QRect local = pinToStackSpace(pin.rect, dragScreen_, stackMirrored());
+      if (!pin.free && pinInColumn(local, dragScreen_.size(), qRound(kCornerMargin), kPinGap))
+        column.push_back({pin.title, local});
       else
-        blockers.push_back(pin.rect.translated(-dragScreen_.topLeft()));
+        blockers.push_back(local);
     }
     const PinInsertionPlan plan = pinInsertionPlan(
-        column, blockers, rect.translated(-dragScreen_.topLeft()), dragScreen_.size(), kPinGap, qRound(kCornerMargin));
+        column, blockers, pinToStackSpace(rect, dragScreen_, stackMirrored()), dragScreen_.size(), kPinGap, qRound(kCornerMargin));
     if (plan.index < 0) {
       if (spreadActive_)
         compactPinColumn(windowTitle(), dragScreen_);
@@ -1246,12 +1257,12 @@ protected:
     for (const auto &[title, target] : plan.spread) {
       if (commandedTargets_.value(title, QPoint(INT_MIN, INT_MIN)) !=
           target.topLeft()) {
-        static_cast<void>(movePin(title, target.translated(dragScreen_.topLeft())));
+        static_cast<void>(movePin(title, pinFromStackSpace(target, dragScreen_, stackMirrored())));
         commandedTargets_.insert(title, target.topLeft());
       }
     }
     spreadActive_ = true;
-    snapSpot_ = plan.spot.translated(dragScreen_.topLeft());
+    snapSpot_ = pinFromStackSpace(plan.spot, dragScreen_, stackMirrored());
   }
 
   [[nodiscard]] QRect ownCompositorRect() const {
