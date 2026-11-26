@@ -424,6 +424,7 @@ controls to return focus from the live page.
 |---|---|
 | Click | In smart mode, capture the window under the pointer, or the full monitor outside any window |
 | Drag | Select a region, with its native pixel size shown at the pointer |
+| Hold `Ctrl` mid-drag | Move the region without resizing it; release `Ctrl` to resume resizing |
 | `Tab` / `Shift+Tab` | Cycle the region's shape: free (default), square, 3:4, 16:9; works mid-drag |
 | `S` | Toggle scrolling-region mode |
 | `E` / `A` | Toggle annotation after capture; the capture guide shows on/off, and the choice also applies to scrolling captures |

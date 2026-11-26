@@ -487,6 +487,8 @@ private:
   [[nodiscard]] int hoveredSpotlightAt(const QPointF &position) const;
   [[nodiscard]] QRectF normalizedSelection(const QPointF &first,
                                            const QPointF &second) const;
+  void updateRegionDrag(const QPointF &position, const QPointF &previous,
+                        Qt::KeyboardModifiers modifiers);
   /// Top edge of the toolbar row: pinned under the key guide when
   /// windowed, hugging the canvas on the overlay. Popovers anchor to it.
   [[nodiscard]] QRectF colorPaletteRect() const;
@@ -845,6 +847,7 @@ private:
   bool windowMode_ = false;
   /// Index into the region aspects Tab cycles: free, 1:1, 3:4, 16:9.
   int regionAspect_ = 0;
+  QPointF regionDragOffset_;
   BackgroundStyle backgroundStyle_ = BackgroundStyle::None;
   bool imageShadow_ = true;
   CanvasBoundaryMode canvasBoundaryMode_ = CanvasBoundaryMode::Framed;

@@ -58,6 +58,7 @@
 #include <QInputMethod>
 #include <QKeyEvent>
 #include <QLockFile>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPixmap>
@@ -616,6 +617,79 @@ bool runRegionAspectCheck(QString &error) {
   }
   editor.close();
   return true;
+}
+
+/** Ctrl translates a live capture region, including at the screen edge. */
+bool runRegionMoveCheck(QString &error) {
+  CaptureData capture;
+  capture.previewSize = {800, 600};
+  capture.source = QImage(capture.previewSize, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(Qt::black);
+
+  const auto pointer = [](CaptureEditor &editor, QEvent::Type type, QPoint at,
+                          Qt::KeyboardModifiers modifiers) {
+    const bool release = type == QEvent::MouseButtonRelease;
+    QMouseEvent event(type, at, editor.mapToGlobal(at),
+                      release ? Qt::LeftButton : Qt::NoButton,
+                      release ? Qt::NoButton : Qt::LeftButton, modifiers);
+    QApplication::sendEvent(&editor, &event);
+  };
+  const auto expect = [&error](const CaptureEditor &editor, const QRectF &expected,
+                               const QString &step) {
+    const QRectF actual = editor.currentSelection();
+    if (actual == expected)
+      return true;
+    error = QStringLiteral("%1 selected %2,%3 %4x%5")
+                .arg(step)
+                .arg(actual.x())
+                .arg(actual.y())
+                .arg(actual.width())
+                .arg(actual.height());
+    return false;
+  };
+
+  CaptureEditor smart(capture, CaptureEditor::CaptureMode::Smart);
+  smart.setSuppressSnapshots(true);
+  smart.resize(capture.previewSize);
+  smart.show();
+  QApplication::processEvents();
+  QTest::mousePress(&smart, Qt::LeftButton, Qt::NoModifier, {150, 120});
+  pointer(smart, QEvent::MouseMove, {450, 320}, Qt::NoModifier);
+  QTest::keyPress(&smart, Qt::Key_Control);
+  pointer(smart, QEvent::MouseMove, {500, 350}, Qt::ControlModifier);
+  if (!expect(smart, {200, 150, 300, 200}, QStringLiteral("Ctrl drag")))
+    return false;
+  pointer(smart, QEvent::MouseMove, {900, 680}, Qt::ControlModifier);
+  if (!expect(smart, {500, 400, 300, 200}, QStringLiteral("Clamped Ctrl drag")))
+    return false;
+  QTest::keyRelease(&smart, Qt::Key_Control);
+  pointer(smart, QEvent::MouseMove, {865, 655}, Qt::NoModifier);
+  pointer(smart, QEvent::MouseButtonRelease, {865, 655}, Qt::NoModifier);
+  if (!expect(smart, {500, 400, 265, 175}, QStringLiteral("Resize after Ctrl")))
+    return false;
+  smart.close();
+
+  CaptureEditor region(capture, CaptureEditor::CaptureMode::Region);
+  region.setSuppressSnapshots(true);
+  region.resize(capture.previewSize);
+  region.show();
+  QApplication::processEvents();
+  QTest::keyClick(&region, Qt::Key_Tab);
+  QTest::mousePress(&region, Qt::LeftButton, Qt::NoModifier, {500, 400});
+  pointer(region, QEvent::MouseMove, {360, 350}, Qt::NoModifier);
+  QTest::keyPress(&region, Qt::Key_Control);
+  pointer(region, QEvent::MouseMove, {390, 380}, Qt::ControlModifier);
+  if (!expect(region, {390, 290, 140, 140}, QStringLiteral("Move a square")))
+    return false;
+  QTest::keyRelease(&region, Qt::Key_Control);
+  pointer(region, QEvent::MouseMove, {400, 390}, Qt::NoModifier);
+  if (!expect(region, {400, 300, 130, 130}, QStringLiteral("Resize a moved square")))
+    return false;
+  QTest::keyPress(&region, Qt::Key_Control);
+  pointer(region, QEvent::MouseButtonRelease, {420, 410}, Qt::ControlModifier);
+  QTest::keyRelease(&region, Qt::Key_Control);
+  return expect(region, {420, 320, 130, 130},
+                QStringLiteral("Release mouse while holding Ctrl"));
 }
 
 /** Smart selection infers a click target but keeps a real drag freeform. */
@@ -12804,6 +12878,10 @@ int main(int argc, char **argv) {
   if (!runRegionAspectCheck(snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 225;
+  }
+  if (!runRegionMoveCheck(snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 1;
   }
   if (!runSmartSelectionSmoke(application, snapshotError)) {
     qWarning().noquote() << snapshotError;

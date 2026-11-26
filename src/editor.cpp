@@ -2136,6 +2136,31 @@ QRectF CaptureEditor::normalizedSelection(const QPointF &first,
   return QRectF(a, b).normalized();
 }
 
+void CaptureEditor::updateRegionDrag(const QPointF &position,
+                                     const QPointF &previous,
+                                     Qt::KeyboardModifiers modifiers) {
+  if (!modifiers.testFlag(Qt::ControlModifier) || selection_.isEmpty()) {
+    selection_ = normalizedSelection(dragStart_, position + regionDragOffset_);
+    return;
+  }
+
+  const QPointF target = selection_.topLeft() + (position - previous);
+  const QPointF topLeft(
+      std::clamp(target.x(), 0.0, std::max(0.0, width() - selection_.width())),
+      std::clamp(target.y(), 0.0, std::max(0.0, height() - selection_.height())));
+  const QPointF delta = topLeft - selection_.topLeft();
+  const QPointF endpoint = previous + regionDragOffset_;
+  // Rebase resizing on the drawn corner: aspect locking or a screen edge
+  // can put it away from the pointer. Keep that gap when Ctrl is released.
+  const QPointF corner(endpoint.x() < dragStart_.x() ? selection_.left()
+                                                      : selection_.right(),
+                       endpoint.y() < dragStart_.y() ? selection_.top()
+                                                      : selection_.bottom());
+  selection_.translate(delta);
+  dragStart_ += delta;
+  regionDragOffset_ = corner + delta - position;
+}
+
 QString CaptureEditor::regionAspectLabel() const {
   return QString::fromLatin1(kRegionAspects.at(regionAspect_).label);
 }
@@ -2144,7 +2169,7 @@ void CaptureEditor::cycleRegionAspect(bool forward) {
   const int count = static_cast<int>(kRegionAspects.size());
   regionAspect_ = (regionAspect_ + (forward ? 1 : count - 1)) % count;
   if (dragging_)
-    selection_ = normalizedSelection(dragStart_, cursor_);
+    selection_ = normalizedSelection(dragStart_, cursor_ + regionDragOffset_);
   setStatus(regionAspect_ == 0
                 ? QStringLiteral("Free area · Tab locks an aspect ratio")
                 : QStringLiteral("%1 area · Tab cycles aspect ratios")
@@ -5391,25 +5416,21 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
   const QRegion oldPointerVisual = pointerMotionRegion(cursor_, &oldCanvas);
   const QRectF oldSelection = selection_;
   const int oldHoveredWindow = hoveredWindow_;
+  const QPointF previousCursor = cursor_;
   cursor_ = event->position();
   if (phase_ == Phase::Export)
     return;
   if (capturePending_)
     return;
   if (phase_ == Phase::Select) {
-    if (!dragging_)
+    if (dragging_) {
+      updateRegionDrag(cursor_, previousCursor, heldModifiers(event->modifiers()));
+    } else {
       trackRecentsHover();
-    if (smartMode_) {
-      if (dragging_)
-        selection_ = normalizedSelection(dragStart_, cursor_);
-      else
+      if (smartMode_ || windowMode_)
         hoveredWindow_ = recentsOpen_ ? -1 : windowAt(cursor_);
-    } else if (windowMode_)
-      hoveredWindow_ = recentsOpen_ ? -1 : windowAt(cursor_);
-    else if (dragging_)
-      selection_ = normalizedSelection(dragStart_, cursor_);
-    if (!dragging_)
       updatePointerCursor();
+    }
   } else {
     if (tool_ == Tool::Select && marqueeSelecting_) {
       marqueeRect_ = QRectF(dragStart_, toAnnotationPoint(cursor_)).normalized();
@@ -5802,6 +5823,7 @@ void CaptureEditor::mousePressEvent(QMouseEvent *event) {
       return;
     }
     dragStart_ = cursor_;
+    regionDragOffset_ = {};
     selection_ = {};
     dragging_ = true;
     if (smartMode_) {
@@ -6141,7 +6163,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
   if (capturePending_ || event->button() != Qt::LeftButton || !dragging_)
     return;
   if (phase_ == Phase::Select) {
-    selection_ = normalizedSelection(dragStart_, event->position());
+    updateRegionDrag(event->position(), cursor_, heldModifiers(event->modifiers()));
     dragging_ = false;
     const qreal selectedArea = selection_.width() * selection_.height();
     if (smartMode_ && (selectedArea < 20.0 || selection_.width() < 2.0 ||
@@ -7290,6 +7312,9 @@ QVector<QPair<QString, QString>> CaptureEditor::captureHotkeyEntries() const {
                {QStringLiteral("R"), QStringLiteral("Last region")},
                {QStringLiteral("S"), QStringLiteral("Scrolling region")},
                {QStringLiteral("Esc"), QStringLiteral("Close")}};
+  if (!windowMode_)
+    hotkeys.insert(smartMode_ ? 2 : 1,
+                   {QStringLiteral("Ctrl + drag"), QStringLiteral("Move area")});
   if (!scrollMode_ && !windowMode_)
     hotkeys.insert(hotkeys.size() - 1,
                    {QStringLiteral("Tab"),
