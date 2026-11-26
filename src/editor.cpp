@@ -2136,29 +2136,30 @@ QRectF CaptureEditor::normalizedSelection(const QPointF &first,
   return QRectF(a, b).normalized();
 }
 
-void CaptureEditor::updateRegionDrag(const QPointF &position,
-                                     const QPointF &previous,
-                                     Qt::KeyboardModifiers modifiers) {
-  if (!modifiers.testFlag(Qt::ControlModifier) || selection_.isEmpty()) {
+void CaptureEditor::updateRegionDrag(const QMouseEvent &event,
+                                    const QPointF &previousCursor) {
+  const QPointF position = event.position();
+  if (selection_.isEmpty() ||
+      !heldModifiers(event.modifiers()).testFlag(Qt::ControlModifier)) {
     selection_ = normalizedSelection(dragStart_, position + regionDragOffset_);
     return;
   }
 
-  const QPointF target = selection_.topLeft() + (position - previous);
+  const QPointF target = selection_.topLeft() + (position - previousCursor);
   const QPointF topLeft(
       std::clamp(target.x(), 0.0, std::max(0.0, width() - selection_.width())),
       std::clamp(target.y(), 0.0, std::max(0.0, height() - selection_.height())));
   const QPointF delta = topLeft - selection_.topLeft();
-  const QPointF endpoint = previous + regionDragOffset_;
-  // Rebase resizing on the drawn corner: aspect locking or a screen edge
-  // can put it away from the pointer. Keep that gap when Ctrl is released.
-  const QPointF corner(endpoint.x() < dragStart_.x() ? selection_.left()
-                                                      : selection_.right(),
-                       endpoint.y() < dragStart_.y() ? selection_.top()
-                                                      : selection_.bottom());
+
+  // Resume resizing from the actual corner opposite the anchor. Aspect
+  // locking and screen edges can put that corner away from the pointer.
+  const QPointF center = selection_.center();
+  const QPointF resizeCorner(
+      dragStart_.x() > center.x() ? selection_.left() : selection_.right(),
+      dragStart_.y() > center.y() ? selection_.top() : selection_.bottom());
   selection_.translate(delta);
   dragStart_ += delta;
-  regionDragOffset_ = corner + delta - position;
+  regionDragOffset_ = resizeCorner + delta - position;
 }
 
 QString CaptureEditor::regionAspectLabel() const {
@@ -5424,12 +5425,11 @@ void CaptureEditor::mouseMoveEvent(QMouseEvent *event) {
     return;
   if (phase_ == Phase::Select) {
     if (dragging_) {
-      updateRegionDrag(cursor_, previousCursor, heldModifiers(event->modifiers()));
+      updateRegionDrag(*event, previousCursor);
     } else {
       trackRecentsHover();
       if (smartMode_ || windowMode_)
         hoveredWindow_ = recentsOpen_ ? -1 : windowAt(cursor_);
-      updatePointerCursor();
     }
   } else {
     if (tool_ == Tool::Select && marqueeSelecting_) {
@@ -6163,7 +6163,7 @@ void CaptureEditor::mouseReleaseEvent(QMouseEvent *event) {
   if (capturePending_ || event->button() != Qt::LeftButton || !dragging_)
     return;
   if (phase_ == Phase::Select) {
-    updateRegionDrag(event->position(), cursor_, heldModifiers(event->modifiers()));
+    updateRegionDrag(*event, cursor_);
     dragging_ = false;
     const qreal selectedArea = selection_.width() * selection_.height();
     if (smartMode_ && (selectedArea < 20.0 || selection_.width() < 2.0 ||
@@ -7300,35 +7300,27 @@ void CaptureEditor::selectFullscreen() {
 QVector<QPair<QString, QString>> CaptureEditor::captureHotkeyEntries() const {
   QVector<QPair<QString, QString>> hotkeys;
   if (smartMode_)
-    hotkeys = {
-        {QStringLiteral("Click"), QStringLiteral("Window / full screen")},
-        {QStringLiteral("Drag"), QStringLiteral("Area")},
-        {QStringLiteral("R"), QStringLiteral("Last region")},
-        {QStringLiteral("S"), QStringLiteral("Scrolling region")},
-        {QStringLiteral("Esc"), QStringLiteral("Close")}};
-  else
-    hotkeys = {{QStringLiteral("Drag"), QStringLiteral("Area")},
-               {QStringLiteral("Ctrl+A"), QStringLiteral("Fullscreen")},
-               {QStringLiteral("R"), QStringLiteral("Last region")},
-               {QStringLiteral("S"), QStringLiteral("Scrolling region")},
-               {QStringLiteral("Esc"), QStringLiteral("Close")}};
+    hotkeys.append({QStringLiteral("Click"),
+                    QStringLiteral("Window / full screen")});
+  hotkeys.append({QStringLiteral("Drag"), QStringLiteral("Area")});
   if (!windowMode_)
-    hotkeys.insert(smartMode_ ? 2 : 1,
-                   {QStringLiteral("Ctrl + drag"), QStringLiteral("Move area")});
+    hotkeys.append({QStringLiteral("Ctrl + drag"), QStringLiteral("Move area")});
+  if (!smartMode_)
+    hotkeys.append({QStringLiteral("Ctrl+A"), QStringLiteral("Fullscreen")});
+  hotkeys.append({QStringLiteral("R"), QStringLiteral("Last region")});
+  hotkeys.append({QStringLiteral("S"), QStringLiteral("Scrolling region")});
   if (!scrollMode_ && !windowMode_)
-    hotkeys.insert(hotkeys.size() - 1,
-                   {QStringLiteral("Tab"),
+    hotkeys.append({QStringLiteral("Tab"),
                     QStringLiteral("Aspect: %1").arg(regionAspectLabel())});
-  hotkeys.insert(hotkeys.size() - 1,
-                 {QStringLiteral("E / A"),
+  hotkeys.append({QStringLiteral("E / A"),
                   quickOutputMode_ == QuickOutputMode::None
                       ? QStringLiteral("Annotate after capture: on")
                       : QStringLiteral("Annotate after capture: off")});
   if (!recents_.isEmpty())
-    hotkeys.insert(hotkeys.size() - 1,
-                   {QStringLiteral("Space"),
+    hotkeys.append({QStringLiteral("Space"),
                     recentsHidden_ ? QStringLiteral("Recent captures: hidden")
                                    : QStringLiteral("Recent captures: shown")});
+  hotkeys.append({QStringLiteral("Esc"), QStringLiteral("Close")});
   return hotkeys;
 }
 
