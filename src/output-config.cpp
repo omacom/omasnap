@@ -64,6 +64,14 @@ bool loadEditorWindowMode(const QString &filePath) {
              .toLower() == QStringLiteral("window");
 }
 
+QString loadEditorStartTool(const QString &filePath) {
+  QSettings settings(filePath, QSettings::IniFormat);
+  return settings.value(QStringLiteral("editor/tool"))
+      .toString()
+      .trimmed()
+      .toLower();
+}
+
 QString editorFloatRuleScript(bool floating) {
   // Registered before the editor window maps: floated after the fact, the
   // window tiles for a frame and visibly pops out. The named rule
