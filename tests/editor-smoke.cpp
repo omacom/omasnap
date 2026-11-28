@@ -3730,6 +3730,35 @@ bool runEditorWindowConfigCheck(QString &error) {
     return false;
   }
 
+  // Its own file: QSettings caches by path, size and mtime, so rewriting
+  // `path` within the same second could serve the later checks stale values.
+  using Tool = CaptureEditor::Tool;
+  const QString toolPath =
+      QDir(QDir::tempPath()).filePath(QStringLiteral("omasnap-editor-tool.conf"));
+  {
+    QFile file(toolPath);
+    const QByteArray body("[editor]\ntool =  Arrow \n");
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) ||
+        file.write(body) != body.size()) {
+      error = QStringLiteral("Could not write %1").arg(toolPath);
+      return false;
+    }
+  }
+  const QString arrowName = loadEditorStartTool(toolPath);
+  QFile::remove(toolPath);
+  const QString unsetName =
+      loadEditorStartTool(QStringLiteral("/nonexistent/omasnap.conf"));
+  if (arrowName != QStringLiteral("arrow") || !unsetName.isEmpty() ||
+      CaptureEditor::toolFromConfigName(arrowName) != Tool::Arrow ||
+      CaptureEditor::toolFromConfigName(QStringLiteral("pen")) !=
+          Tool::Freehand ||
+      CaptureEditor::toolFromConfigName(unsetName) != Tool::Select ||
+      CaptureEditor::toolFromConfigName(QStringLiteral("ocr")) !=
+          Tool::Select) {
+    error = QStringLiteral("[editor] tool was not read as a start tool");
+    return false;
+  }
+
   if (!writeConf(QStringLiteral("[editor]\nwindow = tiled\n")))
     return false;
   const bool tiled = loadEditorWindowFloating(path);

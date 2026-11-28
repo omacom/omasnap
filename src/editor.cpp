@@ -824,6 +824,7 @@ CaptureEditor::CaptureEditor(CaptureData capture, CaptureMode mode,
   recentId_ = log.recentId.isEmpty() ? QUuid::createUuid().toString(QUuid::Id128)
                                      : log.recentId;
   paletteConfig_ = loadPaletteConfig(defaultConfigPath());
+  startTool_ = toolFromConfigName(loadEditorStartTool(defaultConfigPath()));
   startupTimingMark("palette config loaded");
   customColor_ = paletteConfig_.custom;
   backgroundConfig_ = loadBackgroundConfig(defaultConfigPath());
@@ -3551,9 +3552,23 @@ void CaptureEditor::startCapture(CaptureMode mode, bool includeWindows) {
   }));
 }
 
+CaptureEditor::Tool CaptureEditor::toolFromConfigName(const QString &name) {
+  static const QHash<QString, Tool> tools{
+      {QStringLiteral("arrow"), Tool::Arrow},
+      {QStringLiteral("line"), Tool::Line},
+      {QStringLiteral("pen"), Tool::Freehand},
+      {QStringLiteral("marker"), Tool::Marker},
+      {QStringLiteral("rectangle"), Tool::Rectangle},
+      {QStringLiteral("ellipse"), Tool::Ellipse},
+      {QStringLiteral("spotlight"), Tool::Spotlight},
+      {QStringLiteral("redact"), Tool::Redact},
+      {QStringLiteral("text"), Tool::Text}};
+  return tools.value(name, Tool::Select);
+}
+
 void CaptureEditor::enterEdit(QString status) {
   phase_ = Phase::Edit;
-  tool_ = Tool::Select;
+  tool_ = startTool_;
   refreshCanvasRect();
   viewZoom_ = 1.0;
   viewOffset_ = {};

@@ -31,6 +31,8 @@ struct OutputConfig {
  *  normal compositor window instead of the fullscreen overlay. Overlay is
  *  the default and any other value. */
 [[nodiscard]] bool loadEditorWindowMode(const QString &filePath);
+/** [editor] tool, trimmed and lowercased; empty when unset. */
+[[nodiscard]] QString loadEditorStartTool(const QString &filePath);
 
 /** True unless [editor] window = tiled: a windowed editor asks the
  *  compositor to float it at its natural size; tiled leaves it to the

@@ -298,6 +298,9 @@ public:
   /// Currently armed tool. Test accessor: cursor shape is a poor proxy, since
   /// what is under the pointer changes it.
   [[nodiscard]] Tool armedToolForTest() const { return tool_; }
+  /// Maps an [editor] tool config value to the tool Edit starts with;
+  /// unknown or empty names give Select.
+  [[nodiscard]] static Tool toolFromConfigName(const QString &name);
   /// Apply a cut as if the user had dragged that band. Test hook: operate on
   /// a fixture raster without going through widget coordinates.
   void applyCutForTest(CutOp cut) { commitCut(std::move(cut)); }
@@ -755,6 +758,7 @@ private:
   bool windowedBackdropOpaque_ = true;
   Phase phase_ = Phase::Select;
   Tool tool_ = Tool::Select;
+  Tool startTool_ = Tool::Select;
   /// Set by the first key event, which carries a fresh modifier snapshot.
   bool modifiersSeen_ = false;
   /// What to hand back to once a color has been sampled: taking a color is

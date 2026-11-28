@@ -343,6 +343,10 @@ window = floating
 # opaque (default): a windowed editor paints a solid backdrop.
 # translucent: it keeps the overlay's see-through dim.
 backdrop = opaque
+# The tool the annotation editor starts with, for people who mostly reach
+# for one: select (default), arrow, line, pen, marker, rectangle, ellipse,
+# spotlight, redact, or text. Unknown values fall back to select.
+tool = arrow
 
 [output]
 # Save fresh captures while still copying and showing the timed preview.
